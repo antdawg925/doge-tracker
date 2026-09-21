@@ -33,7 +33,7 @@ export default function SuggestedStops({ levels, spot, position }) {
       {spot && !candidates.length && (
         <p className="muted">
           No clear support below spot yet — wait for more daily history, or
-          check the levels table above.
+          check the Support panel.
         </p>
       )}
 
@@ -60,9 +60,7 @@ export default function SuggestedStops({ levels, spot, position }) {
                 </div>
 
                 <div className="stop-card__meta">
-                  <span>
-                    {formatPct(-s.distPctBelow, 1)} below spot
-                  </span>
+                  <span>{formatPct(-s.distPctBelow, 1)} below spot</span>
                   <span className="muted">·</span>
                   <span
                     className={

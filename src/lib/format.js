@@ -38,7 +38,10 @@ export function formatCoins(n, decimals = 0) {
 
 export function formatPrice(n) {
   if (n == null || Number.isNaN(n)) return '—';
-  return formatUsd(n, { decimals: n < 0.1 ? 4 : 3 });
+  if (n >= 100) return formatUsd(n, { decimals: 2 });
+  if (n >= 1) return formatUsd(n, { decimals: 2 });
+  if (n >= 0.1) return formatUsd(n, { decimals: 3 });
+  return formatUsd(n, { decimals: 4 });
 }
 
 export function formatTime(ts) {

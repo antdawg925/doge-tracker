@@ -1,29 +1,20 @@
 import { useMemo } from 'react';
 import { formatCoins, formatPct, formatPrice, formatUsd } from '../lib/format';
 import { positionMetrics } from '../lib/math';
+import {
+  avgCostHint,
+  displaySymbol,
+  holdingFieldLabel,
+  unitLabel,
+} from '../lib/assets';
 
-const FIELDS = [
-  {
-    key: 'coins',
-    label: 'DOGE holding',
-    hint: 'How many coins you own',
-    step: 1,
-  },
-  {
-    key: 'avgCost',
-    label: 'Average cost',
-    hint: '$ per DOGE you paid',
-    step: 0.001,
-  },
-  {
-    key: 'targetPrice',
-    label: 'Target price',
-    hint: 'Where you’d take profit',
-    step: 0.01,
-  },
-];
-
-export default function PositionEditor({ position, spot, onChange, onReset }) {
+export default function PositionEditor({
+  position,
+  spot,
+  asset,
+  onChange,
+  onReset,
+}) {
   const handle = (key, raw) => {
     const n = parseFloat(raw);
     onChange({ ...position, [key]: Number.isFinite(n) ? n : 0 });
@@ -40,10 +31,34 @@ export default function PositionEditor({ position, spot, onChange, onReset }) {
     [position.coins, position.avgCost, position.targetPrice, spot],
   );
 
+  const units = unitLabel(asset);
+  const sym = displaySymbol(asset);
+
+  const fields = [
+    {
+      key: 'coins',
+      label: holdingFieldLabel(asset),
+      hint: `How many ${units} of ${sym} you own`,
+      step: asset?.type === 'stock' ? 0.01 : 1,
+    },
+    {
+      key: 'avgCost',
+      label: 'Average cost',
+      hint: avgCostHint(asset),
+      step: 'any',
+    },
+    {
+      key: 'targetPrice',
+      label: 'Target price',
+      hint: 'Where you’d take profit',
+      step: 'any',
+    },
+  ];
+
   return (
     <section className="card">
       <div className="card__head">
-        <h2>Your position</h2>
+        <h2>Your {sym} position</h2>
         <button type="button" className="btn btn--ghost" onClick={onReset}>
           Reset
         </button>
@@ -51,11 +66,11 @@ export default function PositionEditor({ position, spot, onChange, onReset }) {
 
       <p className="hint">
         Three numbers tell the story: what you hold, what you paid, and where
-        you’d take profit. Saved in this browser.
+        you’d take profit. Saved per symbol in this browser.
       </p>
 
       <div className="form-grid form-grid--simple">
-        {FIELDS.map(({ key, label, hint, step }) => (
+        {fields.map(({ key, label, hint, step }) => (
           <label key={key} className="field">
             <span>{label}</span>
             <input
@@ -135,7 +150,9 @@ export default function PositionEditor({ position, spot, onChange, onReset }) {
           </div>
           <div>
             <dt>Holding</dt>
-            <dd className="mono">{formatCoins(m.coins)} DOGE</dd>
+            <dd className="mono">
+              {formatCoins(m.coins, asset?.type === 'stock' ? 2 : 0)} {units}
+            </dd>
           </div>
         </dl>
       </div>

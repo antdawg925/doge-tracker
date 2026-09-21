@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { formatCoins, formatPct, formatPrice, formatUsd } from '../lib/format';
 import { positionMetrics } from '../lib/math';
+import { displaySymbol, unitLabel } from '../lib/assets';
 
 /**
  * Dad-friendly one-glance story: hold, paid, profit target, P&L.
  */
-export default function PositionSummary({ position, spot }) {
+export default function PositionSummary({ position, spot, asset }) {
   const m = useMemo(
     () =>
       positionMetrics(
@@ -17,6 +18,9 @@ export default function PositionSummary({ position, spot }) {
     [position.coins, position.avgCost, position.targetPrice, spot],
   );
 
+  const sym = displaySymbol(asset);
+  const units = unitLabel(asset);
+
   return (
     <section className="card">
       <div className="card__head">
@@ -27,14 +31,16 @@ export default function PositionSummary({ position, spot }) {
       </div>
 
       <p className="hint">
-        Single DOGE holding — no core/sleeve/cash split. Here’s what you own,
-        what you paid, and what happens at your target.
+        Single {sym} holding — here’s what you own, what you paid, and what
+        happens at your target.
       </p>
 
       <div className="stat-grid stat-grid--4">
         <div className="stat">
           <span className="stat__label">Holding</span>
-          <span className="stat__value">{formatCoins(m.coins)} DOGE</span>
+          <span className="stat__value">
+            {formatCoins(m.coins)} {units}
+          </span>
         </div>
         <div className="stat">
           <span className="stat__label">Avg cost</span>
@@ -81,9 +87,7 @@ export default function PositionSummary({ position, spot }) {
               Would be worth{' '}
               <strong>{formatUsd(m.atTargetValue, { decimals: 0 })}</strong>
               {m.atTargetPnl != null && (
-                <span
-                  className={m.atTargetPnl >= 0 ? 'pos' : 'neg'}
-                >
+                <span className={m.atTargetPnl >= 0 ? 'pos' : 'neg'}>
                   {' '}
                   ({formatUsd(m.atTargetPnl, { sign: true, decimals: 0 })} /{' '}
                   {formatPct(m.atTargetPnlPct, 0)})

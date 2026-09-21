@@ -1,17 +1,43 @@
-/** Daily OHLC history: CoinGecko first, then Kraken public OHLC fallback. */
+/** Daily OHLC history: CoinGecko / Kraken for crypto, Yahoo for stocks. */
 
 import {
   aggregateMarketChartToDaily,
   fetchCoinGeckoJson,
   normalizeOhlc,
 } from './coingecko.js';
+import { daysToYahooRange, fetchYahooChart } from './yahoo.js';
 
 const KRAKEN_PROXY = '/api/kraken';
 const KRAKEN_DIRECT = 'https://api.kraken.com';
-const KRAKEN_OHLC_PATH = '/0/public/OHLC?pair=DOGEUSD&interval=1440';
 
-function krakenCandidateUrls() {
-  return [`${KRAKEN_PROXY}${KRAKEN_OHLC_PATH}`, `${KRAKEN_DIRECT}${KRAKEN_OHLC_PATH}`];
+/** Common CoinGecko id / symbol → Kraken USD pair. */
+const KRAKEN_PAIRS = {
+  dogecoin: 'DOGEUSD',
+  DOGE: 'DOGEUSD',
+  bitcoin: 'XBTUSD',
+  BTC: 'XBTUSD',
+  ethereum: 'ETHUSD',
+  ETH: 'ETHUSD',
+  solana: 'SOLUSD',
+  SOL: 'SOLUSD',
+  ripple: 'XRPUSD',
+  XRP: 'XRPUSD',
+  cardano: 'ADAUSD',
+  ADA: 'ADAUSD',
+  litecoin: 'LTCUSD',
+  LTC: 'LTCUSD',
+};
+
+function krakenPairFor(asset) {
+  if (!asset) return null;
+  if (asset.id && KRAKEN_PAIRS[asset.id]) return KRAKEN_PAIRS[asset.id];
+  const sym = String(asset.symbol || '').toUpperCase();
+  return KRAKEN_PAIRS[sym] || null;
+}
+
+function krakenCandidateUrls(pair) {
+  const path = `/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=1440`;
+  return [`${KRAKEN_PROXY}${path}`, `${KRAKEN_DIRECT}${path}`];
 }
 
 /**
@@ -52,12 +78,8 @@ function pickKrakenPairRows(result) {
   return null;
 }
 
-/**
- * Fetch daily bars from Kraken (proxy first, then direct).
- * Returns bars already sliced to the last `days` entries.
- */
-export async function fetchKrakenDailyBars(days, signal) {
-  const urls = krakenCandidateUrls();
+export async function fetchKrakenDailyBars(pair, days, signal) {
+  const urls = krakenCandidateUrls(pair);
   let lastErr = null;
 
   for (const url of urls) {
@@ -93,9 +115,9 @@ export async function fetchKrakenDailyBars(days, signal) {
 }
 
 function formatHistoryError(err) {
-  if (!err) return 'Failed to load DOGE history';
+  if (!err) return 'Failed to load history';
   if (err.rateLimited || /429/.test(err.message || '')) {
-    return 'HTTP 429 (CoinGecko rate limited)';
+    return err.message || 'HTTP 429 (rate limited)';
   }
   const msg = err.message || String(err);
   if (/failed to fetch/i.test(msg)) {
@@ -104,17 +126,14 @@ function formatHistoryError(err) {
   return msg;
 }
 
-/**
- * CoinGecko market_chart → CoinGecko ohlc → Kraken daily OHLC.
- * Returns `{ bars, source: 'coingecko' | 'kraken', warning?: string }`.
- */
-export async function fetchDailyBars(days, signal) {
+async function fetchCryptoDailyBars(asset, days, signal) {
+  const coinId = asset.id || 'dogecoin';
   const chartDays = days >= 90 ? Math.max(days, 91) : days;
   let lastErr = null;
 
   try {
     const { data } = await fetchCoinGeckoJson(
-      `/coins/dogecoin/market_chart?vs_currency=usd&days=${chartDays}`,
+      `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${chartDays}`,
       { signal, maxRetries: 3 },
     );
     const bars = aggregateMarketChartToDaily(data?.prices);
@@ -128,7 +147,7 @@ export async function fetchDailyBars(days, signal) {
 
   try {
     const { data } = await fetchCoinGeckoJson(
-      `/coins/dogecoin/ohlc?vs_currency=usd&days=${days}`,
+      `/coins/${encodeURIComponent(coinId)}/ohlc?vs_currency=usd&days=${days}`,
       { signal, maxRetries: 2 },
     );
     const bars = normalizeOhlc(data);
@@ -140,28 +159,68 @@ export async function fetchDailyBars(days, signal) {
     lastErr = err;
   }
 
-  try {
-    const bars = await fetchKrakenDailyBars(days, signal);
-    const limited = Boolean(
-      lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
-    );
-    return {
-      bars,
-      source: 'kraken',
-      warning: limited
-        ? 'History via Kraken (CoinGecko rate-limited)'
-        : 'History via Kraken (CoinGecko unavailable)',
-    };
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err;
-    const cg = formatHistoryError(lastErr);
-    const kr = err?.message || 'Kraken failed';
-    const wrapped = new Error(`${cg}; Kraken fallback failed (${kr})`);
-    wrapped.rateLimited = Boolean(
-      lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
-    );
-    throw wrapped;
+  const pair = krakenPairFor(asset);
+  if (pair) {
+    try {
+      const bars = await fetchKrakenDailyBars(pair, days, signal);
+      const limited = Boolean(
+        lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
+      );
+      return {
+        bars,
+        source: 'kraken',
+        warning: limited
+          ? `History via Kraken (CoinGecko rate-limited)`
+          : `History via Kraken (CoinGecko unavailable)`,
+      };
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      const cg = formatHistoryError(lastErr);
+      const kr = err?.message || 'Kraken failed';
+      const wrapped = new Error(`${cg}; Kraken fallback failed (${kr})`);
+      wrapped.rateLimited = Boolean(
+        lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
+      );
+      throw wrapped;
+    }
   }
+
+  const wrapped = new Error(formatHistoryError(lastErr));
+  wrapped.rateLimited = Boolean(
+    lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
+  );
+  throw wrapped;
+}
+
+async function fetchStockDailyBars(asset, days, signal) {
+  const range = daysToYahooRange(days);
+  const { bars } = await fetchYahooChart(asset.symbol, range, { signal });
+  if (!bars.length) throw new Error('No Yahoo history for symbol');
+  return {
+    bars: bars.slice(-Math.max(1, days)),
+    source: 'yahoo',
+  };
+}
+
+/**
+ * Fetch daily bars for any asset.
+ * Returns `{ bars, source, warning? }`.
+ */
+export async function fetchDailyBars(asset, days, signal) {
+  if (!asset) throw new Error('No asset selected');
+  if (asset.type === 'stock') {
+    return fetchStockDailyBars(asset, days, signal);
+  }
+  return fetchCryptoDailyBars(asset, days, signal);
+}
+
+/** @deprecated DOGE-only entry — kept for any lingering imports */
+export async function fetchDailyBarsDoge(days, signal) {
+  return fetchDailyBars(
+    { symbol: 'DOGE', name: 'Dogecoin', type: 'crypto', id: 'dogecoin' },
+    days,
+    signal,
+  );
 }
 
 export { formatHistoryError };

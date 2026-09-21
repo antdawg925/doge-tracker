@@ -317,3 +317,190 @@ export function suggestStops(levels, spot, coins, avgCost) {
     primaryId: primary?.id ?? null,
   };
 }
+
+/** Preferred resistance ids when building trim / take-profit candidates. */
+const RESIST_PREFER_IDS = [
+  'swing_high',
+  'p75',
+  'roll20_high',
+  'mean_plus_1s',
+  'median',
+  'roll50_high',
+  'range_high',
+];
+
+const MIN_RESIST_PCT = 2; // prefer ≥2% above spot for primary trim
+
+function resistFriendlyLabel(index, total, id) {
+  if (id === 'swing_high') return 'Swing high (recent peak)';
+  if (id === 'p75') return 'Upper zone (75th pct)';
+  if (id === 'roll20_high') return '20-day high';
+  if (id === 'roll50_high') return '50-day high';
+  if (id === 'range_high') return 'Lookback high';
+  if (id === 'mean_plus_1s') return 'Mean + 1σ stretch';
+  if (id === 'median') return 'Median close';
+  if (index === 0) return 'Nearest resistance';
+  if (index === total - 1) return 'Farther resistance';
+  return 'Next resistance';
+}
+
+/**
+ * Suggest resistance / trim zones above spot with upside math.
+ * Returns { candidates, primaryId, targetNote }.
+ */
+export function suggestResistance(
+  levels,
+  spot,
+  coins,
+  avgCost,
+  targetPrice = null,
+) {
+  if (!Number.isFinite(spot) || spot <= 0 || !levels?.length) {
+    return { candidates: [], primaryId: null, targetNote: null };
+  }
+
+  const above = levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price > 0 &&
+        l.price > spot * 1.002 &&
+        (l.type === 'resistance' || l.price > spot),
+    )
+    .sort((a, b) => a.price - b.price); // nearest first
+
+  if (!above.length) {
+    return { candidates: [], primaryId: null, targetNote: null };
+  }
+
+  const picked = [];
+  const used = new Set();
+
+  for (const id of RESIST_PREFER_IDS) {
+    const hit = above.find((l) => l.id === id && !used.has(l.id));
+    if (hit) {
+      picked.push(hit);
+      used.add(hit.id);
+    }
+  }
+  for (const l of above) {
+    if (picked.length >= 5) break;
+    if (used.has(l.id)) continue;
+    const near = picked.some(
+      (p) => Math.abs(p.price - l.price) / spot < 0.01,
+    );
+    if (near) continue;
+    picked.push(l);
+    used.add(l.id);
+  }
+
+  if (!used.has(above[0].id)) {
+    picked.unshift(above[0]);
+  }
+
+  picked.sort((a, b) => a.price - b.price);
+  const unique = [];
+  for (const l of picked) {
+    if (unique.length >= 5) break;
+    const near = unique.some(
+      (p) => Math.abs(p.price - l.price) / spot < 0.008,
+    );
+    if (!near) unique.push(l);
+  }
+
+  const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
+  const costPer = Number.isFinite(avgCost) ? avgCost : null;
+  const hasTarget =
+    Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : null;
+
+  const candidates = unique.map((lvl, index) => {
+    const distPct = ((lvl.price - spot) / spot) * 100;
+    const upsideVsSpot = c > 0 ? c * (lvl.price - spot) : null;
+    const upsideVsCost =
+      c > 0 && costPer != null ? c * (lvl.price - costPer) : null;
+    const towardTarget =
+      hasTarget != null
+        ? {
+            targetDistPct: ((lvl.price - hasTarget) / hasTarget) * 100,
+            dollarsFromTarget:
+              c > 0 ? c * (lvl.price - hasTarget) : null,
+          }
+        : null;
+
+    return {
+      id: lvl.id,
+      name: lvl.name,
+      price: lvl.price,
+      distPct,
+      upsideVsSpot,
+      upsideVsCost,
+      towardTarget,
+      label: resistFriendlyLabel(index, unique.length, lvl.id),
+    };
+  });
+
+  // Primary trim: closest resistance to user's target if set & above spot;
+  // else nearest meaningful resistance (≥ ~2% above).
+  let primary = null;
+  if (hasTarget != null && hasTarget > spot) {
+    primary = [...candidates].sort(
+      (a, b) =>
+        Math.abs(a.price - hasTarget) - Math.abs(b.price - hasTarget),
+    )[0];
+  }
+  if (!primary) {
+    primary =
+      candidates.find((x) => x.distPct >= MIN_RESIST_PCT) ||
+      candidates[0] ||
+      null;
+  }
+
+  let targetNote = null;
+  if (hasTarget != null) {
+    const nearest = [...above].sort(
+      (a, b) =>
+        Math.abs(a.price - hasTarget) - Math.abs(b.price - hasTarget),
+    )[0];
+    if (nearest) {
+      const pct = ((nearest.price - hasTarget) / hasTarget) * 100;
+      targetNote = {
+        targetPrice: hasTarget,
+        nearestResistance: nearest.price,
+        nearestName: nearest.name,
+        distPct: pct,
+      };
+    }
+  }
+
+  return {
+    candidates,
+    primaryId: primary?.id ?? null,
+    targetNote,
+  };
+}
+
+/** Supports only (below spot). */
+export function supportLevels(levels, spot) {
+  if (!levels?.length || !Number.isFinite(spot)) return [];
+  return levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price < spot * 0.998 &&
+        (l.type === 'support' || l.price < spot),
+    )
+    .sort((a, b) => b.price - a.price);
+}
+
+/** Resistances only (above spot). */
+export function resistanceLevels(levels, spot) {
+  if (!levels?.length || !Number.isFinite(spot)) return [];
+  return levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price > spot * 1.002 &&
+        (l.type === 'resistance' || l.price > spot),
+    )
+    .sort((a, b) => a.price - b.price);
+}

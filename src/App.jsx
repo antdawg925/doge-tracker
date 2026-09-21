@@ -1,27 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
+import SymbolSearch from './components/SymbolSearch';
 import PriceCard from './components/PriceCard';
 import PriceChart from './components/PriceChart';
-import SupportResistance from './components/SupportResistance';
+import SupportPanel from './components/SupportPanel';
+import ResistancePanel from './components/ResistancePanel';
 import SuggestedStops from './components/SuggestedStops';
 import PositionSummary from './components/PositionSummary';
 import PositionEditor from './components/PositionEditor';
 import Disclaimer from './components/Disclaimer';
-import { useDogePrice } from './hooks/useDogePrice';
-import { useDogeHistory } from './hooks/useDogeHistory';
-import { DEFAULTS, STORAGE_KEY, loadPosition } from './lib/defaults';
+import { useAssetPrice } from './hooks/useAssetPrice';
+import { useAssetHistory } from './hooks/useAssetHistory';
+import {
+  defaultPositionFor,
+  loadAppState,
+  positionFor,
+  saveAppState,
+} from './lib/defaults';
+import { assetKey } from './lib/assets';
 import { computeLevels } from './lib/levels';
 
 export default function App() {
+  const [appState, setAppState] = useState(() => loadAppState());
+  const asset = appState.selected;
+  const position = positionFor(appState.positions, asset);
+
   const {
     price,
     change24h,
+    source,
     loading,
     error,
     warning,
     lastUpdated,
     refresh,
-  } = useDogePrice();
+  } = useAssetPrice(asset);
 
   const {
     days,
@@ -31,23 +44,42 @@ export default function App() {
     error: histError,
     warning: histWarning,
     refresh: refreshHistory,
-  } = useDogeHistory(90);
-
-  // Migrate legacy dogeValue → coins at load (uses avgCost; spot optional later)
-  const [position, setPosition] = useState(() => loadPosition(null));
+  } = useAssetHistory(asset, 90);
 
   useEffect(() => {
-    const toSave = {
-      coins: position.coins,
-      avgCost: position.avgCost,
-      targetPrice: position.targetPrice,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  }, [position]);
+    saveAppState(appState);
+  }, [appState]);
+
+  const setPosition = useCallback((next) => {
+    setAppState((prev) => {
+      const key = assetKey(prev.selected);
+      const value = typeof next === 'function'
+        ? next(positionFor(prev.positions, prev.selected))
+        : next;
+      return {
+        ...prev,
+        positions: {
+          ...prev.positions,
+          [key]: value,
+        },
+      };
+    });
+  }, []);
+
+  const onSelectAsset = useCallback((nextAsset) => {
+    setAppState((prev) => {
+      const key = assetKey(nextAsset);
+      const positions = { ...prev.positions };
+      if (!positions[key]) {
+        positions[key] = defaultPositionFor(nextAsset);
+      }
+      return { selected: nextAsset, positions };
+    });
+  }, []);
 
   const onReset = useCallback(() => {
-    setPosition({ ...DEFAULTS });
-  }, []);
+    setPosition(defaultPositionFor(asset));
+  }, [asset, setPosition]);
 
   const onRefreshAll = useCallback(() => {
     refresh();
@@ -62,6 +94,7 @@ export default function App() {
   return (
     <div className="app">
       <Header
+        asset={asset}
         lastUpdated={lastUpdated}
         loading={loading}
         error={error}
@@ -69,17 +102,22 @@ export default function App() {
         onRefresh={onRefreshAll}
       />
 
+      <SymbolSearch asset={asset} onSelect={onSelectAsset} />
+
       <main className="layout">
         <div className="layout__primary">
           <PriceCard
+            asset={asset}
             price={price}
             change24h={change24h}
             loading={loading}
             error={error}
             warning={warning}
+            source={source}
           />
-          <PositionSummary position={position} spot={price} />
+          <PositionSummary position={position} spot={price} asset={asset} />
           <PriceChart
+            asset={asset}
             bars={bars}
             levels={levels}
             days={days}
@@ -94,16 +132,24 @@ export default function App() {
             spot={price}
             position={position}
           />
-          <SupportResistance
+          <SupportPanel
             levels={levels}
             spot={price}
             position={position}
+            asset={asset}
+          />
+          <ResistancePanel
+            levels={levels}
+            spot={price}
+            position={position}
+            asset={asset}
           />
         </div>
         <aside className="layout__side">
           <PositionEditor
             position={position}
             spot={price}
+            asset={asset}
             onChange={setPosition}
             onReset={onReset}
           />

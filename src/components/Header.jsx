@@ -1,22 +1,26 @@
 import { formatTime } from '../lib/format';
+import { displaySymbol } from '../lib/assets';
 
 export default function Header({
+  asset,
   lastUpdated,
   loading,
   error,
   warning,
   onRefresh,
 }) {
+  const sym = displaySymbol(asset);
   return (
     <header className="header">
       <div className="header__brand">
         <span className="header__mark" aria-hidden>
-          Ð
+          {asset?.type === 'stock' ? '$' : 'Ð'}
         </span>
         <div>
-          <h1 className="header__title">DOGE Position Tracker</h1>
+          <h1 className="header__title">Position Tracker</h1>
           <p className="header__sub">
-            What I hold · What I paid · Where I’d take profit · Where I’d stop
+            {sym} · What I hold · What I paid · Where I’d take profit · Where
+            I’d stop
           </p>
         </div>
       </div>

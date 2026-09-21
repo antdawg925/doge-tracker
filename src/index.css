@@ -840,3 +840,167 @@ p {
   margin-left: 0.35rem;
   vertical-align: middle;
 }
+
+/* Symbol search typeahead */
+.symbol-search {
+  position: relative;
+  margin-bottom: 1.15rem;
+  z-index: 20;
+}
+
+.symbol-search__label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.symbol-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.symbol-search__input {
+  flex: 1 1 220px;
+  appearance: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.7rem 0.9rem;
+  box-shadow: var(--shadow);
+}
+
+.symbol-search__input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px rgba(61, 156, 240, 0.25);
+}
+
+.symbol-search__current {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.85rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 140px;
+}
+
+.symbol-search__name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symbol-search__dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.symbol-search__status,
+.symbol-search__warn {
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.symbol-search__warn {
+  color: var(--warn);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.symbol-search__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+}
+
+.symbol-search__option {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  text-align: left;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 0.55rem 0.85rem;
+  cursor: pointer;
+}
+
+.symbol-search__option:hover,
+.symbol-search__option.is-active {
+  background: rgba(61, 156, 240, 0.1);
+}
+
+.symbol-search__sym {
+  font-weight: 700;
+  min-width: 3.5rem;
+}
+
+.symbol-search__opt-name {
+  flex: 1 1 auto;
+  font-size: 0.9rem;
+}
+
+.chip--crypto {
+  color: var(--accent);
+  background: rgba(194, 166, 51, 0.12);
+  border: 1px solid rgba(194, 166, 51, 0.25);
+}
+
+.chip--stock {
+  color: var(--accent-2);
+  background: rgba(61, 156, 240, 0.12);
+  border: 1px solid rgba(61, 156, 240, 0.25);
+}
+
+/* Resistance trim cards */
+.resist-card--primary {
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.07);
+  box-shadow: 0 0 0 1px rgba(240, 113, 120, 0.12);
+}
+
+.badge--trim {
+  color: var(--neg);
+  border-color: rgba(240, 113, 120, 0.4);
+  background: rgba(240, 113, 120, 0.12);
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+
+.resist-card__target {
+  margin-top: 0.35rem;
+}
+
+.resist-target-note {
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: rgba(61, 156, 240, 0.08);
+  border: 1px solid rgba(61, 156, 240, 0.25);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.75rem;
+}

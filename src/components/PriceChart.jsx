@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { formatPrice } from '../lib/format';
+import { displaySymbol } from '../lib/assets';
 
 const LEVEL_COLORS = {
   support: '#3ecf8e',
@@ -44,7 +45,15 @@ function ChartTooltip({ active, payload }) {
   );
 }
 
+function yTick(v) {
+  if (v >= 100) return v.toFixed(0);
+  if (v >= 1) return v.toFixed(2);
+  if (v >= 0.1) return v.toFixed(3);
+  return v.toFixed(4);
+}
+
 export default function PriceChart({
+  asset,
   bars,
   levels = [],
   days,
@@ -55,6 +64,7 @@ export default function PriceChart({
   spot,
 }) {
   const data = useMemo(() => bars || [], [bars]);
+  const sym = displaySymbol(asset);
 
   const refLevels = useMemo(() => {
     const prefer = new Set([
@@ -83,10 +93,14 @@ export default function PriceChart({
     return [Math.max(0, min - pad), max + pad];
   }, [data]);
 
+  const stroke =
+    asset?.type === 'stock' ? '#3d9cf0' : '#c2a633';
+  const fillId = asset?.type === 'stock' ? 'stockFill' : 'cryptoFill';
+
   return (
     <section className="card price-chart">
       <div className="card__head">
-        <h2>Daily DOGE chart</h2>
+        <h2>Daily {sym} chart</h2>
         <div className="segmented" role="group" aria-label="Lookback days">
           {[30, 90].map((d) => (
             <button
@@ -122,9 +136,13 @@ export default function PriceChart({
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             >
               <defs>
-                <linearGradient id="dogeFill" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="cryptoFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#c2a633" stopOpacity={0.35} />
                   <stop offset="100%" stopColor="#c2a633" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="stockFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3d9cf0" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#3d9cf0" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#1c2636" strokeDasharray="3 3" />
@@ -139,20 +157,18 @@ export default function PriceChart({
               />
               <YAxis
                 domain={yDomain}
-                tickFormatter={(v) =>
-                  v >= 0.1 ? v.toFixed(3) : v.toFixed(4)
-                }
+                tickFormatter={yTick}
                 stroke="#8b9bb4"
                 tick={{ fill: '#8b9bb4', fontSize: 11 }}
-                width={56}
+                width={64}
               />
               <Tooltip content={<ChartTooltip />} />
               <Area
                 type="monotone"
                 dataKey="close"
-                stroke="#c2a633"
+                stroke={stroke}
                 strokeWidth={2}
-                fill="url(#dogeFill)"
+                fill={`url(#${fillId})`}
                 isAnimationActive={false}
                 name="Close"
               />
@@ -168,11 +184,11 @@ export default function PriceChart({
               {spot != null && (
                 <ReferenceLine
                   y={spot}
-                  stroke="#3d9cf0"
+                  stroke="#e8eef7"
                   strokeWidth={1.5}
                   label={{
                     value: 'spot',
-                    fill: '#3d9cf0',
+                    fill: '#e8eef7',
                     fontSize: 11,
                     position: 'insideTopRight',
                   }}
@@ -181,8 +197,8 @@ export default function PriceChart({
             </AreaChart>
           </ResponsiveContainer>
           <p className="muted small chart-legend">
-            Area = daily close · tooltip shows high/low · dashed = key S/R ·
-            blue = spot
+            Area = daily close · tooltip shows high/low · green dashed =
+            support · red dashed = resistance · white = spot
           </p>
         </div>
       )}

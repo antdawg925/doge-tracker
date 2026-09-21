@@ -3,10 +3,12 @@ export default function Disclaimer() {
     <footer className="disclaimer">
       <p>
         <strong>Not investment advice.</strong> A simple shareable view of one
-        DOGE holding — what you own, what you paid, a take-profit idea, and
-        stop ideas from support. Numbers are editable defaults, not a live
-        brokerage feed. Crypto is volatile; do your own research. Spot via
-        CoinGecko (Kraken history fallback); no warranty on accuracy or uptime.
+        crypto or stock holding — what you own, what you paid, a take-profit
+        idea, support/resistance maps, and stop ideas from support. Numbers are
+        editable defaults, not a live brokerage feed. Markets are volatile; do
+        your own research. Crypto via CoinGecko (Kraken history fallback for
+        some pairs); stocks via Yahoo public chart/search. No warranty on
+        accuracy or uptime.
       </p>
     </footer>
   );
