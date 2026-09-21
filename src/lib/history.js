@@ -224,3 +224,173 @@ export async function fetchDailyBarsDoge(days, signal) {
 }
 
 export { formatHistoryError };
+
+/** Multi-TF lookbacks used for resistance (chart may stay shorter). */
+export const TF_LOOKBACKS = {
+  '6m': { key: '6m', days: 180, shortLabel: '6M', name: '6 months' },
+  '1y': { key: '1y', days: 365, shortLabel: '1Y', name: '1 year' },
+  '5y': { key: '5y', days: 1825, shortLabel: '5Y+', name: '5 years+' },
+};
+
+export const TF_ORDER = ['6m', '1y', '5y'];
+
+/** Keep last N calendar-ish bars (bars are daily). */
+export function sliceBarsLastDays(bars, days) {
+  if (!bars?.length) return [];
+  const n = Math.max(1, Number(days) || 1);
+  return bars.slice(-n);
+}
+
+/** Honest label when API returned fewer days than the 5Y ask. */
+export function describeHistorySpan(actualDays, requestedDays = 1825) {
+  const d = Math.max(0, Math.round(Number(actualDays) || 0));
+  const years = d / 365;
+  if (d >= Math.min(requestedDays, 1500)) {
+    return { shortLabel: '5Y+', name: '5 years+', approxYears: years, capped: false };
+  }
+  const yLabel = years >= 1.5 ? `~${Math.round(years)}y` : `~${years.toFixed(1)}y`;
+  return {
+    shortLabel: `Max (${yLabel})`,
+    name: `max available (${yLabel})`,
+    approxYears: years,
+    capped: true,
+  };
+}
+
+function barsSpanDays(bars) {
+  if (!bars?.length) return 0;
+  if (bars.length === 1) return 1;
+  const first = bars[0].t;
+  const last = bars[bars.length - 1].t;
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return bars.length;
+  return Math.max(1, Math.round((last - first) / 86_400_000) + 1);
+}
+
+/**
+ * Fetch the longest practical daily history for resistance math.
+ * Stocks: Yahoo 5y. Crypto: CoinGecko (days=max / 1825) then Kraken (~720d max).
+ * Returns { bars, source, warning?, actualDays, spanMeta }.
+ */
+export async function fetchLongDailyBars(asset, signal) {
+  if (!asset) throw new Error('No asset selected');
+
+  if (asset.type === 'stock') {
+    const { bars } = await fetchYahooChart(asset.symbol, '5y', { signal });
+    if (!bars.length) throw new Error('No Yahoo history for symbol');
+    const actualDays = barsSpanDays(bars);
+    return {
+      bars,
+      source: 'yahoo',
+      actualDays,
+      spanMeta: describeHistorySpan(actualDays, 1825),
+    };
+  }
+
+  // Crypto — gather candidates; prefer the longest series.
+  const coinId = asset.id || 'dogecoin';
+  const candidates = [];
+  let lastErr = null;
+  let rateLimited = false;
+
+  // CoinGecko: try max, then 365 (demo tier often caps ~1y)
+  for (const daysParam of ['max', '1825', '365']) {
+    try {
+      const { data } = await fetchCoinGeckoJson(
+        `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${daysParam}`,
+        { signal, maxRetries: 2 },
+      );
+      const bars = aggregateMarketChartToDaily(data?.prices);
+      if (bars.length) {
+        candidates.push({ bars, source: 'coingecko', note: `days=${daysParam}` });
+        // max / 1825 success is enough; still try Kraken for possibly longer
+        if (daysParam !== '365') break;
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+      if (err?.rateLimited || /429/.test(err?.message || '')) rateLimited = true;
+    }
+  }
+
+  const pair = krakenPairFor(asset);
+  if (pair) {
+    try {
+      // Request more than Kraken returns; API caps ~720 daily bars
+      const bars = await fetchKrakenDailyBars(pair, 2000, signal);
+      if (bars.length) {
+        candidates.push({
+          bars,
+          source: 'kraken',
+          note: rateLimited
+            ? 'Kraken (CoinGecko rate-limited)'
+            : 'Kraken OHLC',
+        });
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+  }
+
+  if (!candidates.length) {
+    const wrapped = new Error(formatHistoryError(lastErr));
+    wrapped.rateLimited = rateLimited;
+    throw wrapped;
+  }
+
+  candidates.sort((a, b) => b.bars.length - a.bars.length);
+  const best = candidates[0];
+  const actualDays = barsSpanDays(best.bars);
+  const spanMeta = describeHistorySpan(actualDays, 1825);
+
+  let warning = null;
+  if (spanMeta.capped) {
+    warning = `Long history capped at ${spanMeta.name} via ${best.source} (5Y+ not available on free APIs for this asset)`;
+  } else if (best.source === 'kraken' && rateLimited) {
+    warning = 'Long history via Kraken (CoinGecko rate-limited)';
+  } else if (best.source === 'kraken') {
+    warning = 'Long history via Kraken';
+  }
+
+  return {
+    bars: best.bars,
+    source: best.source,
+    actualDays,
+    spanMeta,
+    warning,
+  };
+}
+
+/**
+ * Slice one long series into 6M / 1Y / 5Y+ (or max) buckets.
+ */
+export function buildTfBarSets(longBars, spanMeta) {
+  const sets = {};
+  for (const key of TF_ORDER) {
+    const tf = TF_LOOKBACKS[key];
+    let bars = sliceBarsLastDays(longBars, tf.days);
+    let label = { shortLabel: tf.shortLabel, name: tf.name, capped: false };
+    if (key === '5y' && spanMeta) {
+      label = {
+        shortLabel: spanMeta.shortLabel,
+        name: spanMeta.name,
+        capped: Boolean(spanMeta.capped),
+      };
+      // Use all available bars for the long bucket
+      bars = longBars || [];
+    }
+    // If long series is shorter than the TF ask, still use what we have
+    if (key !== '5y' && longBars?.length && bars.length < Math.min(tf.days, longBars.length)) {
+      bars = sliceBarsLastDays(longBars, tf.days);
+    }
+    sets[key] = {
+      key,
+      bars,
+      days: bars.length,
+      shortLabel: label.shortLabel,
+      name: label.name,
+      capped: label.capped,
+    };
+  }
+  return sets;
+}

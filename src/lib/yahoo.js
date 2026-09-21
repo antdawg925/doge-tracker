@@ -80,7 +80,7 @@ export async function searchYahoo(query, { signal, limit = 8 } = {}) {
 
 /**
  * Normalize Yahoo chart result into daily bars + spot meta.
- * `range`: '1mo' | '3mo' | '6mo' | '1y'
+ * `range`: '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y'
  */
 export async function fetchYahooChart(symbol, range = '3mo', { signal } = {}) {
   const sym = encodeURIComponent(String(symbol || '').toUpperCase());
@@ -150,5 +150,10 @@ export function daysToYahooRange(days) {
   if (d <= 35) return '1mo';
   if (d <= 100) return '3mo';
   if (d <= 200) return '6mo';
-  return '1y';
+  if (d <= 400) return '1y';
+  if (d <= 800) return '2y';
+  return '5y';
 }
+
+/** Alias — same mapping as daysToYahooRange. */
+export const yahooRangeForLookback = daysToYahooRange;

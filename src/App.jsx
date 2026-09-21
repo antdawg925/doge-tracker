@@ -11,6 +11,7 @@ import PositionEditor from './components/PositionEditor';
 import Disclaimer from './components/Disclaimer';
 import { useAssetPrice } from './hooks/useAssetPrice';
 import { useAssetHistory } from './hooks/useAssetHistory';
+import { useLongHistory } from './hooks/useLongHistory';
 import {
   defaultPositionFor,
   loadAppState,
@@ -45,6 +46,14 @@ export default function App() {
     warning: histWarning,
     refresh: refreshHistory,
   } = useAssetHistory(asset, 90);
+
+  const {
+    tfSets,
+    loading: longLoading,
+    error: longError,
+    warning: longWarning,
+    refresh: refreshLong,
+  } = useLongHistory(asset);
 
   useEffect(() => {
     saveAppState(appState);
@@ -84,7 +93,8 @@ export default function App() {
   const onRefreshAll = useCallback(() => {
     refresh();
     refreshHistory();
-  }, [refresh, refreshHistory]);
+    refreshLong();
+  }, [refresh, refreshHistory, refreshLong]);
 
   const levels = useMemo(
     () => computeLevels(bars, price),
@@ -139,10 +149,13 @@ export default function App() {
             asset={asset}
           />
           <ResistancePanel
-            levels={levels}
+            tfSets={tfSets}
             spot={price}
             position={position}
             asset={asset}
+            loading={longLoading}
+            error={longError}
+            warning={longWarning}
           />
         </div>
         <aside className="layout__side">

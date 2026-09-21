@@ -1004,3 +1004,91 @@ p {
   padding: 0.55rem 0.75rem;
   margin-bottom: 0.75rem;
 }
+
+/* Multi-TF resistance */
+.resist-ath-note {
+  font-size: 0.88rem;
+  color: var(--warn);
+  background: rgba(230, 162, 60, 0.1);
+  border: 1px solid rgba(230, 162, 60, 0.35);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.resist-compare {
+  margin: 0.85rem 0 1.1rem;
+  overflow-x: auto;
+}
+
+.resist-compare__title {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.resist-compare__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.resist-compare__table th,
+.resist-compare__table td {
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.resist-compare__table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.resist-tf {
+  margin-top: 1.15rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.resist-tf:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.resist-tf__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.resist-tf__head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.resist-tf__blurb {
+  margin: 0 0 0.55rem;
+  line-height: 1.4;
+}
+
+.badge--cap {
+  color: var(--warn);
+  border-color: rgba(230, 162, 60, 0.4);
+  background: rgba(230, 162, 60, 0.12);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}

@@ -34,8 +34,8 @@ Type a ticker or name in the search box at the top (debounced). Results are labe
 
 | Type | Search | Spot | History |
 | --- | --- | --- | --- |
-| **Crypto** | CoinGecko `/search?query=` | CoinGecko `/simple/price?ids=` | CoinGecko `market_chart` → `ohlc`; **Kraken** daily OHLC fallback for common pairs (DOGE, BTC, ETH, SOL, XRP, ADA, LTC) |
-| **Stock** | Yahoo `/v1/finance/search?q=` | Yahoo chart meta (`regularMarketPrice` + previous close → 24h %) | Yahoo `/v8/finance/chart/{SYM}?interval=1d&range=1mo\|3mo` |
+| **Crypto** | CoinGecko `/search?query=` | CoinGecko `/simple/price?ids=` | Short chart: CoinGecko `market_chart` / `ohlc`; **Kraken** fallback. Long resistance: CoinGecko `days=max`/`365` + Kraken (~720d) — see Multi-timeframe resistance |
+| **Stock** | Yahoo `/v1/finance/search?q=` | Yahoo chart meta (`regularMarketPrice` + previous close → 24h %) | Yahoo chart `range=1mo\|3mo` (display); `6mo\|1y\|5y` for multi-TF resistance |
 
 Vite proxies (CORS + Yahoo User-Agent):
 
@@ -80,11 +80,13 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 - Daily chart (30d / 90d) with key S/R markers (recharts)
 - **Suggested stop losses** from supports below spot (own section)
 - **Support** panel — levels below spot
-- **Resistance** panel — richer upside / trim detail above spot:
-  - price, % above spot, $ upside vs spot and vs avg cost
-  - labels (nearest, swing high, p75, rolling highs…)
-  - primary **trim zone** (nearest meaningful resistance, steered toward your target when set)
-  - note relating your target to nearest resistances
+- **Resistance** panel — multi-timeframe ceilings from **long history** (chart can stay on 30/90):
+  - Groups: **6M**, **1Y**, **5Y+** (or max available if the free API caps shorter)
+  - Per TF: period high, swing / major peaks, 75th pct, median close
+  - Each level: price, % above spot, $ upside vs spot & cost, distance vs your target
+  - Side-by-side comparison of 6M / 1Y / 5Y+ highs
+  - Primary **trim zone** weighted toward longer TF significance (1Y / 5Y+)
+  - Clear note when spot is near ATH / top of available history
 - Plain-language copy — not a pro terminal
 
 ## How stops are chosen
@@ -94,6 +96,29 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 3. **Primary stop** = closest support at least ~**3%** below spot when available.
 4. Each card: price, % below spot, $ risk vs spot and vs cost.
 
+
+## Multi-timeframe resistance
+
+Support / suggested stops still use the chart lookback (30d / 90d). **Resistance** loads a separate long daily series and slices it:
+
+| Bucket | Target lookback | Typical source |
+| --- | --- | --- |
+| **6M** | ~180 trading days | Slice of long series |
+| **1Y** | ~365 days | Slice of long series |
+| **5Y+** | ~1825 days | Full long series (or max available) |
+
+### API range limits (discovered)
+
+| Asset type | Source | Practical max history |
+| --- | --- | --- |
+| **Stocks** | Yahoo `range=5y` | Full ~5 years (~1825 calendar days) |
+| **Crypto** | CoinGecko `market_chart` (free / demo) | Often capped around **~365 days** (`days=max` / long ints may still truncate) |
+| **Crypto** | Kraken public OHLC `interval=1440` | **~720 daily bars** (~2 years) — used when longer than CoinGecko or on 429 |
+
+When 5 years isn’t available, the UI labels the long bucket honestly, e.g. **Max (~2y)**, with a soft warning. Rate limits (429) keep the last good long-history cache.
+
+Hook: `useLongHistory` → `fetchLongDailyBars` → `buildTfBarSets` → `buildMultiTfResistance`.
+
 ## Project layout
 
 ```
@@ -101,7 +126,7 @@ src/
   App.jsx
   components/   # Header, SymbolSearch, PriceCard, PositionSummary, PositionEditor,
                 # PriceChart, SuggestedStops, SupportPanel, ResistancePanel, Disclaimer
-  hooks/        # useAssetPrice, useAssetHistory
+  hooks/        # useAssetPrice, useAssetHistory, useLongHistory
   lib/          # assets, defaults, format, math, levels, coingecko, yahoo,
                 # history, price, search
 ```

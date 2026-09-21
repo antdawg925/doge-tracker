@@ -504,3 +504,320 @@ export function resistanceLevels(levels, spot) {
     )
     .sort((a, b) => a.price - b.price);
 }
+
+/** Find local swing highs (peaks) with `lookback` bars on each side. */
+export function findSwingHighs(values, lookback = 5) {
+  if (!values || values.length < lookback * 2 + 1) return [];
+  const peaks = [];
+  for (let i = lookback; i < values.length - lookback; i += 1) {
+    const c = values[i];
+    if (!Number.isFinite(c)) continue;
+    let isHigh = true;
+    for (let j = 1; j <= lookback; j += 1) {
+      if (values[i - j] >= c || values[i + j] >= c) {
+        isHigh = false;
+        break;
+      }
+    }
+    if (isHigh) peaks.push({ index: i, price: c });
+  }
+  return peaks;
+}
+
+/**
+ * Resistance-oriented levels for a single timeframe lookback.
+ * Labels include the TF prefix (e.g. "6M high").
+ */
+export function computeTfResistanceLevels(dailyBars, spot, tfKey, tfShortLabel) {
+  if (!dailyBars?.length) return [];
+
+  const closes = dailyBars.map((b) => b.close).filter(Number.isFinite);
+  const highs = dailyBars
+    .map((b) => (Number.isFinite(b.high) ? b.high : b.close))
+    .filter(Number.isFinite);
+  if (!closes.length) return [];
+
+  const prefix = tfShortLabel || tfKey;
+  const periodHigh = highs.length ? Math.max(...highs) : Math.max(...closes);
+  const p75Highs = percentile(highs.length ? highs : closes, 0.75);
+  const p50Closes = median(closes);
+  const lookback = Math.min(5, Math.max(2, Math.floor(closes.length / 40)));
+  const peaks = findSwingHighs(highs.length ? highs : closes, lookback);
+
+  // Most recent swing high
+  const recentSwing = peaks.length ? peaks[peaks.length - 1].price : null;
+
+  // Prior major peaks: top distinct highs excluding the period high itself
+  const majorPeaks = [...peaks]
+    .sort((a, b) => b.price - a.price)
+    .filter((p) => periodHigh == null || p.price < periodHigh * 0.998);
+
+  const candidates = [
+    {
+      id: `${tfKey}_high`,
+      name: `${prefix} high`,
+      price: periodHigh,
+      kind: 'period_high',
+      strength: 3,
+    },
+    {
+      id: `${tfKey}_swing`,
+      name: `${prefix} swing high`,
+      price: recentSwing,
+      kind: 'swing_high',
+      strength: 2,
+    },
+    {
+      id: `${tfKey}_p75`,
+      name: `${prefix} 75th pct`,
+      price: p75Highs,
+      kind: 'percentile',
+      strength: 1,
+    },
+    {
+      id: `${tfKey}_median`,
+      name: `${prefix} median close`,
+      price: p50Closes,
+      kind: 'median',
+      strength: 1,
+    },
+  ];
+
+  // Up to 2 prior major peaks (distinct from period high / recent swing)
+  majorPeaks.slice(0, 4).forEach((p, i) => {
+    candidates.push({
+      id: `${tfKey}_peak_${i}`,
+      name: i === 0 ? `${prefix} major peak` : `${prefix} prior peak`,
+      price: p.price,
+      kind: 'major_peak',
+      strength: 2,
+    });
+  });
+
+  const seen = [];
+  const levels = [];
+  for (const c of candidates) {
+    if (c.price == null || !Number.isFinite(c.price) || c.price <= 0) continue;
+    const dup = seen.some((p) => Math.abs(p - c.price) / c.price < 0.004);
+    if (dup) continue;
+    seen.push(c.price);
+    levels.push({
+      ...c,
+      tfKey,
+      tfLabel: prefix,
+      type: classify(c.price, spot),
+    });
+  }
+
+  levels.sort((a, b) => a.price - b.price);
+  return levels;
+}
+
+const TF_WEIGHT = { '5y': 3, '1y': 2.2, '6m': 1.2 };
+
+function enrichLevel(lvl, spot, coins, avgCost, targetPrice) {
+  const distPct = Number.isFinite(spot) && spot > 0
+    ? ((lvl.price - spot) / spot) * 100
+    : null;
+  const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
+  const upsideVsSpot = c > 0 && Number.isFinite(spot) ? c * (lvl.price - spot) : null;
+  const upsideVsCost =
+    c > 0 && Number.isFinite(avgCost) ? c * (lvl.price - avgCost) : null;
+  const hasTarget =
+    Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : null;
+  const towardTarget =
+    hasTarget != null
+      ? {
+          targetDistPct: ((lvl.price - hasTarget) / hasTarget) * 100,
+          dollarsFromTarget: c > 0 ? c * (lvl.price - hasTarget) : null,
+        }
+      : null;
+
+  return {
+    ...lvl,
+    distPct,
+    upsideVsSpot,
+    upsideVsCost,
+    towardTarget,
+    aboveSpot:
+      Number.isFinite(spot) &&
+      Number.isFinite(lvl.price) &&
+      lvl.price > spot * 1.002,
+  };
+}
+
+/**
+ * Build multi-timeframe resistance view for the Resistance panel.
+ * `tfSets`: { '6m': { bars, shortLabel, name, ... }, '1y': ..., '5y': ... }
+ */
+export function buildMultiTfResistance(
+  tfSets,
+  spot,
+  coins,
+  avgCost,
+  targetPrice = null,
+) {
+  const empty = {
+    groups: [],
+    comparison: [],
+    primary: null,
+    nearAth: false,
+    athNote: null,
+    targetNote: null,
+    allAbove: [],
+  };
+
+  if (!tfSets || !Number.isFinite(spot) || spot <= 0) return empty;
+
+  const order = ['6m', '1y', '5y'];
+  const groups = [];
+  const comparison = [];
+  const allAbove = [];
+
+  for (const key of order) {
+    const set = tfSets[key];
+    if (!set?.bars?.length) continue;
+
+    const raw = computeTfResistanceLevels(
+      set.bars,
+      spot,
+      key,
+      set.shortLabel,
+    );
+    const enriched = raw.map((l) =>
+      enrichLevel(l, spot, coins, avgCost, targetPrice),
+    );
+    const above = enriched
+      .filter((l) => l.aboveSpot)
+      .sort((a, b) => a.price - b.price);
+    const periodHigh = enriched.find((l) => l.kind === 'period_high') || null;
+
+    groups.push({
+      key,
+      shortLabel: set.shortLabel,
+      name: set.name,
+      capped: Boolean(set.capped),
+      barCount: set.bars.length,
+      levels: above,
+      allLevels: enriched,
+      periodHigh,
+      blurb: tfBlurb(key, set.shortLabel, set.capped),
+    });
+
+    if (periodHigh) {
+      comparison.push({
+        key,
+        shortLabel: set.shortLabel,
+        name: set.name,
+        price: periodHigh.price,
+        distPct: periodHigh.distPct,
+        upsideVsSpot: periodHigh.upsideVsSpot,
+        aboveSpot: periodHigh.aboveSpot,
+      });
+    }
+
+    for (const l of above) allAbove.push(l);
+  }
+
+  // Near ATH: no (or almost no) resistance above spot on the longest TF
+  const longGroup = groups.find((g) => g.key === '5y') || groups[groups.length - 1];
+  let nearAth = false;
+  let athNote = null;
+  if (longGroup?.periodHigh) {
+    const high = longGroup.periodHigh.price;
+    const pctBelow = ((high - spot) / spot) * 100;
+    if (pctBelow <= 2) {
+      nearAth = true;
+      athNote =
+        pctBelow <= 0.5
+          ? `Spot is at / above the ${longGroup.shortLabel} high (${formatLevelPrice(high)}) — little historical ceiling left in this lookback.`
+          : `Spot is within ~${pctBelow.toFixed(1)}% of the ${longGroup.shortLabel} high — near the top of available history.`;
+    } else if (!longGroup.levels.length) {
+      nearAth = true;
+      athNote = `No clear resistance above spot in the ${longGroup.shortLabel} window — price may be pressing highs.`;
+    }
+  }
+
+  // Primary trim: prefer longer TF significance, nearest strong level above spot
+  let primary = pickPrimaryResistance(allAbove, spot, targetPrice);
+
+  let targetNote = null;
+  const hasTarget =
+    Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : null;
+  if (hasTarget != null && allAbove.length) {
+    const nearest = [...allAbove].sort(
+      (a, b) => Math.abs(a.price - hasTarget) - Math.abs(b.price - hasTarget),
+    )[0];
+    if (nearest) {
+      targetNote = {
+        targetPrice: hasTarget,
+        nearestResistance: nearest.price,
+        nearestName: nearest.name,
+        distPct: ((nearest.price - hasTarget) / hasTarget) * 100,
+      };
+    }
+  }
+
+  return {
+    groups,
+    comparison,
+    primary,
+    nearAth,
+    athNote,
+    targetNote,
+    allAbove,
+  };
+}
+
+function formatLevelPrice(n) {
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 100) return `$${n.toFixed(2)}`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n >= 0.1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(4)}`;
+}
+
+function tfBlurb(key, shortLabel, capped) {
+  if (key === '6m') {
+    return '6-month high = the best price sellers got in the last half-year — first ceiling many traders watch.';
+  }
+  if (key === '1y') {
+    return '1-year high = hasn’t cleared this in a year — stronger resistance than a short chart wiggle.';
+  }
+  if (capped) {
+    return `${shortLabel} high = best available long history (free APIs often can’t go a full 5 years on crypto). Still a serious ceiling if you’re below it.`;
+  }
+  return '5-year high = price hasn’t cleared this in years — strong resistance if still below it.';
+}
+
+/**
+ * Prefer nearest strong level above spot, weighted toward 1Y / 5Y+.
+ */
+export function pickPrimaryResistance(levelsAbove, spot, targetPrice = null) {
+  if (!levelsAbove?.length || !Number.isFinite(spot) || spot <= 0) return null;
+
+  const hasTarget =
+    Number.isFinite(targetPrice) && targetPrice > spot ? targetPrice : null;
+
+  // Prefer period highs and major peaks from longer TFs
+  const scored = levelsAbove.map((l) => {
+    const distPct = Math.max(0.01, ((l.price - spot) / spot) * 100);
+    const tfW = TF_WEIGHT[l.tfKey] || 1;
+    const kindW =
+      l.kind === 'period_high' ? 1.4 : l.kind === 'major_peak' || l.kind === 'swing_high' ? 1.15 : 1;
+    // Lower score = better. Distance penalty + inverse TF weight.
+    let score = distPct / (tfW * kindW);
+    // Soft preference: not absurdly far (>40%) unless it's the only option
+    if (distPct > 40) score *= 1.35;
+    if (hasTarget != null) {
+      const tDist = Math.abs(l.price - hasTarget) / spot * 100;
+      score = score * 0.65 + tDist * 0.35;
+    }
+    return { level: l, score };
+  });
+
+  scored.sort((a, b) => a.score - b.score);
+  // Prefer ≥ ~2% above when available among top scores
+  const meaningful = scored.find((s) => s.level.distPct >= 2);
+  return (meaningful || scored[0]).level;
+}
