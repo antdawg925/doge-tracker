@@ -1,8 +1,8 @@
 # DOGE Position Tracker
 
-A small Vite + React planning dashboard for a Dogecoin book: live spot from CoinGecko, daily price chart, support/resistance sell estimates, editable account/core/sleeve inputs, buy ladder, vol-sleeve rules, and mark-to-market P&amp;L scenarios.
+A small Vite + React dashboard for sharing a **simple Dogecoin position** with non-traders: what you hold, what you paid, where you’d take profit, and where you’d set a stop based on support.
 
-**Not investment advice.** Numbers shipped as editable defaults for a personal plan (~$15k account, ~$1.8k DOGE, ~$10k target book). They are **not** live brokerage positions.
+**Not investment advice.** Numbers are editable defaults for a personal plan — **not** live brokerage positions.
 
 ## Quick start
 
@@ -14,45 +14,54 @@ npm run dev
 
 Then open the URL Vite prints (usually `http://localhost:5173`).
 
-Production build:
-
 ```bash
 npm run build
 npm run preview   # optional local preview of dist/
 ```
 
+## Shareable model (three inputs)
+
+Right-side editor only:
+
+| Field | Meaning |
+| --- | --- |
+| **DOGE holding** | Coins owned |
+| **Average cost** | $/DOGE paid |
+| **Target price** | Take-profit idea ($/DOGE) |
+
+Derived from those + live spot: position value, cost basis, unrealized P&L, and value/P&L if the target hits. Persisted in `localStorage` (legacy `dogeValue` + `avgCost` migrates to `coins ≈ dogeValue / avgCost`).
+
 ## Features
 
-- Live DOGE/USD + 24h change via CoinGecko public API (no API key)
-- **Daily price chart** (30d / 90d) with area of closes, high/low in tooltip, and key S/R markers (recharts)
-- **Support & resistance table** — median, percentiles, swing / rolling highs & lows, mean ± 1σ — plus **sell estimates** (profit $ / % vs avg cost and vs current spot) for the full editable DOGE book
-- Position inputs persisted in `localStorage`
-- Core vs vol sleeve split and progress toward a $10k DOGE target
-- Buy ladder with distance %, planned $, estimated coins
-- Vol sleeve sell / rebuy / invalidation cheat-sheet
-- P&amp;L scenario table at spot and key levels
+- Live DOGE/USD + 24h change (CoinGecko; soft cache on rate limits)
+- Daily price chart (30d / 90d) with key S/R markers (recharts)
+- **Suggested stop losses** from support levels below spot (nearest / stronger supports, $ risk vs spot and vs cost, one primary recommendation)
+- Support & resistance table with sell estimates for the holding
+- Plain-language copy aimed at explaining the plan — not a pro terminal
+
+## How stops are chosen
+
+1. Take statistical supports from daily history (percentiles, swing low, rolling lows, mean − 1σ, etc.) that sit **below** spot.
+2. Prefer familiar markers (swing low, 25th pct, median, 20d/50d lows…); show up to ~4 distinct levels.
+3. **Primary stop** = closest support at least ~**3%** below spot when available (so noise doesn’t stop you out); otherwise the nearest support.
+4. Each card shows price, % below spot, and $ risk if stopped (vs spot and vs avg cost).
 
 ## CoinGecko / rate limits
 
-Hooks prefer the Vite proxy, then the public URL:
-
-- Spot: `/api/coingecko/simple/price?...` → `https://api.coingecko.com/api/v3/simple/price?...`
-- History: `market_chart` first, then CoinGecko OHLC, then **Kraken daily OHLC** (`DOGEUSD`, interval 1440) when CoinGecko is rate-limited or unreachable
-
-Vite also proxies `/api/kraken/*` → `https://api.kraken.com/*` (tried before the direct Kraken URL for CORS safety).
-
-On **HTTP 429**, requests use exponential backoff, keep the **last good** spot/history in memory + `localStorage`, show a soft warning (UI does not go blank), and slow spot polling to ~120s. Chart history may show **“History via Kraken (CoinGecko rate-limited)”** when the Kraken fallback succeeds. Use **Refresh** for an immediate retry of spot + history.
+- Spot: `/api/coingecko/simple/price?...` → CoinGecko public API
+- History: CoinGecko `market_chart` / OHLC, then **Kraken daily OHLC** (`DOGEUSD`) when CoinGecko is rate-limited
+- Vite proxies `/api/coingecko/*` and `/api/kraken/*`
+- On HTTP 429: backoff, keep last good data, soft warning, slower poll. **Refresh** retries spot + history.
 
 ## Project layout
 
 ```
 src/
-  App.jsx                 # layout only
-  main.jsx
-  index.css
-  components/             # Header, PriceCard, PriceChart, SupportResistance, …
-  hooks/{useDogePrice,useDogeHistory}.js
-  lib/{defaults,format,math,levels,coingecko,history}.js
+  App.jsx
+  components/   # Header, PriceCard, PositionSummary, PositionEditor,
+                # PriceChart, SuggestedStops, SupportResistance, Disclaimer
+  hooks/        # useDogePrice, useDogeHistory
+  lib/          # defaults (+ migration), format, math, levels, coingecko, history
 ```
 
 ## License

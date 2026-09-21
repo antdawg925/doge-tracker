@@ -3,27 +3,14 @@ import Header from './components/Header';
 import PriceCard from './components/PriceCard';
 import PriceChart from './components/PriceChart';
 import SupportResistance from './components/SupportResistance';
-import AccountSummary from './components/AccountSummary';
-import CoreSleeve from './components/CoreSleeve';
-import BuyLadder from './components/BuyLadder';
-import VolRules from './components/VolRules';
-import PnLScenarios from './components/PnLScenarios';
+import SuggestedStops from './components/SuggestedStops';
+import PositionSummary from './components/PositionSummary';
 import PositionEditor from './components/PositionEditor';
 import Disclaimer from './components/Disclaimer';
 import { useDogePrice } from './hooks/useDogePrice';
 import { useDogeHistory } from './hooks/useDogeHistory';
-import { DEFAULTS, STORAGE_KEY } from './lib/defaults';
+import { DEFAULTS, STORAGE_KEY, loadPosition } from './lib/defaults';
 import { computeLevels } from './lib/levels';
-
-function loadPosition() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
 
 export default function App() {
   const {
@@ -46,10 +33,16 @@ export default function App() {
     refresh: refreshHistory,
   } = useDogeHistory(90);
 
-  const [position, setPosition] = useState(loadPosition);
+  // Migrate legacy dogeValue → coins at load (uses avgCost; spot optional later)
+  const [position, setPosition] = useState(() => loadPosition(null));
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(position));
+    const toSave = {
+      coins: position.coins,
+      avgCost: position.avgCost,
+      targetPrice: position.targetPrice,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [position]);
 
   const onReset = useCallback(() => {
@@ -85,6 +78,7 @@ export default function App() {
             error={error}
             warning={warning}
           />
+          <PositionSummary position={position} spot={price} />
           <PriceChart
             bars={bars}
             levels={levels}
@@ -95,20 +89,21 @@ export default function App() {
             warning={histWarning}
             spot={price}
           />
+          <SuggestedStops
+            levels={levels}
+            spot={price}
+            position={position}
+          />
           <SupportResistance
             levels={levels}
             spot={price}
             position={position}
           />
-          <AccountSummary position={position} spot={price} />
-          <CoreSleeve position={position} />
-          <BuyLadder spot={price} />
-          <VolRules spot={price} />
-          <PnLScenarios position={position} spot={price} />
         </div>
         <aside className="layout__side">
           <PositionEditor
             position={position}
+            spot={price}
             onChange={setPosition}
             onReset={onReset}
           />

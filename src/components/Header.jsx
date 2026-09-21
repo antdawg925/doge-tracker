@@ -15,7 +15,9 @@ export default function Header({
         </span>
         <div>
           <h1 className="header__title">DOGE Position Tracker</h1>
-          <p className="header__sub">Core · Vol sleeve · Buy ladder · Chart</p>
+          <p className="header__sub">
+            What I hold · What I paid · Where I’d take profit · Where I’d stop
+          </p>
         </div>
       </div>
       <div className="header__actions">

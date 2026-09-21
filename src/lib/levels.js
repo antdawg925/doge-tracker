@@ -167,8 +167,7 @@ export function sellEstimate(levelPrice, coins, avgCost, spot) {
   const profitVsCost = proceeds - cost;
   const profitPctVsCost = cost > 0 ? (profitVsCost / cost) * 100 : null;
   const markNow = Number.isFinite(spot) ? coins * spot : null;
-  const gainVsSpot =
-    markNow != null ? proceeds - markNow : null;
+  const gainVsSpot = markNow != null ? proceeds - markNow : null;
   const gainPctVsSpot =
     markNow != null && markNow > 0 ? (gainVsSpot / markNow) * 100 : null;
 
@@ -182,10 +181,139 @@ export function sellEstimate(levelPrice, coins, avgCost, spot) {
   };
 }
 
-/** Coins from MTM DOGE $ at spot, falling back to avg cost. */
+/** Prefer explicit coins; fall back to legacy dogeValue / price. */
+export function resolveCoins(position, spot) {
+  if (!position) return 0;
+  if (Number.isFinite(position.coins) && position.coins > 0) {
+    return position.coins;
+  }
+  const { dogeValue, avgCost } = position;
+  if (!Number.isFinite(dogeValue) || dogeValue <= 0) return 0;
+  if (Number.isFinite(spot) && spot > 0) return dogeValue / spot;
+  if (Number.isFinite(avgCost) && avgCost > 0) return dogeValue / avgCost;
+  return 0;
+}
+
+/** @deprecated use resolveCoins — kept for any lingering imports */
 export function positionCoins(dogeValue, spot, avgCost) {
   if (!Number.isFinite(dogeValue) || dogeValue <= 0) return 0;
   if (Number.isFinite(spot) && spot > 0) return dogeValue / spot;
   if (Number.isFinite(avgCost) && avgCost > 0) return dogeValue / avgCost;
   return 0;
+}
+
+/** Preferred support ids when building stop candidates (order = preference). */
+const STOP_PREFER_IDS = [
+  'swing_low',
+  'p25',
+  'median',
+  'roll20_low',
+  'mean_minus_1s',
+  'roll50_low',
+  'range_low',
+];
+
+const MIN_MEANINGFUL_PCT = 3; // prefer ≥3% below spot for primary stop
+
+function stopFriendlyLabel(index, total, _distPctBelow) {
+  if (index === 0) return 'Tight stop (nearest support)';
+  if (index === total - 1) return 'Wider stop (stronger support)';
+  return 'Mid stop (next support)';
+}
+
+/**
+ * Suggest stop-loss prices from support levels below spot.
+ * Returns { candidates, primaryId } for dad-friendly stop UI.
+ */
+export function suggestStops(levels, spot, coins, avgCost) {
+  if (!Number.isFinite(spot) || spot <= 0 || !levels?.length) {
+    return { candidates: [], primaryId: null };
+  }
+
+  // Supports meaningfully below spot (~0.2%+ to skip noise at the mark)
+  const below = levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price > 0 &&
+        l.price < spot * 0.998 &&
+        (l.type === 'support' || l.price < spot),
+    )
+    .sort((a, b) => b.price - a.price); // nearest first
+
+  if (!below.length) {
+    return { candidates: [], primaryId: null };
+  }
+
+  // Prefer known support markers; fill with nearest others up to 4
+  const picked = [];
+  const used = new Set();
+
+  for (const id of STOP_PREFER_IDS) {
+    const hit = below.find((l) => l.id === id && !used.has(l.id));
+    if (hit) {
+      picked.push(hit);
+      used.add(hit.id);
+    }
+  }
+  for (const l of below) {
+    if (picked.length >= 4) break;
+    if (used.has(l.id)) continue;
+    // Skip near-duplicates of already picked (~1%)
+    const near = picked.some(
+      (p) => Math.abs(p.price - l.price) / spot < 0.01,
+    );
+    if (near) continue;
+    picked.push(l);
+    used.add(l.id);
+  }
+
+  // Ensure nearest support is always included
+  if (!used.has(below[0].id)) {
+    picked.unshift(below[0]);
+  }
+
+  // Sort nearest → farthest, cap at 4
+  picked.sort((a, b) => b.price - a.price);
+  const unique = [];
+  for (const l of picked) {
+    if (unique.length >= 4) break;
+    const near = unique.some(
+      (p) => Math.abs(p.price - l.price) / spot < 0.008,
+    );
+    if (!near) unique.push(l);
+  }
+
+  const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
+  const costPer = Number.isFinite(avgCost) ? avgCost : null;
+
+  const candidates = unique.map((lvl, index) => {
+    const distPct = ((lvl.price - spot) / spot) * 100; // negative below
+    const distPctBelow = Math.abs(distPct);
+    const riskVsSpot = c > 0 ? c * (lvl.price - spot) : null;
+    const riskVsCost =
+      c > 0 && costPer != null ? c * (lvl.price - costPer) : null;
+    return {
+      id: lvl.id,
+      name: lvl.name,
+      price: lvl.price,
+      distPct,
+      distPctBelow,
+      riskVsSpot,
+      riskVsCost,
+      label: stopFriendlyLabel(index, unique.length, distPctBelow),
+    };
+  });
+
+  // Primary: closest support ≥ ~3% below spot (noise buffer); else nearest.
+  // Prefer a ≥5% support when it is the first meaningful one found.
+  const primary =
+    candidates.find((c) => c.distPctBelow >= MIN_MEANINGFUL_PCT) ||
+    candidates[0] ||
+    null;
+
+  return {
+    candidates,
+    primaryId: primary?.id ?? null,
+  };
 }

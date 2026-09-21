@@ -1,57 +1,61 @@
-/** Editable default position plan — not live brokerage data. */
+/** Editable default position — single DOGE holding for shareable view. */
 export const STORAGE_KEY = 'doge-tracker-position-v1';
 
+/** Simplified shareable defaults (coins × illustrative avg cost). */
 export const DEFAULTS = {
-  accountSize: 15000,
-  dogeValue: 1800,
+  coins: 24324, // ~$1,800 at $0.074
   avgCost: 0.074,
-  coreUsd: 7500,
-  sleeveUsd: 2500,
-  cashUsd: 5000,
-  targetDogeUsd: 10000,
   targetPrice: 0.2,
 };
 
-export const BUY_LADDER = [
-  {
-    id: 'optional',
-    label: 'Optional small add',
-    low: 0.078,
-    high: 0.08,
-    allocateUsd: 500,
-    note: 'Light add if dipping',
-  },
-  {
-    id: 'main',
-    label: 'Main add',
-    low: 0.074,
-    high: 0.074,
-    allocateUsd: 2500,
-    note: 'Primary accumulation zone',
-  },
-  {
-    id: 'finish',
-    label: 'Finish / fill',
-    low: 0.07,
-    high: 0.07,
-    allocateUsd: 2000,
-    note: 'Complete book toward target',
-  },
-];
+/**
+ * Load + migrate position from localStorage.
+ * Old shape used dogeValue ($) + avgCost; new shape uses coins.
+ */
+export function loadPosition(spot = null) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { ...DEFAULTS };
 
-export const STOP_ADDING = {
-  label: 'Stop adding',
-  low: 0.06,
-  high: 0.067,
-  note: 'Weekly break of $0.067–$0.060 — pause adds',
-};
+    const parsed = JSON.parse(raw);
+    const migrated = migratePosition(parsed, spot);
+    return { ...DEFAULTS, ...migrated };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
 
-export const VOL_RULES = {
-  sellLow: 0.09,
-  sellHigh: 0.1,
-  rebuyLow: 0.07,
-  rebuyHigh: 0.074,
-  invalidation: 0.067,
-};
+/** Convert legacy keys → { coins, avgCost, targetPrice }. */
+export function migratePosition(raw, spot = null) {
+  if (!raw || typeof raw !== 'object') return {};
 
-export const PN_L_LEVELS = [null, 0.074, 0.07, 0.1, 0.15, 0.2];
+  const avgCost =
+    Number.isFinite(raw.avgCost) && raw.avgCost > 0
+      ? raw.avgCost
+      : DEFAULTS.avgCost;
+
+  const targetPrice =
+    Number.isFinite(raw.targetPrice) && raw.targetPrice > 0
+      ? raw.targetPrice
+      : DEFAULTS.targetPrice;
+
+  let coins = null;
+  if (Number.isFinite(raw.coins) && raw.coins > 0) {
+    coins = raw.coins;
+  } else if (Number.isFinite(raw.dogeValue) && raw.dogeValue > 0) {
+    // Prefer avgCost (stable), else live spot, else default avgCost
+    const divisor =
+      avgCost > 0
+        ? avgCost
+        : Number.isFinite(spot) && spot > 0
+          ? spot
+          : DEFAULTS.avgCost;
+    coins = raw.dogeValue / divisor;
+  }
+
+  return {
+    coins: coins != null && Number.isFinite(coins) ? coins : DEFAULTS.coins,
+    avgCost,
+    targetPrice,
+  };
+}

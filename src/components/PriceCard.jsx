@@ -1,6 +1,4 @@
 import { formatPct, formatPrice } from '../lib/format';
-import { BUY_LADDER, STOP_ADDING } from '../lib/defaults';
-import { distanceToLevel, ladderStatus } from '../lib/math';
 
 export default function PriceCard({
   price,
@@ -12,17 +10,10 @@ export default function PriceCard({
   const changeClass =
     change24h == null ? '' : change24h >= 0 ? 'pos' : 'neg';
 
-  const levels = [
-    { label: 'Optional', level: BUY_LADDER[0].high },
-    { label: 'Main', level: BUY_LADDER[1].low },
-    { label: 'Finish', level: BUY_LADDER[2].low },
-    { label: 'Stop zone', level: STOP_ADDING.high },
-  ];
-
   return (
     <section className="card price-card">
       <div className="card__head">
-        <h2>Live DOGE / USD</h2>
+        <h2>Live DOGE price</h2>
         <span className="badge">CoinGecko</span>
       </div>
 
@@ -43,30 +34,10 @@ export default function PriceCard({
         </span>
       </div>
 
-      <ul className="price-card__ladder">
-        {levels.map(({ label, level }) => {
-          const dist = distanceToLevel(price, level);
-          const status = ladderStatus(price, level, level);
-          return (
-            <li key={label}>
-              <span className="muted">{label}</span>
-              <strong>{formatPrice(level)}</strong>
-              <span className={`chip chip--${status}`}>
-                {status === 'above'
-                  ? 'below spot'
-                  : status === 'below'
-                    ? 'above spot'
-                    : 'at level'}
-              </span>
-              <span className="mono">
-                {dist == null
-                  ? '—'
-                  : `${dist > 0 ? '+' : ''}${dist.toFixed(1)}%`}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+      <p className="hint price-card__blurb">
+        Spot is the live market price — used to value your holding and measure
+        distance to support, your target, and suggested stops.
+      </p>
     </section>
   );
 }

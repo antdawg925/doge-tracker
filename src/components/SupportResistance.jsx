@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { distanceToLevel } from '../lib/math';
-import { positionCoins, sellEstimate } from '../lib/levels';
+import { resolveCoins, sellEstimate } from '../lib/levels';
 
 export default function SupportResistance({ levels, spot, position }) {
-  const { dogeValue, avgCost } = position;
   const coins = useMemo(
-    () => positionCoins(dogeValue, spot, avgCost),
-    [dogeValue, spot, avgCost],
+    () => resolveCoins(position, spot),
+    [position, spot],
   );
+  const { avgCost } = position;
 
   const rows = useMemo(
     () =>
@@ -25,7 +25,7 @@ export default function SupportResistance({ levels, spot, position }) {
       <div className="card__head">
         <h2>Support &amp; resistance</h2>
         <span className="muted">
-          Sell estimates ·{' '}
+          Price levels from recent history ·{' '}
           {coins > 0
             ? `${Math.round(coins).toLocaleString()} DOGE`
             : 'no size'}
@@ -33,11 +33,10 @@ export default function SupportResistance({ levels, spot, position }) {
       </div>
 
       <p className="hint">
-        Levels from recent daily history (percentiles, swings, rolling
-        extremes, mean ± 1σ). Statistical / typical — not guarantees. Profit $
-        and % assume selling the full current book vs avg cost{' '}
-        {formatPrice(avgCost)}; “vs spot” is mark-to-market gain if sold at the
-        level instead of today’s price.
+        <strong>Support</strong> = prices that have held as a floor.{' '}
+        <strong>Resistance</strong> = prices that have capped rallies. The
+        “profit” columns imagine selling the whole holding at that level vs
+        what you paid ({formatPrice(avgCost)}) and vs today’s spot.
       </p>
 
       {!levels?.length && (
@@ -55,7 +54,7 @@ export default function SupportResistance({ levels, spot, position }) {
                 <th>Dist</th>
                 <th>Profit vs cost</th>
                 <th>vs cost %</th>
-                <th>Gain vs spot</th>
+                <th>vs spot</th>
               </tr>
             </thead>
             <tbody>
