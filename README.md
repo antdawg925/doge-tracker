@@ -37,9 +37,11 @@ npm run preview   # optional local preview of dist/
 Hooks prefer the Vite proxy, then the public URL:
 
 - Spot: `/api/coingecko/simple/price?...` → `https://api.coingecko.com/api/v3/simple/price?...`
-- History: OHLC first (`/coins/dogecoin/ohlc?days=30|90`), fallback `market_chart`
+- History: `market_chart` first, then CoinGecko OHLC, then **Kraken daily OHLC** (`DOGEUSD`, interval 1440) when CoinGecko is rate-limited or unreachable
 
-On **HTTP 429**, requests use exponential backoff, keep the **last good** spot/history in memory + `localStorage`, show a soft warning (UI does not go blank), and slow spot polling to ~120s. Use **Refresh** for an immediate retry of spot + history.
+Vite also proxies `/api/kraken/*` → `https://api.kraken.com/*` (tried before the direct Kraken URL for CORS safety).
+
+On **HTTP 429**, requests use exponential backoff, keep the **last good** spot/history in memory + `localStorage`, show a soft warning (UI does not go blank), and slow spot polling to ~120s. Chart history may show **“History via Kraken (CoinGecko rate-limited)”** when the Kraken fallback succeeds. Use **Refresh** for an immediate retry of spot + history.
 
 ## Project layout
 
@@ -50,7 +52,7 @@ src/
   index.css
   components/             # Header, PriceCard, PriceChart, SupportResistance, …
   hooks/{useDogePrice,useDogeHistory}.js
-  lib/{defaults,format,math,levels,coingecko}.js
+  lib/{defaults,format,math,levels,coingecko,history}.js
 ```
 
 ## License

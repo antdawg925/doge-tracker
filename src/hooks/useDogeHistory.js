@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   HISTORY_CACHE_KEY,
-  aggregateMarketChartToDaily,
-  fetchCoinGeckoJson,
   loadJsonCache,
-  normalizeOhlc,
   saveJsonCache,
-} from '../lib/coingecko';
+} from '../lib/coingecko.js';
+import { fetchDailyBars, formatHistoryError } from '../lib/history.js';
 
 function cacheBucket(days) {
   const all = loadJsonCache(HISTORY_CACHE_KEY) || {};
@@ -17,45 +15,6 @@ function writeCache(days, bars, fetchedAt) {
   const all = loadJsonCache(HISTORY_CACHE_KEY) || {};
   all[String(days)] = { bars, fetchedAt };
   saveJsonCache(HISTORY_CACHE_KEY, all);
-}
-
-/**
- * Fetch daily bars for the selected lookback.
- *
- * CoinGecko market_chart intervals:
- *   days ≤ 90 → hourly (we aggregate to daily)
- *   days > 90 → daily natively (request 91 when UI asks for 90)
- * Free-tier OHLC for 90d is ~4-day candles — used only as 429/empty fallback.
- */
-async function fetchDailyBars(days, signal) {
-  const chartDays = days >= 90 ? Math.max(days, 91) : days;
-  let lastErr = null;
-
-  try {
-    const { data } = await fetchCoinGeckoJson(
-      `/coins/dogecoin/market_chart?vs_currency=usd&days=${chartDays}`,
-      { signal, maxRetries: 3 },
-    );
-    const bars = aggregateMarketChartToDaily(data?.prices);
-    if (bars.length) return bars.slice(-days);
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err;
-    lastErr = err;
-  }
-
-  try {
-    const { data } = await fetchCoinGeckoJson(
-      `/coins/dogecoin/ohlc?vs_currency=usd&days=${days}`,
-      { signal, maxRetries: 2 },
-    );
-    const bars = normalizeOhlc(data);
-    if (bars.length) return bars;
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err;
-    lastErr = err;
-  }
-
-  throw lastErr || new Error('Empty history response');
 }
 
 export function useDogeHistory(initialDays = 90) {
@@ -89,14 +48,14 @@ export function useDogeHistory(initialDays = 90) {
     if (!existing?.bars?.length) setLoading(true);
 
     try {
-      const next = await fetchDailyBars(d, controller.signal);
+      const result = await fetchDailyBars(d, controller.signal);
       if (daysRef.current !== d) return;
-      setBars(next);
+      setBars(result.bars);
       const fetchedAt = Date.now();
       setLastUpdated(fetchedAt);
-      writeCache(d, next, fetchedAt);
+      writeCache(d, result.bars, fetchedAt);
       setError(null);
-      setWarning(null);
+      setWarning(result.warning ?? null);
       setLoading(false);
     } catch (err) {
       if (err?.name === 'AbortError') return;
@@ -110,11 +69,11 @@ export function useDogeHistory(initialDays = 90) {
         setWarning(
           limited
             ? 'Rate limited (429) — using cached daily history'
-            : `History refresh failed (${err?.message || 'error'}) — using cache`,
+            : `History refresh failed (${formatHistoryError(err)}) — using cache`,
         );
         setError(null);
       } else {
-        setError(err?.message || 'Failed to load DOGE history');
+        setError(formatHistoryError(err));
       }
       setLoading(false);
     }

@@ -57,7 +57,7 @@ export async function fetchCoinGeckoJson(path, { signal, maxRetries = 3 } = {}) 
         });
         if (res.status === 429) {
           rateLimited = true;
-          lastErr = new Error('HTTP 429');
+          lastErr = new Error('HTTP 429 (CoinGecko rate limited)');
           continue;
         }
         if (!res.ok) {
@@ -68,7 +68,15 @@ export async function fetchCoinGeckoJson(path, { signal, maxRetries = 3 } = {}) 
         return { data, rateLimited: false };
       } catch (err) {
         if (err?.name === 'AbortError') throw err;
-        lastErr = err;
+        // Prefer known 429 over a later generic network/"Failed to fetch" error
+        if (!rateLimited) {
+          const msg = err?.message || String(err);
+          lastErr = /failed to fetch/i.test(msg)
+            ? new Error('Network/CORS error (Failed to fetch)')
+            : err instanceof Error
+              ? err
+              : new Error(msg);
+        }
       }
     }
     if (rateLimited && attempt < maxRetries - 1) {
@@ -79,7 +87,16 @@ export async function fetchCoinGeckoJson(path, { signal, maxRetries = 3 } = {}) 
     }
   }
 
-  const err = lastErr || new Error('CoinGecko fetch failed');
+  const err =
+    lastErr ||
+    new Error(
+      rateLimited
+        ? 'HTTP 429 (CoinGecko rate limited)'
+        : 'CoinGecko fetch failed',
+    );
+  if (rateLimited && !/429/.test(err.message || '')) {
+    err.message = 'HTTP 429 (CoinGecko rate limited)';
+  }
   err.rateLimited = rateLimited;
   throw err;
 }
