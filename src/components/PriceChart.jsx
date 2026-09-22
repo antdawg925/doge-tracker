@@ -83,6 +83,32 @@ function toVolumeData(bars, upColor, downColor) {
     }));
 }
 
+
+/** Readable candle width; fitContent alone crushes ~90 bars to ~1px. */
+const READABLE_BAR_SPACING = 8;
+const MIN_BAR_SPACING = 6;
+
+/**
+ * Keep candles wide enough to read. Dense lookbacks (90d / many bars)
+ * use fixed spacing + scroll to latest; shorter ranges may fitContent
+ * when that stays at/above min spacing.
+ */
+function applyReadableTimeScale(chart, { barCount, days }) {
+  if (!chart || !barCount) return;
+  const ts = chart.timeScale();
+  ts.applyOptions({
+    barSpacing: READABLE_BAR_SPACING,
+    minBarSpacing: MIN_BAR_SPACING,
+  });
+  const dense = days >= 90 || barCount > 40;
+  if (dense) {
+    ts.scrollToRealTime();
+  } else {
+    ts.fitContent();
+  }
+}
+
+
 function VolumeMetricsStrip({ metrics, softNote }) {
   if (softNote && !metrics?.available) {
     return (
@@ -155,6 +181,7 @@ export default function PriceChart({
   const refLevelsRef = useRef([]);
   const spotRef = useRef(spot);
   const metricsRef = useRef(null);
+  const daysRef = useRef(days);
   const [hover, setHover] = useState(null);
   const [chartEpoch, setChartEpoch] = useState(0);
 
@@ -199,6 +226,7 @@ export default function PriceChart({
   refLevelsRef.current = refLevels;
   spotRef.current = spot;
   metricsRef.current = volMetrics;
+  daysRef.current = days;
 
   function applyPriceLines(series) {
     for (const line of priceLinesRef.current) {
@@ -300,6 +328,8 @@ export default function PriceChart({
       timeScale: {
         borderColor: '#243044',
         timeVisible: false,
+        barSpacing: READABLE_BAR_SPACING,
+        minBarSpacing: MIN_BAR_SPACING,
       },
       localization: {
         priceFormatter: (p) => yTick(p),
@@ -348,7 +378,10 @@ export default function PriceChart({
     const initial = toCandleData(initialBars);
     series.setData(initial);
     volSeries.setData(toVolumeData(initialBars, upVol, downVol));
-    if (initial.length) chart.timeScale().fitContent();
+    applyReadableTimeScale(chart, {
+      barCount: initial.length,
+      days: daysRef.current,
+    });
     applyPriceLines(series);
     applyVolumeAvgLine(volSeries);
     setChartEpoch((n) => n + 1);
@@ -421,8 +454,11 @@ export default function PriceChart({
         panes[1].setHeight(hasVolumePane ? 90 : 0);
       }
     }
-    if (data.length) chart.timeScale().fitContent();
-  }, [candleBars, chartEpoch, asset?.type, hasVolumePane]);
+    applyReadableTimeScale(chart, {
+      barCount: data.length,
+      days,
+    });
+  }, [candleBars, chartEpoch, asset?.type, hasVolumePane, days]);
 
   // Key S/R + spot price lines
   useEffect(() => {
@@ -518,6 +554,11 @@ export default function PriceChart({
           metrics={volMetrics}
           softNote={volumeSoftNote}
         />
+        {days >= 90 && (
+          <p className="muted small chart-scroll-hint">
+            Scroll / drag chart to see earlier days.
+          </p>
+        )}
         <p className="muted small chart-legend">
           Candles = daily OHLC · green/blue up · red down
           {hasVolumePane
