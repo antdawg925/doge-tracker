@@ -17,6 +17,9 @@ function withYahooHeaders(proxy) {
 //            /api/yahoo-search/* -> https://query2.finance.yahoo.com/*
 export default defineConfig({
   plugins: [react()],
+  // SPA client-side routing: Vite's dev server already falls back to index.html
+  // for unknown paths (historyApiFallback equivalent). Production hosts need the
+  // same rewrite when deploying dist/ — see README.
   server: {
     proxy: {
       '/api/coingecko': {

@@ -14,12 +14,29 @@ npm install
 npm run dev
 ```
 
-Then open the URL Vite prints (usually `http://localhost:5173`).
+Then open the URL Vite prints (usually `http://localhost:5173`). The app redirects `/` → `/home`, so you can also open `http://localhost:5173/home` directly.
 
 ```bash
 npm run build
 npm run preview   # optional local preview of dist/
 ```
+
+### Routes
+
+| Path | Page |
+| --- | --- |
+| `/` | Redirects to `/home` |
+| `/home` | Main position tracker (current UI) |
+
+More pages can be added under `src/pages/` and wired in `src/App.jsx`.
+
+### VS Code / editor notes
+
+If you open deep links like `/home` while the Vite dev server is running, they work out of the box (Vite’s SPA history fallback). For production hosts, configure an SPA rewrite so unknown paths serve `index.html` (see Deploy note below). In VS Code Simple Browser or Live Preview, prefer the Vite URL (`npm run dev`) rather than opening `dist/index.html` as a file.
+
+### Deploy note (SPA)
+
+Vite’s dev server already falls back to `index.html` for client-side routes. When you deploy `dist/` later, configure your host the same way (e.g. Netlify `_redirects` `/* /index.html 200`, nginx `try_files $uri /index.html`, GitHub Pages 404.html trick, etc.) so `/home` and future routes load the app instead of a 404.
 
 ## Symbol search
 
@@ -134,7 +151,9 @@ Helpers: `src/lib/volume.js` (`computeVolumeMetrics`, RVOL bands).
 
 ```
 src/
-  App.jsx
+  App.jsx       # BrowserRouter + routes (`/` → `/home`, `/home` → Home)
+  main.jsx
+  pages/        # Route pages (Home.jsx = current tracker; add more here)
   components/   # Header, SymbolSearch, StageBox, PriceCard, PositionSummary, PositionEditor,
                 # PriceChart, SuggestedStops, SupportPanel, ResistancePanel, Disclaimer
   hooks/        # useAssetPrice, useAssetHistory, useLongHistory
