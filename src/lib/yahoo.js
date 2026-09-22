@@ -99,12 +99,14 @@ export async function fetchYahooChart(symbol, range = '3mo', { signal } = {}) {
   const highs = quote.high || [];
   const lows = quote.low || [];
   const opens = quote.open || [];
+  const volumes = quote.volume || [];
 
   const bars = [];
   for (let i = 0; i < timestamps.length; i += 1) {
     const close = closes[i];
     if (!Number.isFinite(close)) continue;
     const t = timestamps[i] * 1000;
+    const vol = volumes[i];
     bars.push({
       t,
       date: new Date(t).toISOString().slice(0, 10),
@@ -112,6 +114,7 @@ export async function fetchYahooChart(symbol, range = '3mo', { signal } = {}) {
       high: Number.isFinite(highs[i]) ? highs[i] : close,
       low: Number.isFinite(lows[i]) ? lows[i] : close,
       close,
+      volume: Number.isFinite(vol) && vol >= 0 ? vol : null,
     });
   }
 

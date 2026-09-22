@@ -41,7 +41,8 @@ function krakenCandidateUrls(pair) {
 }
 
 /**
- * Normalize Kraken OHLC rows `[time, open, high, low, close, ...]`
+ * Normalize Kraken OHLC rows:
+ * `[time, open, high, low, close, vwap, volume, count]`
  * where `time` is unix **seconds** into chart bars (`t` in ms).
  */
 export function normalizeKrakenOhlc(rows) {
@@ -49,11 +50,12 @@ export function normalizeKrakenOhlc(rows) {
   return rows
     .map((row) => {
       if (!Array.isArray(row) || row.length < 5) return null;
-      const [timeSec, openRaw, highRaw, lowRaw, closeRaw] = row;
+      const [timeSec, openRaw, highRaw, lowRaw, closeRaw, , volumeRaw] = row;
       const close = Number(closeRaw);
       const open = Number(openRaw);
       const high = Number(highRaw);
       const low = Number(lowRaw);
+      const volume = Number(volumeRaw);
       if (!Number.isFinite(close) || !Number.isFinite(timeSec)) return null;
       const t = Number(timeSec) * 1000;
       return {
@@ -63,6 +65,7 @@ export function normalizeKrakenOhlc(rows) {
         high: Number.isFinite(high) ? high : close,
         low: Number.isFinite(low) ? low : close,
         close,
+        volume: Number.isFinite(volume) && volume >= 0 ? volume : null,
       };
     })
     .filter(Boolean)
@@ -136,7 +139,10 @@ async function fetchCryptoDailyBars(asset, days, signal) {
       `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${chartDays}`,
       { signal, maxRetries: 3 },
     );
-    const bars = aggregateMarketChartToDaily(data?.prices);
+    const bars = aggregateMarketChartToDaily(
+      data?.prices,
+      data?.total_volumes,
+    );
     if (bars.length) {
       return { bars: bars.slice(-days), source: 'coingecko' };
     }
@@ -152,7 +158,12 @@ async function fetchCryptoDailyBars(asset, days, signal) {
     );
     const bars = normalizeOhlc(data);
     if (bars.length) {
-      return { bars, source: 'coingecko' };
+      return {
+        bars,
+        source: 'coingecko',
+        warning:
+          'Volume unavailable from this history source — price candles only',
+      };
     }
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
@@ -299,7 +310,10 @@ export async function fetchLongDailyBars(asset, signal) {
         `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${daysParam}`,
         { signal, maxRetries: 2 },
       );
-      const bars = aggregateMarketChartToDaily(data?.prices);
+      const bars = aggregateMarketChartToDaily(
+        data?.prices,
+        data?.total_volumes,
+      );
       if (bars.length) {
         candidates.push({ bars, source: 'coingecko', note: `days=${daysParam}` });
         // max / 1825 success is enough; still try Kraken for possibly longer

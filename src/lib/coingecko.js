@@ -125,10 +125,10 @@ export function normalizeOhlc(rows) {
 }
 
 /**
- * Fallback: aggregate market_chart prices [[ts, price], ...] into daily
- * close / high / low.
+ * Aggregate market_chart prices [[ts, price], ...] into daily OHLC.
+ * Optional `volumes` [[ts, vol], ...] are summed per calendar day.
  */
-export function aggregateMarketChartToDaily(prices) {
+export function aggregateMarketChartToDaily(prices, volumes) {
   if (!Array.isArray(prices)) return [];
   const byDay = new Map();
   for (const row of prices) {
@@ -145,6 +145,8 @@ export function aggregateMarketChartToDaily(prices) {
         high: price,
         low: price,
         close: price,
+        volume: 0,
+        _hasVol: false,
       });
     } else {
       prev.high = Math.max(prev.high, price);
@@ -153,5 +155,24 @@ export function aggregateMarketChartToDaily(prices) {
       prev.t = ts;
     }
   }
-  return [...byDay.values()].sort((a, b) => a.t - b.t);
+
+  if (Array.isArray(volumes)) {
+    for (const row of volumes) {
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const [ts, vol] = row;
+      if (!Number.isFinite(vol) || vol < 0) continue;
+      const date = new Date(ts).toISOString().slice(0, 10);
+      const prev = byDay.get(date);
+      if (!prev) continue;
+      prev.volume += vol;
+      prev._hasVol = true;
+    }
+  }
+
+  return [...byDay.values()]
+    .map(({ _hasVol, volume, ...rest }) => ({
+      ...rest,
+      volume: _hasVol ? volume : null,
+    }))
+    .sort((a, b) => a.t - b.t);
 }

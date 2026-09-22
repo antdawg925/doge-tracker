@@ -6,7 +6,7 @@ import {
 } from '../lib/coingecko.js';
 import { fetchDailyBars, formatHistoryError } from '../lib/history.js';
 
-const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v2';
+const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v3';
 
 function cacheBucket(aKey, days) {
   const all = loadJsonCache(HISTORY_CACHE_KEY) || {};

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import SymbolSearch from './components/SymbolSearch';
+import StageBox from './components/StageBox';
 import PriceCard from './components/PriceCard';
 import PriceChart from './components/PriceChart';
 import SupportPanel from './components/SupportPanel';
@@ -113,6 +114,8 @@ export default function App() {
       />
 
       <SymbolSearch asset={asset} onSelect={onSelectAsset} />
+
+      <StageBox bars={bars} asset={asset} loading={histLoading} />
 
       <main className="layout">
         <div className="layout__primary">

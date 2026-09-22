@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { searchSymbols } from '../lib/search';
 
-const DEBOUNCE_MS = 320;
-
+/**
+ * Symbol lookup — search runs only on explicit submit (Enter key or Search
+ * button). Clicking a dropdown result selects; hover never loads a symbol.
+ */
 export default function SymbolSearch({ asset, onSelect }) {
   const listId = useId();
   const [query, setQuery] = useState('');
@@ -11,46 +13,10 @@ export default function SymbolSearch({ asset, onSelect }) {
   const [results, setResults] = useState([]);
   const [warnings, setWarnings] = useState([]);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [status, setStatus] = useState(null);
   const wrapRef = useRef(null);
   const abortRef = useRef(null);
-
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 1) {
-      setResults([]);
-      setWarnings([]);
-      setLoading(false);
-      return undefined;
-    }
-
-    setLoading(true);
-    const timer = setTimeout(async () => {
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      try {
-        const { results: hits, warnings: warns } = await searchSymbols(q, {
-          signal: controller.signal,
-          limit: 6,
-        });
-        setResults(hits);
-        setWarnings(warns);
-        setActiveIdx(hits.length ? 0 : -1);
-        setOpen(true);
-      } catch (err) {
-        if (err?.name === 'AbortError') return;
-        setResults([]);
-        setWarnings([err?.message || 'Search failed']);
-      } finally {
-        setLoading(false);
-      }
-    }, DEBOUNCE_MS);
-
-    return () => {
-      clearTimeout(timer);
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, [query]);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -58,6 +24,12 @@ export default function SymbolSearch({ asset, onSelect }) {
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, []);
 
   const pick = (item) => {
@@ -72,25 +44,108 @@ export default function SymbolSearch({ asset, onSelect }) {
     setResults([]);
     setOpen(false);
     setActiveIdx(-1);
+    setStatus(null);
+    setWarnings([]);
+  };
+
+  /** Prefer exact symbol match; else single hit; else null (show list). */
+  const autoPickFrom = (hits, q) => {
+    if (!hits?.length) return null;
+    const upper = q.trim().toUpperCase();
+    const exact = hits.filter((h) => h.symbol === upper);
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) {
+      // Prefer crypto if current asset is crypto, else first exact
+      const prefer = asset?.type || 'crypto';
+      return exact.find((h) => h.type === prefer) || exact[0];
+    }
+    if (hits.length === 1) return hits[0];
+    return null;
+  };
+
+  const runSearch = async ({ preferPick = true } = {}) => {
+    const q = query.trim();
+    if (q.length < 1) {
+      setStatus('Type a ticker or name, then press Search.');
+      setResults([]);
+      setOpen(false);
+      return;
+    }
+
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    setStatus(null);
+    setWarnings([]);
+
+    try {
+      const { results: hits, warnings: warns } = await searchSymbols(q, {
+        signal: controller.signal,
+        limit: 6,
+      });
+      setResults(hits);
+      setWarnings(warns);
+
+      if (preferPick) {
+        const auto = autoPickFrom(hits, q);
+        if (auto) {
+          pick(auto);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setActiveIdx(hits.length ? 0 : -1);
+      setOpen(true);
+      if (!hits.length) {
+        setStatus('No matches — try another ticker or name.');
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      setResults([]);
+      setWarnings([err?.message || 'Search failed']);
+      setOpen(true);
+      setStatus(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onKeyDown = (e) => {
-    if (!open || !results.length) {
-      if (e.key === 'Escape') setOpen(false);
+    if (e.key === 'Escape') {
+      setOpen(false);
       return;
     }
+
     if (e.key === 'ArrowDown') {
+      if (!open || !results.length) return;
       e.preventDefault();
       setActiveIdx((i) => (i + 1) % results.length);
-    } else if (e.key === 'ArrowUp') {
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      if (!open || !results.length) return;
       e.preventDefault();
       setActiveIdx((i) => (i <= 0 ? results.length - 1 : i - 1));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (activeIdx >= 0) pick(results[activeIdx]);
-    } else if (e.key === 'Escape') {
-      setOpen(false);
+      return;
     }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // If dropdown is open with a highlighted result, pick it; else submit search
+      if (open && results.length && activeIdx >= 0 && activeIdx < results.length) {
+        pick(results[activeIdx]);
+      } else {
+        runSearch({ preferPick: true });
+      }
+    }
+  };
+
+  const onSubmitClick = () => {
+    // Button always runs a fresh search (and auto-picks exact/single)
+    runSearch({ preferPick: true });
+    inputRef.current?.focus();
   };
 
   return (
@@ -100,16 +155,18 @@ export default function SymbolSearch({ asset, onSelect }) {
       </label>
       <div className="symbol-search__row">
         <input
+          ref={inputRef}
           id={`${listId}-input`}
           className="symbol-search__input"
           type="search"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Type DOGE, BTC, AAPL, TSLA…"
+          placeholder="Type DOGE, BTC, AAPL… then Search / Enter"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            setOpen(true);
+            // Typing alone must not fetch or change the loaded symbol
+            setStatus(null);
           }}
           onFocus={() => {
             if (results.length) setOpen(true);
@@ -120,6 +177,14 @@ export default function SymbolSearch({ asset, onSelect }) {
           aria-controls={listId}
           aria-autocomplete="list"
         />
+        <button
+          type="button"
+          className="btn symbol-search__submit"
+          onClick={onSubmitClick}
+          disabled={loading}
+        >
+          {loading ? 'Searching…' : 'Search'}
+        </button>
         <div className="symbol-search__current" title={asset?.name}>
           <span className={`chip chip--${asset?.type || 'crypto'}`}>
             {asset?.type === 'stock' ? 'Stock' : 'Crypto'}
@@ -129,13 +194,11 @@ export default function SymbolSearch({ asset, onSelect }) {
         </div>
       </div>
 
-      {open && (query.trim().length > 0 || results.length > 0) && (
+      {open && (results.length > 0 || status || warnings.length > 0 || loading) && (
         <div className="symbol-search__dropdown" id={listId} role="listbox">
           {loading && <div className="symbol-search__status">Searching…</div>}
-          {!loading && !results.length && (
-            <div className="symbol-search__status">
-              No matches — try another ticker or name.
-            </div>
+          {!loading && status && (
+            <div className="symbol-search__status">{status}</div>
           )}
           {warnings.length > 0 && (
             <div className="symbol-search__warn">{warnings.join(' · ')}</div>
@@ -167,6 +230,9 @@ export default function SymbolSearch({ asset, onSelect }) {
           </ul>
         </div>
       )}
+      <p className="symbol-search__hint muted small">
+        Press <kbd>Enter</kbd> or click Search to look up — hover won’t change the chart.
+      </p>
     </div>
   );
 }

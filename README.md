@@ -23,7 +23,7 @@ npm run preview   # optional local preview of dist/
 
 ## Symbol search
 
-Type a ticker or name in the search box at the top (debounced). Results are labeled **Crypto** vs **Stock**. Selecting one:
+Type a ticker or name, then press **Enter** or click **Search** (lookup does not run on hover or while typing alone). Results are labeled **Crypto** vs **Stock**. Selecting one:
 
 1. Stores `{ symbol, name, type: 'crypto'|'stock', id? }` (`id` = CoinGecko coin id for crypto)
 2. Refetches live spot + daily history
@@ -78,6 +78,10 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 
 - Live spot + 24h change
 - Daily **candlestick** chart (30d / 90d) with key S/R markers ([lightweight-charts](https://tradingview.github.io/lightweight-charts/))
+- **Volume** histogram under the candles (green/red by candle direction) + optional **20-day average** line
+- Dad-friendly **volume strip**: today’s volume, 20-day average, **RVOL** (Quiet / Normal / Elevated / Very high), and a short rising/fading hint
+- Soft note when a crypto history source lacks volume (price candles still render)
+- **Sykes-style 7-step stage box** near the top (estimated stage, tradability hint, RVOL / structure chips) — pattern context only
 - **Suggested stop losses** from supports below spot (own section)
 - **Support** panel — **2–4 key floors** only (nearest / key / wider), not a long laundry list
 - **Resistance** panel — multi-timeframe ceilings from **long history** (chart can stay on 30/90):
@@ -121,18 +125,22 @@ Hook: `useLongHistory` → `fetchLongDailyBars` → `buildTfBarSets` → `buildM
 
 ## Chart library
 
-Daily price view uses **TradingView [lightweight-charts](https://tradingview.github.io/lightweight-charts/)** candlesticks (OHLC) on the dark theme. Hover shows open / high / low / close. Day-range toggle remains **30d / 90d**. (Earlier versions used a recharts area/line chart.)
+Daily price view uses **TradingView [lightweight-charts](https://tradingview.github.io/lightweight-charts/)** candlesticks (OHLC) on the dark theme, with a synced **volume histogram** pane underneath. Hover shows open / high / low / close / volume. Day-range toggle remains **30d / 90d**.
+
+Volume comes from Yahoo (stocks), CoinGecko `market_chart` `total_volumes` (crypto), or Kraken OHLC (crypto fallback). CoinGecko’s OHLC-only fallback has no volume — the UI notes that and still shows candles.
+
+Helpers: `src/lib/volume.js` (`computeVolumeMetrics`, RVOL bands).
 
 ## Project layout
 
 ```
 src/
   App.jsx
-  components/   # Header, SymbolSearch, PriceCard, PositionSummary, PositionEditor,
+  components/   # Header, SymbolSearch, StageBox, PriceCard, PositionSummary, PositionEditor,
                 # PriceChart, SuggestedStops, SupportPanel, ResistancePanel, Disclaimer
   hooks/        # useAssetPrice, useAssetHistory, useLongHistory
-  lib/          # assets, defaults, format, math, levels, coingecko, yahoo,
-                # history, price, search
+  lib/          # assets, defaults, format, math, levels, volume, sykesStage, coingecko,
+                # yahoo, history, price, search
 ```
 
 ## License
