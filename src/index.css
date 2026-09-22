@@ -195,7 +195,7 @@ p {
 
 .desk-workspace {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  grid-template-columns: 220px minmax(0, 1fr) 320px;
   gap: 0.85rem;
   align-items: start;
   flex: 1;
@@ -607,6 +607,11 @@ p {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 0.65rem 0.75rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0.15rem;
 }
 
 .stat__label {
@@ -620,6 +625,9 @@ p {
   font-size: 1.1rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .bars {
@@ -1147,14 +1155,29 @@ p {
   font-weight: 600;
 }
 
-/* Position summary target banner */
+/* Position summary: 4 tiles; narrow right rail uses 2×2 so boxes line up */
 .stat-grid--4 {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.desk-aside .stat-grid,
+.desk-aside .stat-grid--4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.desk-aside .stat {
+  min-height: 4.25rem;
+}
+
+.desk-aside .stat__value {
+  font-size: 0.98rem;
 }
 
 @media (max-width: 720px) {
   .stat-grid--4 {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
