@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
+import { upsideFromHereCopy } from '../lib/levelCopy';
+import { hasEnteredPosition } from '../lib/math';
 import {
   buildMultiTfResistance,
   pickTopResistances,
@@ -21,6 +23,7 @@ export default function ResistancePanel({
     () => resolveCoins(position, spot),
     [position, spot],
   );
+  const hasPos = hasEnteredPosition(coins, position.avgCost);
 
   const {
     comparison,
@@ -77,8 +80,19 @@ export default function ResistancePanel({
         <strong>Resistance</strong> = prices where sellers often show up and
         rallies stall — natural places to trim or take profit on {sym}. Showing
         the <strong>5 most important</strong> ceilings (nearest structural,
-        short-term, and longer 6M / 1Y / max highs when available). Upside is
-        measured from <strong>today’s price</strong>.
+        short-term, and longer 6M / 1Y / max highs when available).{' '}
+        {hasPos ? (
+          <>
+            Upside dollars are vs <strong>your average cost</strong> for the
+            whole holding (total gain/loss vs what you paid if that ceiling
+            hits).
+          </>
+        ) : (
+          <>
+            No holding entered — showing <strong>percent from today</strong>{' '}
+            only (no made-up dollar amounts).
+          </>
+        )}
       </p>
 
       {warning && <p className="warn-banner">{warning}</p>}
@@ -121,7 +135,29 @@ export default function ResistancePanel({
         <ol className="sr-list">
           {topLevels.map((level) => {
             const isPrimary = level.id === primaryId;
-            const upsideUsd = level.upsideVsSpot;
+            const usdVsCost = hasPos ? level.upsideVsCost : null;
+            const pctVsCost =
+              hasPos &&
+              usdVsCost != null &&
+              coins > 0 &&
+              Number.isFinite(position.avgCost) &&
+              position.avgCost > 0
+                ? (usdVsCost / (coins * position.avgCost)) * 100
+                : null;
+            const copy = upsideFromHereCopy({
+              hasPosition: hasPos,
+              usdVsCost,
+              pctVsCost,
+              pctFromSpot: level.distPct,
+            });
+            const toneClass =
+              hasPos && usdVsCost != null
+                ? usdVsCost >= 0
+                  ? 'pos'
+                  : 'neg'
+                : level.distPct == null
+                  ? 'muted'
+                  : 'pos';
             return (
               <li
                 key={level.id}
@@ -148,21 +184,7 @@ export default function ResistancePanel({
                 </div>
                 <p className="sr-item__why">{level.why}</p>
                 <div className="sr-item__meta">
-                  <span
-                    className={
-                      upsideUsd == null
-                        ? 'muted'
-                        : upsideUsd >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }
-                  >
-                    {upsideUsd == null
-                      ? 'Upside from here: —'
-                      : `Upside from here: gain about ${formatUsd(Math.abs(upsideUsd), {
-                          decimals: 0,
-                        })} (${Math.abs(level.distPct).toFixed(1)}%) from today`}
-                  </span>
+                  <span className={toneClass}>{copy}</span>
                 </div>
               </li>
             );
@@ -181,7 +203,7 @@ export default function ResistancePanel({
                 <th>Lookback</th>
                 <th>High</th>
                 <th>From today</th>
-                <th>Upside from here</th>
+                <th>{hasPos ? 'Vs avg cost' : 'From today %'}</th>
               </tr>
             </thead>
             <tbody>
@@ -200,11 +222,15 @@ export default function ResistancePanel({
                         : `${formatPct(row.distPct, 1)} (below today)`}
                   </td>
                   <td className="mono">
-                    {row.aboveSpot && row.upsideVsSpot != null
-                      ? formatUsd(row.upsideVsSpot, {
-                          sign: true,
-                          decimals: 0,
-                        })
+                    {row.aboveSpot
+                      ? hasPos && row.upsideVsCost != null
+                        ? formatUsd(row.upsideVsCost, {
+                            sign: true,
+                            decimals: 0,
+                          })
+                        : row.distPct != null
+                          ? formatPct(row.distPct, 1)
+                          : '—'
                       : '—'}
                   </td>
                 </tr>

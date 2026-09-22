@@ -49,3 +49,13 @@ export function positionMetrics(coins, avgCost, spot, targetPrice) {
     atTargetPnlPct,
   };
 }
+
+/** True when the user entered a real holding (qty > 0 and avg cost > 0). */
+export function hasEnteredPosition(coins, avgCost) {
+  return (
+    Number.isFinite(coins) &&
+    coins > 0 &&
+    Number.isFinite(avgCost) &&
+    avgCost > 0
+  );
+}

@@ -158,7 +158,8 @@ export function sellEstimate(levelPrice, coins, avgCost, spot) {
     !Number.isFinite(levelPrice) ||
     !Number.isFinite(coins) ||
     coins <= 0 ||
-    !Number.isFinite(avgCost)
+    !Number.isFinite(avgCost) ||
+    avgCost <= 0
   ) {
     return null;
   }
@@ -611,7 +612,7 @@ export function suggestStops(levels, spot, coins, avgCost, tfSets = null) {
   }
 
   const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
-  const costPer = Number.isFinite(avgCost) ? avgCost : null;
+  const costPer = Number.isFinite(avgCost) && avgCost > 0 ? avgCost : null;
 
   const candidates = unique.map((lvl, index) => {
     const distPct = ((lvl.price - spot) / spot) * 100; // negative below
@@ -736,7 +737,7 @@ export function suggestResistance(
   }
 
   const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
-  const costPer = Number.isFinite(avgCost) ? avgCost : null;
+  const costPer = Number.isFinite(avgCost) && avgCost > 0 ? avgCost : null;
   const hasTarget =
     Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : null;
 
@@ -924,7 +925,7 @@ function enrichLevel(lvl, spot, coins, avgCost, targetPrice) {
   const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
   const upsideVsSpot = c > 0 && Number.isFinite(spot) ? c * (lvl.price - spot) : null;
   const upsideVsCost =
-    c > 0 && Number.isFinite(avgCost) ? c * (lvl.price - avgCost) : null;
+    c > 0 && Number.isFinite(avgCost) && avgCost > 0 ? c * (lvl.price - avgCost) : null;
   const hasTarget =
     Number.isFinite(targetPrice) && targetPrice > 0 ? targetPrice : null;
   const towardTarget =

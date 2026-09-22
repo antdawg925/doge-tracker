@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { formatPct, formatPrice, formatUsd } from '../lib/format';
-import { distanceToLevel } from '../lib/math';
+import { formatPct, formatPrice } from '../lib/format';
+import { riskFromHereCopy } from '../lib/levelCopy';
+import { distanceToLevel, hasEnteredPosition } from '../lib/math';
 import {
   pickTopSupports,
   resolveCoins,
@@ -20,6 +21,7 @@ export default function SupportPanel({
     [position, spot],
   );
   const { avgCost } = position;
+  const hasPos = hasEnteredPosition(coins, avgCost);
   const sym = displaySymbol(asset);
   const units = unitLabel(asset);
 
@@ -27,10 +29,12 @@ export default function SupportPanel({
     const supports = pickTopSupports(levels, spot, tfSets);
     return supports.map((lvl) => {
       const dist = distanceToLevel(spot, lvl.price);
-      const est = sellEstimate(lvl.price, coins, avgCost, spot);
+      const est = hasPos
+        ? sellEstimate(lvl.price, coins, avgCost, spot)
+        : null;
       return { ...lvl, dist, est };
     });
-  }, [levels, spot, coins, avgCost, tfSets]);
+  }, [levels, spot, coins, avgCost, tfSets, hasPos]);
 
   return (
     <section className="card">
@@ -48,9 +52,19 @@ export default function SupportPanel({
         <strong>Support</strong> = prices that have often held as a floor —
         buyers showed up. Showing the <strong>5 most important</strong> levels
         (nearest structural, short-term, and longer 6M / 1Y / max lows when
-        available). Suggested stops use this same short list. Dollar figures
-        show how much your {sym} holding would change from{' '}
-        <strong>today’s price</strong> if it fell to that floor.
+        available). Suggested stops use this same short list.{' '}
+        {hasPos ? (
+          <>
+            Dollar risk is vs <strong>your average cost</strong> for the whole{' '}
+            {sym} holding (what you’d be up or down vs what you paid if that
+            floor hits).
+          </>
+        ) : (
+          <>
+            No holding entered — showing <strong>percent below today</strong>{' '}
+            only (no made-up dollar amounts).
+          </>
+        )}
       </p>
 
       {!levels?.length && (
@@ -64,8 +78,22 @@ export default function SupportPanel({
       {rows.length > 0 && (
         <ol className="sr-list">
           {rows.map((row) => {
-            const riskUsd = row.est?.gainVsSpot ?? null;
-            const riskPct = row.est?.gainPctVsSpot ?? row.dist;
+            const usdVsCost = row.est?.profitVsCost ?? null;
+            const pctVsCost = row.est?.profitPctVsCost ?? null;
+            const copy = riskFromHereCopy({
+              hasPosition: hasPos,
+              usdVsCost,
+              pctVsCost,
+              pctFromSpot: row.dist,
+            });
+            const toneClass =
+              hasPos && usdVsCost != null
+                ? usdVsCost >= 0
+                  ? 'pos'
+                  : 'neg'
+                : row.dist == null
+                  ? 'muted'
+                  : 'neg';
             return (
               <li key={row.id} className="sr-item sr-item--support">
                 <div className="sr-item__top">
@@ -82,17 +110,7 @@ export default function SupportPanel({
                 </div>
                 <p className="sr-item__why">{row.why}</p>
                 <div className="sr-item__meta">
-                  <span className={riskUsd == null ? 'muted' : 'neg'}>
-                    {riskUsd == null
-                      ? 'Risk from here: —'
-                      : `Risk from here: lose about ${formatUsd(Math.abs(riskUsd), {
-                          decimals: 0,
-                        })}${
-                          riskPct != null
-                            ? ` (${Math.abs(riskPct).toFixed(1)}%)`
-                            : ''
-                        } from today`}
-                  </span>
+                  <span className={toneClass}>{copy}</span>
                 </div>
               </li>
             );

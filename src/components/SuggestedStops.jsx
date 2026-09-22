@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
-import { formatPct, formatPrice, formatUsd } from '../lib/format';
+import { formatPct, formatPrice } from '../lib/format';
+import { riskFromHereCopy } from '../lib/levelCopy';
+import { hasEnteredPosition } from '../lib/math';
 import { resolveCoins, suggestStops } from '../lib/levels';
 
 export default function SuggestedStops({ levels, spot, position, tfSets }) {
@@ -7,6 +9,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
     () => resolveCoins(position, spot),
     [position, spot],
   );
+  const hasPos = hasEnteredPosition(coins, position.avgCost);
 
   const { candidates, primaryId } = useMemo(
     () => suggestStops(levels, spot, coins, position.avgCost, tfSets),
@@ -24,7 +27,18 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
         A <strong>stop</strong> is the price where you’d cut the trade if it
         breaks down — so a small loss doesn’t become a big one. These ideas use
         the same condensed Top supports as the Support panel — not every
-        statistical floor. Risk is measured from <strong>today’s price</strong>.
+        statistical floor.{' '}
+        {hasPos ? (
+          <>
+            Risk dollars are vs <strong>your average cost</strong> for the whole
+            position (P&amp;L if stopped out there vs what you paid).
+          </>
+        ) : (
+          <>
+            No holding entered — showing <strong>percent below today</strong>{' '}
+            only (no made-up dollar amounts).
+          </>
+        )}
       </p>
 
       {!spot && (
@@ -42,7 +56,28 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
         <ul className="stop-list">
           {candidates.map((s) => {
             const isPrimary = s.id === primaryId;
-            const riskUsd = s.riskVsSpot;
+            const usdVsCost = hasPos ? s.riskVsCost : null;
+            const pctVsCost =
+              hasPos &&
+              usdVsCost != null &&
+              Number.isFinite(coins) &&
+              coins > 0 &&
+              Number.isFinite(position.avgCost) &&
+              position.avgCost > 0
+                ? (usdVsCost / (coins * position.avgCost)) * 100
+                : null;
+            const copy = riskFromHereCopy({
+              hasPosition: hasPos,
+              usdVsCost,
+              pctVsCost,
+              pctFromSpot: -s.distPctBelow,
+            });
+            const toneClass =
+              hasPos && usdVsCost != null
+                ? usdVsCost >= 0
+                  ? 'pos'
+                  : 'neg'
+                : 'neg';
             return (
               <li
                 key={s.id}
@@ -66,13 +101,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
                 <div className="stop-card__meta">
                   <span>{formatPct(-s.distPctBelow, 1)} below today</span>
                   <span className="muted">·</span>
-                  <span className={riskUsd == null ? 'muted' : 'neg'}>
-                    {riskUsd == null
-                      ? 'Risk from here: —'
-                      : `Risk from here: lose about ${formatUsd(Math.abs(riskUsd), {
-                          decimals: 0,
-                        })} (${s.distPctBelow.toFixed(1)}%) from today`}
-                  </span>
+                  <span className={toneClass}>{copy}</span>
                 </div>
 
                 {isPrimary && (
