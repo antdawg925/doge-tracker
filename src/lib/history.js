@@ -16,6 +16,7 @@ const KRAKEN_PAIRS = {
   DOGE: 'DOGEUSD',
   bitcoin: 'XBTUSD',
   BTC: 'XBTUSD',
+  XBT: 'XBTUSD',
   ethereum: 'ETHUSD',
   ETH: 'ETHUSD',
   solana: 'SOLUSD',
@@ -26,17 +27,30 @@ const KRAKEN_PAIRS = {
   ADA: 'ADAUSD',
   litecoin: 'LTCUSD',
   LTC: 'LTCUSD',
+  polkadot: 'DOTUSD',
+  DOT: 'DOTUSD',
+  chainlink: 'LINKUSD',
+  LINK: 'LINKUSD',
+  'avalanche-2': 'AVAXUSD',
+  AVAX: 'AVAXUSD',
+  'matic-network': 'POLUSD',
+  MATIC: 'POLUSD',
+  POL: 'POLUSD',
 };
 
-function krakenPairFor(asset) {
+/** Resolve a Kraken USD pair for a crypto asset, or null if unknown. */
+export function krakenPairFor(asset) {
   if (!asset) return null;
   if (asset.id && KRAKEN_PAIRS[asset.id]) return KRAKEN_PAIRS[asset.id];
   const sym = String(asset.symbol || '').toUpperCase();
   return KRAKEN_PAIRS[sym] || null;
 }
 
-function krakenCandidateUrls(pair) {
-  const path = `/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=1440`;
+function krakenCandidateUrls(pair, endpoint = 'OHLC') {
+  const path =
+    endpoint === 'Ticker'
+      ? `/0/public/Ticker?pair=${encodeURIComponent(pair)}`
+      : `/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=1440`;
   return [`${KRAKEN_PROXY}${path}`, `${KRAKEN_DIRECT}${path}`];
 }
 
@@ -115,6 +129,67 @@ export async function fetchKrakenDailyBars(pair, days, signal) {
   }
 
   throw lastErr || new Error('Kraken OHLC fetch failed');
+}
+
+/**
+ * Spot from Kraken public Ticker.
+ * Returns `{ price, change24h, source: 'kraken' }`.
+ */
+export async function fetchKrakenSpot(pair, { signal } = {}) {
+  if (!pair) throw new Error('No Kraken pair');
+  const urls = krakenCandidateUrls(pair, 'Ticker');
+  let lastErr = null;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Kraken HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      if (Array.isArray(data?.error) && data.error.length) {
+        lastErr = new Error(`Kraken: ${data.error.join(', ')}`);
+        continue;
+      }
+      const result = data?.result;
+      if (!result || typeof result !== 'object') {
+        lastErr = new Error('Kraken ticker empty');
+        continue;
+      }
+      let ticker = null;
+      for (const [key, value] of Object.entries(result)) {
+        if (key === 'last') continue;
+        if (value && typeof value === 'object') {
+          ticker = value;
+          break;
+        }
+      }
+      if (!ticker) {
+        lastErr = new Error('Kraken ticker missing pair row');
+        continue;
+      }
+      const last = Number(Array.isArray(ticker.c) ? ticker.c[0] : ticker.c);
+      const open = Number(ticker.o);
+      if (!Number.isFinite(last)) {
+        lastErr = new Error('Kraken ticker has no last price');
+        continue;
+      }
+      let change24h = null;
+      if (Number.isFinite(open) && open > 0) {
+        change24h = ((last - open) / open) * 100;
+      }
+      return { price: last, change24h, source: 'kraken' };
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error('Kraken ticker fetch failed');
 }
 
 function formatHistoryError(err) {

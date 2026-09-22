@@ -51,8 +51,8 @@ Type a ticker or name, then press **Enter** or click **Search** (lookup does not
 
 | Type | Search | Spot | History |
 | --- | --- | --- | --- |
-| **Crypto** | CoinGecko `/search?query=` | CoinGecko `/simple/price?ids=` | Short chart: CoinGecko `market_chart` / `ohlc`; **Kraken** fallback. Long resistance: CoinGecko `days=max`/`365` + Kraken (~720d) — see Multi-timeframe resistance |
-| **Stock** | Yahoo `/v1/finance/search?q=` | Yahoo chart meta (`regularMarketPrice` + previous close → 24h %) | Yahoo chart `range=1mo\|3mo` (display); `6mo\|1y\|5y` for multi-TF resistance |
+| **Crypto** | CoinGecko `/search?query=` | CoinGecko `/simple/price?ids=` → **Kraken** ticker (mapped pairs) → Yahoo `SYMBOL-USD` | Short chart: CoinGecko `market_chart` / `ohlc`; **Kraken** fallback. Long resistance: CoinGecko `days=max`/`365` + Kraken (~720d) — see Multi-timeframe resistance |
+| **Stock** | Yahoo `/v1/finance/search?q=` | Yahoo chart meta only (`regularMarketPrice` + previous close → 24h %) — never CoinGecko | Yahoo chart `range=1mo\|3mo` (display); `6mo\|1y\|5y` for multi-TF resistance |
 
 Vite proxies (CORS + Yahoo User-Agent):
 
@@ -61,7 +61,11 @@ Vite proxies (CORS + Yahoo User-Agent):
 - `/api/yahoo/*` → `query1.finance.yahoo.com/*`
 - `/api/yahoo-search/*` → `query2.finance.yahoo.com/*`
 
-On HTTP 429 / network errors: soft warning, keep last good cache, slower poll. **Refresh** retries spot + history.
+### Free-tier rate limits (429)
+
+CoinGecko’s public/demo tier often returns **HTTP 429** when you scan many symbols. Spot fetch **limits CoinGecko retries (1–2 attempts)** and **falls back** to Kraken (when a USD pair is mapped: DOGE, BTC/XBT, ETH, SOL, …) then Yahoo crypto charts (`DOGE-USD`, `BTC-USD`, …). Stocks stay on Yahoo only.
+
+On 429 / network errors: soft warning (not a hard crash), keep last good cache, slower poll. Successful fallbacks may show a brief “via Kraken/Yahoo” note. **Refresh** retries spot + history — if rate-limited, wait a minute or two before hammering Search again.
 
 ## Shareable model (three inputs)
 

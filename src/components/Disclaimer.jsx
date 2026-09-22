@@ -6,8 +6,8 @@ export default function Disclaimer() {
         crypto or stock holding — what you own, what you paid, a take-profit
         idea, support/resistance maps, and stop ideas from support. Numbers are
         editable defaults, not a live brokerage feed. Markets are volatile; do
-        your own research. Crypto via CoinGecko (Kraken history fallback for
-        some pairs); stocks via Yahoo public chart/search. No warranty on
+        your own research. Crypto via CoinGecko (Kraken / Yahoo spot + history
+        fallbacks for some pairs); stocks via Yahoo public chart/search. No warranty on
         accuracy or uptime.
       </p>
     </footer>

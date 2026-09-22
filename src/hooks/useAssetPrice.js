@@ -95,8 +95,9 @@ export function useAssetPrice(asset) {
       setSource(spot.source);
       setLastUpdated(fetchedAt);
       setError(null);
-      setWarning(null);
+      setWarning(spot.warning || null);
       const wasLimited = rateLimitedRef.current;
+      // Fallback sources after a 429 still count as recovered; clear slow-poll flag.
       setRateLimited(false);
       rateLimitedRef.current = false;
       writeCachedPrice(currentKey, {
@@ -121,8 +122,8 @@ export function useAssetPrice(asset) {
       if (priceRef.current != null) {
         setWarning(
           limited
-            ? 'Rate limited (429) — using last good spot; polling slowed'
-            : `Live refresh failed (${err?.message || 'error'}) — using last good spot`,
+            ? 'Price feed busy (rate limited) — showing last good spot; retrying slower'
+            : `Live refresh failed (${err?.message || 'error'}) — showing last good spot`,
         );
         setError(null);
       } else {

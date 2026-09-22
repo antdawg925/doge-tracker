@@ -26,13 +26,17 @@ export default function PriceCard({
             </span>
           ) : null}
         </h2>
-        <span className="badge">{sourceBadge(asset) || source || 'Live'}</span>
+        <span className="badge">
+          {source
+            ? String(source).charAt(0).toUpperCase() + String(source).slice(1)
+            : sourceBadge(asset) || 'Live'}
+        </span>
       </div>
 
       {error && (
         <p className="error-banner">
-          Could not load price: {error}. Showing last known or waiting for
-          retry.
+          Live price not ready yet ({error}). Retrying shortly
+          {price != null ? ' — last known value shown above' : ''}.
         </p>
       )}
       {!error && warning && <p className="warn-banner">{warning}</p>}
