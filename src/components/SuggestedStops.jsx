@@ -2,29 +2,29 @@ import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { resolveCoins, suggestStops } from '../lib/levels';
 
-export default function SuggestedStops({ levels, spot, position }) {
+export default function SuggestedStops({ levels, spot, position, tfSets }) {
   const coins = useMemo(
     () => resolveCoins(position, spot),
     [position, spot],
   );
 
   const { candidates, primaryId } = useMemo(
-    () => suggestStops(levels, spot, coins, position.avgCost),
-    [levels, spot, coins, position.avgCost],
+    () => suggestStops(levels, spot, coins, position.avgCost, tfSets),
+    [levels, spot, coins, position.avgCost, tfSets],
   );
 
   return (
     <section className="card">
       <div className="card__head">
         <h2>Suggested stop losses</h2>
-        <span className="muted">Based on support below spot</span>
+        <span className="muted">Aligned with Top support floors</span>
       </div>
 
       <p className="hint">
         A <strong>stop</strong> is the price where you’d cut the trade if it
         breaks down — so a small loss doesn’t become a big one. These ideas use
-        the same short list of key supports as the Support panel (nearest /
-        strong / wider) — not every statistical floor.
+        the same condensed Top supports as the Support panel — not every
+        statistical floor.
       </p>
 
       {!spot && (
@@ -59,6 +59,8 @@ export default function SuggestedStops({ levels, spot, position }) {
                     {formatPrice(s.price)}
                   </div>
                 </div>
+
+                {s.why && <p className="stop-card__why muted small">{s.why}</p>}
 
                 <div className="stop-card__meta">
                   <span>{formatPct(-s.distPctBelow, 1)} below spot</span>

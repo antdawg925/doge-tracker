@@ -228,26 +228,9 @@ export function resistanceLevels(levels, spot) {
     .sort((a, b) => a.price - b.price);
 }
 
-/** Preferred ids when choosing the strong / key support. */
-const KEY_SUPPORT_IDS = [
-  'swing_low',
-  'p25',
-  'roll20_low',
-  'mean_minus_1s',
-  'median',
-];
-
-/** Preferred ids for a wider structural floor. */
-const WIDER_SUPPORT_IDS = [
-  'range_low',
-  'roll50_low',
-  'mean_minus_1s',
-  'p25',
-  'swing_low',
-];
-
 const MIN_MEANINGFUL_PCT = 3; // prefer ≥3% below spot for primary stop
 const DEDUPE_PCT = 0.01; // ~1% of spot = near-identical
+const TOP_N = 5;
 
 function isNear(a, b, spot, pct = DEDUPE_PCT) {
   if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(spot) || spot <= 0) {
@@ -262,142 +245,367 @@ function stopLabelFromFriendly(friendlyLabel, index, total) {
   if (friendlyLabel === 'Wider support') return 'Wider stop (structural support)';
   if (friendlyLabel === 'Next support') return 'Mid stop (next support)';
   if (index === 0) return 'Tight stop (nearest support)';
-  if (index === total - 1) return 'Wider stop (stronger support)';
+  if (index === total - 1) return 'Wider stop (structural support)';
   return 'Mid stop (next support)';
 }
 
-/**
- * Pick ~2–4 key supports below spot for the Support panel and stops.
- * Prefers nearest floor, a strong/primary trough (swing / p25 / multi-week low),
- * and optionally one wider structural support. Dedupes near-identical prices.
- *
- * Each item: { ...level, friendlyLabel, sourceName }.
- */
-export function pickKeySupports(levels, spot) {
-  const below = supportLevels(levels, spot);
-  if (!below.length || !Number.isFinite(spot) || spot <= 0) return [];
-
-  // Deduplicate near-identical prices (keep first = nearest-first order)
-  const deduped = [];
-  for (const l of below) {
-    if (deduped.some((p) => isNear(p.price, l.price, spot))) continue;
-    deduped.push(l);
+/** Significance weight by id / kind for ranking Top-N. */
+function supportSignificance(lvl) {
+  const id = lvl.id || '';
+  const kind = lvl.kind || '';
+  if (kind === 'period_low' || id.endsWith('_low') && (id.startsWith('6m') || id.startsWith('1y') || id.startsWith('5y'))) {
+    if (id.startsWith('5y')) return 95;
+    if (id.startsWith('1y')) return 88;
+    if (id.startsWith('6m')) return 80;
   }
-  if (!deduped.length) return [];
-
-  const nearest = deduped[0];
-
-  // Key / strong support: prefer familiar trough markers, ideally ≥3% below
-  let key = null;
-  for (const id of KEY_SUPPORT_IDS) {
-    const hit = deduped.find(
-      (l) => l.id === id && !isNear(l.price, nearest.price, spot),
-    );
-    if (!hit) continue;
-    key = hit;
-    const pctBelow = ((spot - hit.price) / spot) * 100;
-    if (pctBelow >= MIN_MEANINGFUL_PCT) break;
-  }
-  if (!key) {
-    key = deduped.find((l) => {
-      if (isNear(l.price, nearest.price, spot)) return false;
-      return ((spot - l.price) / spot) * 100 >= MIN_MEANINGFUL_PCT;
-    });
-  }
-  if (!key) {
-    key = deduped.find((l) => !isNear(l.price, nearest.price, spot)) || null;
-  }
-
-  const used = [nearest.price];
-  if (key) used.push(key.price);
-
-  // Wider structural support — farthest meaningful distinct floor
-  let wider = null;
-  for (const id of WIDER_SUPPORT_IDS) {
-    const hit = deduped.find(
-      (l) =>
-        l.id === id && used.every((p) => !isNear(p, l.price, spot, 0.012)),
-    );
-    if (hit) {
-      wider = hit;
-      break;
-    }
-  }
-  if (!wider) {
-    for (let i = deduped.length - 1; i >= 0; i -= 1) {
-      const l = deduped[i];
-      if (used.every((p) => !isNear(p, l.price, spot, 0.015))) {
-        wider = l;
-        break;
-      }
-    }
-  }
-
-  const picked = [];
-  const push = (lvl, friendlyLabel) => {
-    if (!lvl) return;
-    if (picked.some((p) => isNear(p.price, lvl.price, spot))) return;
-    if (picked.length >= 4) return;
-    picked.push({
-      ...lvl,
-      friendlyLabel,
-      sourceName: lvl.name,
-    });
+  const map = {
+    swing_low: 92,
+    roll20_low: 78,
+    roll50_low: 74,
+    range_low: 70,
+    p25: 66,
+    mean_minus_1s: 62,
+    median: 50,
   };
+  if (map[id] != null) return map[id];
+  if (kind === 'swing_low') return 85;
+  if (kind === 'percentile') return 55;
+  return 45;
+}
 
-  push(nearest, 'Nearest support');
-  if (key) push(key, 'Key support');
-  if (wider) push(wider, 'Wider support');
-
-  // If only nearest so far but more distinct levels exist, add one more
-  if (picked.length === 1) {
-    const extra = deduped.find((l) => !isNear(l.price, picked[0].price, spot));
-    if (extra) push(extra, 'Key support');
+function resistanceSignificance(lvl) {
+  const id = lvl.id || '';
+  const kind = lvl.kind || '';
+  if (kind === 'period_high') {
+    if (lvl.tfKey === '5y') return 96;
+    if (lvl.tfKey === '1y') return 90;
+    if (lvl.tfKey === '6m') return 82;
+    return 80;
   }
+  if (kind === 'major_peak') {
+    if (lvl.tfKey === '5y') return 84;
+    if (lvl.tfKey === '1y') return 78;
+    return 72;
+  }
+  if (kind === 'swing_high' || id === 'swing_high') return 88;
+  const map = {
+    roll20_high: 76,
+    roll50_high: 72,
+    range_high: 70,
+    p75: 64,
+    mean_plus_1s: 60,
+    median: 48,
+  };
+  if (map[id] != null) return map[id];
+  if (kind === 'percentile') return 52;
+  return 44;
+}
 
-  // Optional mid between key and wider when gap is large and we have room
-  if (picked.length === 2 && deduped.length >= 3) {
-    const hi = picked[0].price;
-    const lo = picked[picked.length - 1].price;
-    const mid = deduped.find((l) => {
-      if (picked.some((p) => isNear(p.price, l.price, spot))) return false;
-      return l.price < hi && l.price > lo;
-    });
-    if (mid && ((hi - lo) / spot) >= 0.06) {
-      push(mid, 'Next support');
+/** One-sentence why for a support level. */
+export function supportWhy(lvl) {
+  const id = lvl.id || '';
+  const name = (lvl.name || '').toLowerCase();
+  if (id === 'swing_low' || (lvl.kind === 'swing_low' && !lvl.tfKey)) {
+    return 'Nearest swing low — first area buyers may defend.';
+  }
+  if (id === 'roll20_low') {
+    return '20-day low — recent floor traders often watch for a hold.';
+  }
+  if (id === 'roll50_low') {
+    return '50-day low — multi-week structural floor.';
+  }
+  if (id === 'p25') {
+    return 'Lower quartile of closes — price spent relatively little time below here.';
+  }
+  if (id === 'mean_minus_1s') {
+    return 'Mean − 1σ — statistical stretch where mean reversion often appears.';
+  }
+  if (id === 'median') {
+    return 'Median close — midpoint of the lookback; soft support if still below spot.';
+  }
+  if (id === 'range_low') {
+    return 'Lookback range low — deepest floor in the chart window.';
+  }
+  if (id.endsWith('_p25') || (lvl.kind === 'percentile' && /25/.test(lvl.name || ''))) {
+    if (id.startsWith('6m')) {
+      return '6-month lower quartile — soft floor inside the half-year range.';
+    }
+    if (id.startsWith('1y')) {
+      return '1-year lower quartile — soft floor inside the yearly range.';
+    }
+    if (id.startsWith('5y')) {
+      return 'Long-history lower quartile — soft floor across available history.';
     }
   }
-
-  picked.sort((a, b) => b.price - a.price);
-
-  // Normalize dad-friendly labels by rank
-  if (picked.length === 2) {
-    picked[0].friendlyLabel = 'Nearest support';
-    picked[1].friendlyLabel = 'Key support';
-  } else if (picked.length === 3) {
-    picked[0].friendlyLabel = 'Nearest support';
-    picked[1].friendlyLabel = 'Key support';
-    picked[2].friendlyLabel = 'Wider support';
-  } else if (picked.length >= 4) {
-    picked[0].friendlyLabel = 'Nearest support';
-    picked[1].friendlyLabel = 'Key support';
-    picked[2].friendlyLabel = 'Next support';
-    picked[3].friendlyLabel = 'Wider support';
+  if (id.endsWith('_swing_low') || (lvl.kind === 'swing_low' && lvl.tfKey)) {
+    if (id.startsWith('6m')) {
+      return '6-month swing low — trough buyers defended in the half-year.';
+    }
+    if (id.startsWith('1y')) {
+      return '1-year swing low — trough buyers defended over the past year.';
+    }
+    if (id.startsWith('5y')) {
+      return 'Long-history swing low — major trough in available history.';
+    }
+    return 'Swing low — local trough where buyers previously stepped in.';
   }
+  if (id.endsWith('_low') || lvl.kind === 'period_low' || /low/.test(name)) {
+    if (id.startsWith('6m') || /6m/i.test(lvl.name || '')) {
+      return '6-month low — buyers previously defended this in the half-year.';
+    }
+    if (id.startsWith('1y') || /1y/i.test(lvl.name || '')) {
+      return '1-year low — major support from the past year.';
+    }
+    if (id.startsWith('5y') || /max|5y|multi-year/i.test(lvl.name || '')) {
+      return 'Multi-year / max-history low — deepest available historical floor.';
+    }
+    return `${lvl.name || 'Structural low'} — longer-term floor buyers have defended.`;
+  }
+  if (lvl.kind === 'swing_low' || /swing/i.test(lvl.name || '')) {
+    return 'Swing low — local trough where buyers previously stepped in.';
+  }
+  return `${lvl.name || 'Support'} — historical area where buyers stepped in.`;
+}
 
-  return picked.slice(0, 4);
+/** One-sentence why for a resistance level. */
+export function resistanceWhy(lvl) {
+  const id = lvl.id || '';
+  const kind = lvl.kind || '';
+  if (kind === 'period_high' || id.endsWith('_high')) {
+    if (lvl.tfKey === '6m' || id.startsWith('6m') || /\b6m\b/i.test(lvl.name || '')) {
+      return '6-month high — sellers previously capped price here.';
+    }
+    if (lvl.tfKey === '1y' || id.startsWith('1y') || /\b1y\b/i.test(lvl.name || '')) {
+      return '1-year high — hasn’t cleared this in a year; stronger ceiling.';
+    }
+    if (lvl.tfKey === '5y' || id.startsWith('5y') || /max|5y|multi-year/i.test(lvl.name || '')) {
+      return 'Multi-year / max-history high — strong historical ceiling if still below it.';
+    }
+    if (id === 'roll20_high') {
+      return '20-day high — short-term ceiling where recent rallies stalled.';
+    }
+    if (id === 'roll50_high') {
+      return '50-day high — multi-week resistance traders watch on breakouts.';
+    }
+    if (id === 'range_high') {
+      return 'Lookback range high — top of the chart window.';
+    }
+  }
+  if (id === 'swing_high' || kind === 'swing_high') {
+    return 'Recent swing high — nearest peak where rallies stalled.';
+  }
+  if (kind === 'major_peak') {
+    return 'Prior major peak — sellers capped price at this earlier high.';
+  }
+  if (id === 'p75' || kind === 'percentile') {
+    return 'Upper quartile of highs — stretch zone where selling often appears.';
+  }
+  if (id === 'mean_plus_1s') {
+    return 'Mean + 1σ — statistical stretch above average closes.';
+  }
+  if (id === 'median' || kind === 'median') {
+    return 'Median close — soft ceiling if price is still below it.';
+  }
+  return `${lvl.name || 'Resistance'} — historical area where buyers lost steam.`;
 }
 
 /**
- * Suggest stop-loss prices aligned with the simplified key supports.
+ * Support-oriented levels for a single timeframe lookback (period / swing lows).
+ */
+export function computeTfSupportLevels(dailyBars, spot, tfKey, tfShortLabel) {
+  if (!dailyBars?.length) return [];
+
+  const closes = dailyBars.map((b) => b.close).filter(Number.isFinite);
+  const lows = dailyBars
+    .map((b) => (Number.isFinite(b.low) ? b.low : b.close))
+    .filter(Number.isFinite);
+  if (!closes.length) return [];
+
+  const prefix = tfShortLabel || tfKey;
+  const periodLow = lows.length ? Math.min(...lows) : Math.min(...closes);
+  const p25Lows = percentile(lows.length ? lows : closes, 0.25);
+  const lookback = Math.min(5, Math.max(2, Math.floor(closes.length / 40)));
+  // Reuse swing-high finder on inverted series for lows
+  const inv = (lows.length ? lows : closes).map((v) => -v);
+  const troughs = findSwingHighs(inv, lookback).map((p) => ({
+    index: p.index,
+    price: -p.price,
+  }));
+  const recentSwing = troughs.length ? troughs[troughs.length - 1].price : null;
+
+  const candidates = [
+    {
+      id: `${tfKey}_low`,
+      name: `${prefix} low`,
+      price: periodLow,
+      kind: 'period_low',
+      strength: 3,
+    },
+    {
+      id: `${tfKey}_swing_low`,
+      name: `${prefix} swing low`,
+      price: recentSwing,
+      kind: 'swing_low',
+      strength: 2,
+    },
+    {
+      id: `${tfKey}_p25`,
+      name: `${prefix} 25th pct`,
+      price: p25Lows,
+      kind: 'percentile',
+      strength: 1,
+    },
+  ];
+
+  const seen = [];
+  const levels = [];
+  for (const c of candidates) {
+    if (c.price == null || !Number.isFinite(c.price) || c.price <= 0) continue;
+    const dup = seen.some((p) => Math.abs(p - c.price) / c.price < 0.004);
+    if (dup) continue;
+    seen.push(c.price);
+    levels.push({
+      ...c,
+      tfKey,
+      tfLabel: prefix,
+      type: classify(c.price, spot),
+    });
+  }
+  levels.sort((a, b) => a.price - b.price);
+  return levels;
+}
+
+function collectSupportCandidates(levels, spot, tfSets) {
+  const out = [];
+  const short = supportLevels(levels, spot);
+  for (const l of short) out.push({ ...l, tfKey: l.tfKey || 'chart' });
+
+  if (tfSets) {
+    for (const key of ['6m', '1y', '5y']) {
+      const set = tfSets[key];
+      if (!set?.bars?.length) continue;
+      const raw = computeTfSupportLevels(set.bars, spot, key, set.shortLabel);
+      for (const l of raw) {
+        if (Number.isFinite(l.price) && l.price < spot * 0.998) {
+          out.push(l);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function rankAndPickTop(candidates, spot, side, topN = TOP_N) {
+  if (!candidates?.length || !Number.isFinite(spot) || spot <= 0) return [];
+
+  // Deduplicate near-identical; keep higher-significance
+  const sorted = [...candidates].sort((a, b) => {
+    const sigA = side === 'support' ? supportSignificance(a) : resistanceSignificance(a);
+    const sigB = side === 'support' ? supportSignificance(b) : resistanceSignificance(b);
+    if (sigB !== sigA) return sigB - sigA;
+    // Tie-break: closer to spot preferred for structural mix later
+    return Math.abs(a.price - spot) - Math.abs(b.price - spot);
+  });
+
+  const deduped = [];
+  for (const l of sorted) {
+    if (!Number.isFinite(l.price) || l.price <= 0) continue;
+    if (deduped.some((p) => isNear(p.price, l.price, spot))) continue;
+    deduped.push(l);
+  }
+
+  // Prefer a mix of timeframes / kinds when picking Top-N
+  const picked = [];
+  const usedBuckets = new Set();
+
+  const bucketOf = (l) => {
+    if (l.tfKey && l.tfKey !== 'chart') return l.tfKey;
+    if (l.id === 'swing_low' || l.id === 'swing_high' || l.kind === 'swing_low' || l.kind === 'swing_high') {
+      return 'swing';
+    }
+    if (l.id?.includes('roll20') || l.id?.includes('20')) return '20d';
+    if (l.id?.includes('roll50') || l.id?.includes('50')) return '50d';
+    if (l.kind === 'period_high' || l.kind === 'period_low') return l.tfKey || 'period';
+    return l.id || 'other';
+  };
+
+  // Pass 1: diversify buckets
+  for (const l of deduped) {
+    if (picked.length >= topN) break;
+    const b = bucketOf(l);
+    if (usedBuckets.has(b) && picked.length < topN - 1) {
+      // allow later fill
+      continue;
+    }
+    if (usedBuckets.has(b)) continue;
+    usedBuckets.add(b);
+    picked.push(l);
+  }
+
+  // Pass 2: fill remaining by significance order
+  for (const l of deduped) {
+    if (picked.length >= topN) break;
+    if (picked.some((p) => isNear(p.price, l.price, spot) || p.id === l.id)) continue;
+    picked.push(l);
+  }
+
+  // Sort: supports nearest-first (high→low), resistance nearest-first (low→high)
+  if (side === 'support') {
+    picked.sort((a, b) => b.price - a.price);
+  } else {
+    picked.sort((a, b) => a.price - b.price);
+  }
+  return picked.slice(0, topN);
+}
+
+function labelSupportRank(index, total, lvl) {
+  if (index === 0) return 'Nearest support';
+  if (index === total - 1 && total >= 3) return 'Wider support';
+  if (lvl.kind === 'period_low' || /low$/i.test(lvl.id || '')) {
+    return lvl.name || 'Structural support';
+  }
+  if (index === 1) return 'Key support';
+  return lvl.name || 'Next support';
+}
+
+function labelResistanceRank(index, total, lvl) {
+  if (index === 0) return 'Nearest resistance';
+  if (index === total - 1 && total >= 3) return 'Farther resistance';
+  return lvl.name || 'Next resistance';
+}
+
+/**
+ * Top supports below spot (max 5), mixing chart + multi-TF lows when available.
+ * Each item: { ...level, friendlyLabel, sourceName, why }.
+ */
+export function pickTopSupports(levels, spot, tfSets = null) {
+  const candidates = collectSupportCandidates(levels, spot, tfSets);
+  const picked = rankAndPickTop(candidates, spot, 'support', TOP_N);
+  return picked.map((lvl, index) => ({
+    ...lvl,
+    friendlyLabel: labelSupportRank(index, picked.length, lvl),
+    sourceName: lvl.name,
+    why: supportWhy(lvl),
+  }));
+}
+
+/**
+ * @deprecated alias — same as pickTopSupports (Top 5).
+ */
+export function pickKeySupports(levels, spot, tfSets = null) {
+  return pickTopSupports(levels, spot, tfSets);
+}
+
+/**
+ * Suggest stop-loss prices aligned with the condensed Top supports.
  * Returns { candidates, primaryId } for dad-friendly stop UI.
  */
-export function suggestStops(levels, spot, coins, avgCost) {
-  if (!Number.isFinite(spot) || spot <= 0 || !levels?.length) {
+export function suggestStops(levels, spot, coins, avgCost, tfSets = null) {
+  if (!Number.isFinite(spot) || spot <= 0) {
     return { candidates: [], primaryId: null };
   }
 
-  const unique = pickKeySupports(levels, spot);
+  const unique = pickTopSupports(levels, spot, tfSets);
   if (!unique.length) {
     return { candidates: [], primaryId: null };
   }
@@ -421,6 +629,7 @@ export function suggestStops(levels, spot, coins, avgCost) {
       riskVsCost,
       label: stopLabelFromFriendly(lvl.friendlyLabel, index, unique.length),
       friendlyLabel: lvl.friendlyLabel,
+      why: lvl.why,
     };
   });
 
@@ -740,6 +949,60 @@ function enrichLevel(lvl, spot, coins, avgCost, targetPrice) {
 }
 
 /**
+ * Top resistances above spot (max 5), mixing multi-TF highs + short chart levels.
+ * Each item enriched with distPct / upside + friendlyLabel + why.
+ */
+export function pickTopResistances(
+  tfSets,
+  spot,
+  coins,
+  avgCost,
+  targetPrice = null,
+  chartLevels = null,
+) {
+  if (!Number.isFinite(spot) || spot <= 0) return [];
+
+  const candidates = [];
+
+  if (tfSets) {
+    for (const key of ['6m', '1y', '5y']) {
+      const set = tfSets[key];
+      if (!set?.bars?.length) continue;
+      const raw = computeTfResistanceLevels(
+        set.bars,
+        spot,
+        key,
+        set.shortLabel,
+      );
+      for (const l of raw) {
+        if (Number.isFinite(l.price) && l.price > spot * 1.002) {
+          candidates.push(l);
+        }
+      }
+    }
+  }
+
+  // Mix in short-chart resistance markers when available
+  if (chartLevels?.length) {
+    for (const l of resistanceLevels(chartLevels, spot)) {
+      candidates.push({ ...l, tfKey: l.tfKey || 'chart' });
+    }
+  }
+
+  const picked = rankAndPickTop(candidates, spot, 'resistance', TOP_N);
+  return picked.map((lvl, index) => {
+    const enriched = enrichLevel(lvl, spot, coins, avgCost, targetPrice);
+    return {
+      ...enriched,
+      friendlyLabel: labelResistanceRank(index, picked.length, lvl),
+      sourceName: lvl.name,
+      why: resistanceWhy(lvl),
+      label: labelResistanceRank(index, picked.length, lvl),
+    };
+  });
+}
+
+/**
  * Build multi-timeframe resistance view for the Resistance panel.
  * `tfSets`: { '6m': { bars, shortLabel, name, ... }, '1y': ..., '5y': ... }
  */
@@ -758,6 +1021,7 @@ export function buildMultiTfResistance(
     athNote: null,
     targetNote: null,
     allAbove: [],
+    topLevels: [],
   };
 
   if (!tfSets || !Number.isFinite(spot) || spot <= 0) return empty;
@@ -851,6 +1115,32 @@ export function buildMultiTfResistance(
     }
   }
 
+  const topLevels = pickTopResistances(
+    tfSets,
+    spot,
+    coins,
+    avgCost,
+    targetPrice,
+  );
+
+  // Prefer primary from condensed list when available
+  if (topLevels.length) {
+    const hasTarget =
+      Number.isFinite(targetPrice) && targetPrice > spot ? targetPrice : null;
+    let primaryFromTop = null;
+    if (hasTarget != null) {
+      primaryFromTop = [...topLevels].sort(
+        (a, b) =>
+          Math.abs(a.price - hasTarget) - Math.abs(b.price - hasTarget),
+      )[0];
+    }
+    if (!primaryFromTop) {
+      primaryFromTop =
+        topLevels.find((x) => (x.distPct ?? 0) >= 2) || topLevels[0];
+    }
+    primary = primaryFromTop;
+  }
+
   return {
     groups,
     comparison,
@@ -859,6 +1149,7 @@ export function buildMultiTfResistance(
     athNote,
     targetNote,
     allAbove,
+    topLevels,
   };
 }
 

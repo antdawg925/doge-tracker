@@ -1,5 +1,5 @@
 /**
- * Timothy Sykes–style 7-step lifecycle scoring from daily OHLC + volume.
+ * 7-step momentum / pattern stage scoring from daily OHLC + volume.
  * Pattern-recognition lens for momentum charts (stocks & crypto) — tunable,
  * educational, not a buy/sell signal.
  */
@@ -8,13 +8,13 @@ import { computeVolumeMetrics, rvolLabel } from './volume.js';
 
 /** Stage labels (1–7). Exported for UI. */
 export const STAGE_LABELS = {
-  1: 'Pre-pump / base',
+  1: 'Base',
   2: 'Ramp',
-  3: 'Supernova',
-  4: 'Cliff dive',
-  5: 'Dip buy',
-  6: 'Dead-pump bounce',
-  7: 'Long kiss goodnight',
+  3: 'Blowoff',
+  4: 'Cliff',
+  5: 'Dip reclaim',
+  6: 'Weak bounce',
+  7: 'Grind down',
 };
 
 /** Dad-friendly tradability hints by stage. */
@@ -23,7 +23,7 @@ export const STAGE_TRADABILITY = {
   2: 'Early momentum — prefer patience over chasing',
   3: 'Chase caution — blowoff zone; poor risk for fresh longs',
   4: 'High risk — sharp dump; prefer wait for structure',
-  5: 'Prefer dip-buy setups — best long window in this framework',
+  5: 'Prefer dip-buy setups — best long window in this pattern',
   6: 'Prefer fade / weak long — bounce often fails',
   7: 'Avoid momentum longs — interest mostly gone',
 };
@@ -159,7 +159,7 @@ function scaleTh(th, assetType) {
 }
 
 /**
- * Score daily bars into a Sykes-style stage.
+ * Score daily bars into a momentum / pattern stage (1–7).
  * @param {Array} bars - daily OHLC (+ volume) oldest→newest
  * @param {{ assetType?: 'crypto'|'stock', thresholds?: object }} [opts]
  * @returns {{
@@ -173,7 +173,7 @@ function scaleTh(th, assetType) {
  *   message?: string,
  * }}
  */
-export function scoreSykesStage(bars, opts = {}) {
+export function scoreMarketStage(bars, opts = {}) {
   const th = scaleTh(
     { ...STAGE_THRESHOLDS, ...(opts.thresholds || {}) },
     opts.assetType,

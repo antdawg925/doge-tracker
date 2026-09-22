@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { scoreSykesStage } from '../lib/sykesStage';
+import { scoreMarketStage } from '../lib/marketStage';
 
 /**
- * Compact Sykes 7-step stage card — shown near top after a symbol loads.
+ * Compact momentum / pattern stage card — shown near top after a symbol loads.
  */
 export default function StageBox({ bars, asset, loading }) {
   const result = useMemo(
-    () => scoreSykesStage(bars, { assetType: asset?.type }),
+    () => scoreMarketStage(bars, { assetType: asset?.type }),
     [bars, asset?.type],
   );
 
@@ -20,10 +20,10 @@ export default function StageBox({ bars, asset, loading }) {
 
   if (!result.ok) {
     return (
-      <section className="stage-box card" aria-label="Sykes stage">
+      <section className="stage-box card" aria-label="Momentum stage">
         <div className="stage-box__row">
           <div className="stage-box__main">
-            <span className="stage-box__kicker">Pattern stage</span>
+            <span className="stage-box__kicker">Momentum stage</span>
             <strong className="stage-box__title">Not enough history</strong>
           </div>
           <p className="stage-box__hint muted small">
@@ -31,7 +31,7 @@ export default function StageBox({ bars, asset, loading }) {
           </p>
         </div>
         <p className="stage-box__note muted small">
-          Pattern framework only — not a buy/sell signal.
+          Pattern stage only — not a buy/sell signal.
         </p>
       </section>
     );
@@ -52,7 +52,7 @@ export default function StageBox({ bars, asset, loading }) {
     >
       <div className="stage-box__row">
         <div className="stage-box__main">
-          <span className="stage-box__kicker">Estimated stage</span>
+          <span className="stage-box__kicker">Momentum stage</span>
           <div className="stage-box__title-row">
             <span className="stage-box__num" aria-hidden="true">
               {stage}
@@ -77,7 +77,7 @@ export default function StageBox({ bars, asset, loading }) {
       )}
 
       <p className="stage-box__note muted small">
-        Pattern framework (Sykes-style 7-step) — educational context, not advice.
+        Pattern / market stage (7-step) — educational context, not advice.
       </p>
     </section>
   );

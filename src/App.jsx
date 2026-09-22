@@ -144,12 +144,14 @@ export default function App() {
             levels={levels}
             spot={price}
             position={position}
+            tfSets={tfSets}
           />
           <SupportPanel
             levels={levels}
             spot={price}
             position={position}
             asset={asset}
+            tfSets={tfSets}
           />
           <ResistancePanel
             tfSets={tfSets}
@@ -159,6 +161,7 @@ export default function App() {
             loading={longLoading}
             error={longError}
             warning={longWarning}
+            chartLevels={levels}
           />
         </div>
         <aside className="layout__side">

@@ -2,13 +2,19 @@ import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { distanceToLevel } from '../lib/math';
 import {
-  pickKeySupports,
+  pickTopSupports,
   resolveCoins,
   sellEstimate,
 } from '../lib/levels';
 import { displaySymbol, unitLabel } from '../lib/assets';
 
-export default function SupportPanel({ levels, spot, position, asset }) {
+export default function SupportPanel({
+  levels,
+  spot,
+  position,
+  asset,
+  tfSets,
+}) {
   const coins = useMemo(
     () => resolveCoins(position, spot),
     [position, spot],
@@ -18,20 +24,20 @@ export default function SupportPanel({ levels, spot, position, asset }) {
   const units = unitLabel(asset);
 
   const rows = useMemo(() => {
-    const supports = pickKeySupports(levels, spot);
+    const supports = pickTopSupports(levels, spot, tfSets);
     return supports.map((lvl) => {
       const dist = distanceToLevel(spot, lvl.price);
       const est = sellEstimate(lvl.price, coins, avgCost, spot);
       return { ...lvl, dist, est };
     });
-  }, [levels, spot, coins, avgCost]);
+  }, [levels, spot, coins, avgCost, tfSets]);
 
   return (
     <section className="card">
       <div className="card__head">
         <h2>Support</h2>
         <span className="muted">
-          Key floors ·{' '}
+          Top {rows.length || 5} floors ·{' '}
           {coins > 0
             ? `${Math.round(coins).toLocaleString()} ${units}`
             : `no ${units}`}
@@ -40,11 +46,11 @@ export default function SupportPanel({ levels, spot, position, asset }) {
 
       <p className="hint">
         <strong>Support</strong> = prices that have often held as a floor —
-        buyers showed up. Showing only the most useful levels (nearest, a
-        stronger trough, and optionally a wider structural floor) — not every
-        statistical line. Suggested stops use this same short list. “Profit”
-        columns imagine selling the whole {sym} holding at that level vs what
-        you paid ({formatPrice(avgCost)}) and vs today’s spot.
+        buyers showed up. Showing the <strong>5 most important</strong> levels
+        (nearest structural, short-term, and longer 6M / 1Y / max lows when
+        available). Suggested stops use this same short list. “Profit” columns
+        imagine selling the whole {sym} holding at that level vs what you paid
+        ({formatPrice(avgCost)}) and vs today’s spot.
       </p>
 
       {!levels?.length && (
@@ -56,72 +62,60 @@ export default function SupportPanel({ levels, spot, position, asset }) {
       )}
 
       {rows.length > 0 && (
-        <div className="table-wrap">
-          <table className="table table--sr">
-            <thead>
-              <tr>
-                <th>Level</th>
-                <th>Price</th>
-                <th>Below spot</th>
-                <th>P&amp;L vs cost</th>
-                <th>vs spot</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <strong>{row.friendlyLabel}</strong>
-                    <div className="muted small">{row.sourceName || row.name}</div>
-                  </td>
-                  <td className="mono">
-                    <strong>{formatPrice(row.price)}</strong>
-                  </td>
-                  <td className="mono neg">
-                    {row.dist == null ? '—' : formatPct(row.dist, 1)}
-                  </td>
-                  <td
-                    className={
-                      row.est == null
-                        ? ''
-                        : row.est.profitVsCost >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }
-                  >
-                    {row.est
-                      ? formatUsd(row.est.profitVsCost, {
-                          sign: true,
-                          decimals: 0,
-                        })
-                      : '—'}
-                    {row.est?.profitPctVsCost != null && (
-                      <div className="muted small mono">
-                        {formatPct(row.est.profitPctVsCost, 1)}
-                      </div>
-                    )}
-                  </td>
-                  <td
-                    className={
-                      row.est?.gainVsSpot == null
-                        ? ''
-                        : row.est.gainVsSpot >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }
-                  >
-                    {row.est?.gainVsSpot == null
-                      ? '—'
-                      : formatUsd(row.est.gainVsSpot, {
-                          sign: true,
-                          decimals: 0,
-                        })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ol className="sr-list">
+          {rows.map((row) => (
+            <li key={row.id} className="sr-item sr-item--support">
+              <div className="sr-item__top">
+                <div>
+                  <strong className="sr-item__label">{row.friendlyLabel}</strong>
+                  <div className="sr-item__price mono">
+                    {formatPrice(row.price)}
+                  </div>
+                </div>
+                <div className="sr-item__dist mono neg">
+                  {row.dist == null ? '—' : formatPct(row.dist, 1)}
+                  <span className="muted small"> below</span>
+                </div>
+              </div>
+              <p className="sr-item__why">{row.why}</p>
+              <div className="sr-item__meta">
+                <span
+                  className={
+                    row.est == null
+                      ? 'muted'
+                      : row.est.profitVsCost >= 0
+                        ? 'pos'
+                        : 'neg'
+                  }
+                >
+                  {row.est
+                    ? `${formatUsd(row.est.profitVsCost, {
+                        sign: true,
+                        decimals: 0,
+                      })} vs cost`
+                    : '— vs cost'}
+                </span>
+                <span className="muted">·</span>
+                <span
+                  className={
+                    row.est?.gainVsSpot == null
+                      ? 'muted'
+                      : row.est.gainVsSpot >= 0
+                        ? 'pos'
+                        : 'neg'
+                  }
+                >
+                  {row.est?.gainVsSpot == null
+                    ? '— vs spot'
+                    : `${formatUsd(row.est.gainVsSpot, {
+                        sign: true,
+                        decimals: 0,
+                      })} vs spot`}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
       )}
     </section>
   );

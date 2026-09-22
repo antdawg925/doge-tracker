@@ -952,7 +952,110 @@ p {
 }
 
 
-/* Sykes stage box (compact, near top) */
+
+/* Top S/R condensed lists */
+.sr-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+  counter-reset: sr;
+}
+
+.sr-item {
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  counter-increment: sr;
+}
+
+.sr-item--support {
+  border-left: 3px solid rgba(62, 207, 142, 0.55);
+}
+
+.sr-item--resist {
+  border-left: 3px solid rgba(240, 113, 120, 0.55);
+}
+
+.sr-item--primary {
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.07);
+  box-shadow: 0 0 0 1px rgba(240, 113, 120, 0.12);
+}
+
+.sr-item__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.sr-item__label {
+  margin-right: 0.4rem;
+}
+
+.sr-item__label::before {
+  content: counter(sr) ". ";
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.sr-item__price {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+}
+
+.sr-item__dist {
+  font-size: 0.95rem;
+  font-weight: 650;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.sr-item__why {
+  margin: 0.45rem 0 0;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--text);
+  opacity: 0.92;
+}
+
+.sr-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.resist-compare--secondary {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border-soft);
+}
+
+.resist-compare--secondary > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.resist-compare--secondary > summary::-webkit-details-marker {
+  display: none;
+}
+
+.badge--trim {
+  color: rgba(240, 113, 120, 0.95);
+  border-color: rgba(240, 113, 120, 0.4);
+  background: rgba(240, 113, 120, 0.12);
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+
+/* Momentum / pattern stage box (compact, near top) */
 .stage-box {
   margin-bottom: 1rem;
   padding: 0.85rem 1rem;

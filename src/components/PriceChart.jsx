@@ -177,8 +177,8 @@ export default function PriceChart({
   }, [candleBars.length, hasVolumePane, warning]);
 
   const refLevels = useMemo(() => {
-    const supports = pickKeySupports(levels, spot);
-    const resists = resistanceLevels(levels, spot).slice(0, 3);
+    const supports = pickKeySupports(levels, spot).slice(0, 5);
+    const resists = resistanceLevels(levels, spot).slice(0, 5);
     return [
       ...supports.map((l) => ({
         id: l.id,

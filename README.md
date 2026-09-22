@@ -81,24 +81,23 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 - **Volume** histogram under the candles (green/red by candle direction) + optional **20-day average** line
 - Dad-friendly **volume strip**: today’s volume, 20-day average, **RVOL** (Quiet / Normal / Elevated / Very high), and a short rising/fading hint
 - Soft note when a crypto history source lacks volume (price candles still render)
-- **Sykes-style 7-step stage box** near the top (estimated stage, tradability hint, RVOL / structure chips) — pattern context only
-- **Suggested stop losses** from supports below spot (own section)
-- **Support** panel — **2–4 key floors** only (nearest / key / wider), not a long laundry list
-- **Resistance** panel — multi-timeframe ceilings from **long history** (chart can stay on 30/90):
-  - Groups: **6M**, **1Y**, **5Y+** (or max available if the free API caps shorter)
-  - Per TF: period high, swing / major peaks, 75th pct, median close
-  - Each level: price, % above spot, $ upside vs spot & cost, distance vs your target
-  - Side-by-side comparison of 6M / 1Y / 5Y+ highs
+- **Momentum / pattern stage box** near the top (estimated 1–7 stage, tradability hint, RVOL / structure chips) — pattern context only
+- **Suggested stop losses** aligned with the same Top supports (own section)
+- **Support** panel — **Top 5** floors with a one-sentence why each (nearest structural, 20d/50d-ish, 6M / 1Y / max lows when available)
+- **Resistance** panel — **Top 5** ceilings with a one-sentence why each, mixed from long history (6M / 1Y / max):
+  - Condensed list (not a dump of every TF row)
+  - Each level: price, % above spot, $ upside vs spot & cost, brief significance note
+  - Optional secondary comparison of 6M / 1Y / 5Y+ period highs
   - Primary **trim zone** weighted toward longer TF significance (1Y / 5Y+)
   - Clear note when spot is near ATH / top of available history
 - Plain-language copy — not a pro terminal
 
 ## How stops are chosen
 
-1. Same **key supports** as the Support panel (nearest, strong trough, optional wider floor) — not every statistical line.
-2. Prefer familiar markers (swing low, 25th pct, multi-week / range lows); **2–4** levels max, deduped.
+1. Same **Top 5 supports** as the Support panel — not every statistical line.
+2. Prefer familiar markers across timeframes (swing low, 20d/50d, 6M / 1Y / max lows); **≤5** levels, deduped.
 3. **Primary stop** = closest support at least ~**3%** below spot when available.
-4. Each card: price, % below spot, $ risk vs spot and vs cost.
+4. Each card: price, % below spot, $ risk vs spot and vs cost (plus the same one-line why when available).
 
 
 ## Multi-timeframe resistance
@@ -139,7 +138,7 @@ src/
   components/   # Header, SymbolSearch, StageBox, PriceCard, PositionSummary, PositionEditor,
                 # PriceChart, SuggestedStops, SupportPanel, ResistancePanel, Disclaimer
   hooks/        # useAssetPrice, useAssetHistory, useLongHistory
-  lib/          # assets, defaults, format, math, levels, volume, sykesStage, coingecko,
+  lib/          # assets, defaults, format, math, levels, volume, marketStage, coingecko,
                 # yahoo, history, price, search
 ```
 
