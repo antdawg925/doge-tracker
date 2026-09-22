@@ -181,6 +181,7 @@ export default function Home() {
             error={histError}
             warning={histWarning}
             spot={price}
+            tfSets={tfSets}
           />
           <SuggestedStops
             levels={levels}

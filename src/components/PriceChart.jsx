@@ -9,7 +9,11 @@ import {
 } from 'lightweight-charts';
 import { formatPrice, formatVolume } from '../lib/format';
 import { displaySymbol } from '../lib/assets';
-import { pickKeySupports, resistanceLevels } from '../lib/levels';
+import {
+  pickKeySupports,
+  pickTopResistances,
+  resistanceLevels,
+} from '../lib/levels';
 import { computeVolumeMetrics, volumeCoverage } from '../lib/volume';
 
 /**
@@ -170,6 +174,7 @@ export default function PriceChart({
   error,
   warning,
   spot,
+  tfSets = null,
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -204,8 +209,31 @@ export default function PriceChart({
   }, [candleBars.length, hasVolumePane, warning]);
 
   const refLevels = useMemo(() => {
-    const supports = pickKeySupports(levels, spot).slice(0, 5);
-    const resists = resistanceLevels(levels, spot).slice(0, 5);
+    const supports = pickKeySupports(levels, spot, tfSets).slice(0, 5);
+    const chartResists = resistanceLevels(levels, spot);
+    const multiResists = pickTopResistances(
+      tfSets,
+      spot,
+      0,
+      0,
+      null,
+      levels,
+    );
+    const resistByKey = new Map();
+    for (const l of [...chartResists, ...multiResists]) {
+      if (!Number.isFinite(l.price)) continue;
+      const key = Number(l.price).toPrecision(6);
+      if (resistByKey.has(key)) continue;
+      resistByKey.set(key, {
+        id: l.id || `r-${key}`,
+        price: l.price,
+        type: 'resistance',
+        label: l.friendlyLabel || l.label || l.name || '',
+      });
+    }
+    const resists = [...resistByKey.values()]
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 6);
     return [
       ...supports.map((l) => ({
         id: l.id,
@@ -213,20 +241,54 @@ export default function PriceChart({
         type: 'support',
         label: l.friendlyLabel,
       })),
-      ...resists.map((l) => ({
-        id: l.id,
-        price: l.price,
-        type: 'resistance',
-        label: l.name,
-      })),
+      ...resists,
     ];
-  }, [levels, spot]);
+  }, [levels, spot, tfSets]);
 
   candleBarsRef.current = candleBars;
   refLevelsRef.current = refLevels;
   spotRef.current = spot;
   metricsRef.current = volMetrics;
   daysRef.current = days;
+
+  function applyAutoscale(series) {
+    if (!series) return;
+    series.applyOptions({
+      autoscaleInfoProvider: (original) => {
+        const base = typeof original === 'function' ? original() : null;
+        if (!base?.priceRange) return base;
+        let { minValue, maxValue } = base.priceRange;
+        for (const lvl of refLevelsRef.current) {
+          if (!Number.isFinite(lvl.price)) continue;
+          minValue = Math.min(minValue, lvl.price);
+          maxValue = Math.max(maxValue, lvl.price);
+        }
+        const s = spotRef.current;
+        if (Number.isFinite(s)) {
+          minValue = Math.min(minValue, s);
+          maxValue = Math.max(maxValue, s);
+        }
+        const span = Math.max(
+          maxValue - minValue,
+          Math.abs(maxValue) * 0.01,
+          1e-8,
+        );
+        // Extra headroom so higher / future resistance stays on-screen
+        return {
+          ...base,
+          priceRange: {
+            minValue: minValue - span * 0.06,
+            maxValue: maxValue + span * 0.14,
+          },
+        };
+      },
+    });
+    try {
+      series.priceScale().applyOptions({ autoScale: true });
+    } catch {
+      /* ignore */
+    }
+  }
 
   function applyPriceLines(series) {
     for (const line of priceLinesRef.current) {
@@ -323,7 +385,7 @@ export default function PriceChart({
       },
       rightPriceScale: {
         borderColor: '#243044',
-        scaleMargins: { top: 0.08, bottom: 0.08 },
+        scaleMargins: { top: 0.14, bottom: 0.08 },
       },
       timeScale: {
         borderColor: '#243044',
@@ -382,6 +444,7 @@ export default function PriceChart({
       barCount: initial.length,
       days: daysRef.current,
     });
+    applyAutoscale(series);
     applyPriceLines(series);
     applyVolumeAvgLine(volSeries);
     setChartEpoch((n) => n + 1);
@@ -460,10 +523,11 @@ export default function PriceChart({
     });
   }, [candleBars, chartEpoch, asset?.type, hasVolumePane, days]);
 
-  // Key S/R + spot price lines
+  // Key S/R + spot price lines; expand Y scale to fit higher resistance
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
+    applyAutoscale(series);
     applyPriceLines(series);
   }, [refLevels, spot, chartEpoch]);
 
@@ -564,7 +628,7 @@ export default function PriceChart({
           {hasVolumePane
             ? ' · bars below = daily volume (dashed = 20-day avg)'
             : ''}{' '}
-          · green dashed = key support · red dashed = resistance · white =
+          · green dashed = key support · red dashed = resistance (incl. longer lookbacks) · white =
           spot
         </p>
       </div>
