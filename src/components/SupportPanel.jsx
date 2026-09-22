@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { distanceToLevel } from '../lib/math';
 import {
+  pickKeySupports,
   resolveCoins,
   sellEstimate,
-  supportLevels,
 } from '../lib/levels';
 import { displaySymbol, unitLabel } from '../lib/assets';
 
@@ -18,7 +18,7 @@ export default function SupportPanel({ levels, spot, position, asset }) {
   const units = unitLabel(asset);
 
   const rows = useMemo(() => {
-    const supports = supportLevels(levels, spot);
+    const supports = pickKeySupports(levels, spot);
     return supports.map((lvl) => {
       const dist = distanceToLevel(spot, lvl.price);
       const est = sellEstimate(lvl.price, coins, avgCost, spot);
@@ -31,7 +31,7 @@ export default function SupportPanel({ levels, spot, position, asset }) {
       <div className="card__head">
         <h2>Support</h2>
         <span className="muted">
-          Floors below spot ·{' '}
+          Key floors ·{' '}
           {coins > 0
             ? `${Math.round(coins).toLocaleString()} ${units}`
             : `no ${units}`}
@@ -40,7 +40,9 @@ export default function SupportPanel({ levels, spot, position, asset }) {
 
       <p className="hint">
         <strong>Support</strong> = prices that have often held as a floor —
-        buyers showed up. Suggested stops (below) use these levels. “Profit”
+        buyers showed up. Showing only the most useful levels (nearest, a
+        stronger trough, and optionally a wider structural floor) — not every
+        statistical line. Suggested stops use this same short list. “Profit”
         columns imagine selling the whole {sym} holding at that level vs what
         you paid ({formatPrice(avgCost)}) and vs today’s spot.
       </p>
@@ -68,7 +70,10 @@ export default function SupportPanel({ levels, spot, position, asset }) {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td>{row.name}</td>
+                  <td>
+                    <strong>{row.friendlyLabel}</strong>
+                    <div className="muted small">{row.sourceName || row.name}</div>
+                  </td>
                   <td className="mono">
                     <strong>{formatPrice(row.price)}</strong>
                   </td>

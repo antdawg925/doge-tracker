@@ -1,48 +1,54 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+  CandlestickSeries,
+  ColorType,
+  CrosshairMode,
+  LineStyle,
+  createChart,
+} from 'lightweight-charts';
 import { formatPrice } from '../lib/format';
 import { displaySymbol } from '../lib/assets';
+import { pickKeySupports, resistanceLevels } from '../lib/levels';
 
-const LEVEL_COLORS = {
-  support: '#3ecf8e',
-  resistance: '#f07178',
-  neutral: '#8b9bb4',
-};
+/**
+ * Ensure each bar has usable OHLC. If open is missing, derive from prior
+ * close or the mid of high/low; clamp high/low so the candle is valid.
+ */
+function ensureOhlcBars(bars) {
+  if (!bars?.length) return [];
+  let prevClose = null;
+  return bars
+    .map((bar) => {
+      const close = Number(bar.close);
+      if (!Number.isFinite(close)) return null;
+      let high = Number.isFinite(bar.high) ? Number(bar.high) : close;
+      let low = Number.isFinite(bar.low) ? Number(bar.low) : close;
+      let open = Number.isFinite(bar.open) ? Number(bar.open) : null;
+      if (open == null) {
+        open = Number.isFinite(prevClose) ? prevClose : (high + low) / 2;
+      }
+      high = Math.max(high, open, close);
+      low = Math.min(low, open, close);
+      prevClose = close;
+      const tSec = Math.floor(Number(bar.t) / 1000);
+      return {
+        ...bar,
+        open,
+        high,
+        low,
+        close,
+        time: tSec,
+      };
+    })
+    .filter(Boolean);
+}
 
-function formatAxisDate(ts) {
-  if (!ts) return '';
+function formatAxisDate(tsSec) {
+  if (!tsSec) return '';
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-  }).format(ts);
-}
-
-function ChartTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
-  return (
-    <div className="chart-tooltip">
-      <div className="muted small">{row.date}</div>
-      <div>
-        Close <strong className="mono">{formatPrice(row.close)}</strong>
-      </div>
-      {row.high != null && row.low != null && (
-        <div className="muted small mono">
-          H {formatPrice(row.high)} · L {formatPrice(row.low)}
-        </div>
-      )}
-    </div>
-  );
+  }).format(new Date(tsSec * 1000));
 }
 
 function yTick(v) {
@@ -50,6 +56,16 @@ function yTick(v) {
   if (v >= 1) return v.toFixed(2);
   if (v >= 0.1) return v.toFixed(3);
   return v.toFixed(4);
+}
+
+function toCandleData(bars) {
+  return bars.map((b) => ({
+    time: b.time,
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+  }));
 }
 
 export default function PriceChart({
@@ -63,39 +79,200 @@ export default function PriceChart({
   warning,
   spot,
 }) {
-  const data = useMemo(() => bars || [], [bars]);
+  const containerRef = useRef(null);
+  const chartRef = useRef(null);
+  const seriesRef = useRef(null);
+  const priceLinesRef = useRef([]);
+  const candleBarsRef = useRef([]);
+  const refLevelsRef = useRef([]);
+  const spotRef = useRef(spot);
+  const [hover, setHover] = useState(null);
+  const [chartEpoch, setChartEpoch] = useState(0);
+
+  const candleBars = useMemo(() => ensureOhlcBars(bars), [bars]);
   const sym = displaySymbol(asset);
 
   const refLevels = useMemo(() => {
-    const prefer = new Set([
-      'median',
-      'p25',
-      'p75',
-      'roll20_high',
-      'roll20_low',
-      'swing_high',
-      'swing_low',
-    ]);
-    return (levels || []).filter((l) => prefer.has(l.id)).slice(0, 6);
-  }, [levels]);
+    const supports = pickKeySupports(levels, spot);
+    const resists = resistanceLevels(levels, spot).slice(0, 3);
+    return [
+      ...supports.map((l) => ({
+        id: l.id,
+        price: l.price,
+        type: 'support',
+        label: l.friendlyLabel,
+      })),
+      ...resists.map((l) => ({
+        id: l.id,
+        price: l.price,
+        type: 'resistance',
+        label: l.name,
+      })),
+    ];
+  }, [levels, spot]);
 
-  const yDomain = useMemo(() => {
-    if (!data.length) return ['auto', 'auto'];
-    const lows = data.map((d) =>
-      Number.isFinite(d.low) ? d.low : d.close,
-    );
-    const highs = data.map((d) =>
-      Number.isFinite(d.high) ? d.high : d.close,
-    );
-    const min = Math.min(...lows);
-    const max = Math.max(...highs);
-    const pad = (max - min) * 0.08 || max * 0.02;
-    return [Math.max(0, min - pad), max + pad];
-  }, [data]);
+  candleBarsRef.current = candleBars;
+  refLevelsRef.current = refLevels;
+  spotRef.current = spot;
 
-  const stroke =
-    asset?.type === 'stock' ? '#3d9cf0' : '#c2a633';
-  const fillId = asset?.type === 'stock' ? 'stockFill' : 'cryptoFill';
+  function applyPriceLines(series) {
+    for (const line of priceLinesRef.current) {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        /* chart may already be gone */
+      }
+    }
+    priceLinesRef.current = [];
+
+    for (const lvl of refLevelsRef.current) {
+      if (!Number.isFinite(lvl.price)) continue;
+      const color =
+        lvl.type === 'support'
+          ? 'rgba(62, 207, 142, 0.85)'
+          : 'rgba(240, 113, 120, 0.85)';
+      priceLinesRef.current.push(
+        series.createPriceLine({
+          price: lvl.price,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: lvl.label || '',
+        }),
+      );
+    }
+
+    const s = spotRef.current;
+    if (Number.isFinite(s)) {
+      priceLinesRef.current.push(
+        series.createPriceLine({
+          price: s,
+          color: 'rgba(232, 238, 247, 0.9)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: true,
+          title: 'spot',
+        }),
+      );
+    }
+  }
+
+  // Create / recreate chart when asset type changes (up-candle color)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    const chart = createChart(el, {
+      autoSize: true,
+      height: 280,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#8b9bb4',
+        fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: '#1c2636' },
+        horzLines: { color: '#1c2636' },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: 'rgba(139, 155, 180, 0.45)',
+          labelBackgroundColor: '#182131',
+        },
+        horzLine: {
+          color: 'rgba(139, 155, 180, 0.45)',
+          labelBackgroundColor: '#182131',
+        },
+      },
+      rightPriceScale: {
+        borderColor: '#243044',
+        scaleMargins: { top: 0.08, bottom: 0.08 },
+      },
+      timeScale: {
+        borderColor: '#243044',
+        timeVisible: false,
+      },
+      localization: {
+        priceFormatter: (p) => yTick(p),
+        timeFormatter: (t) => formatAxisDate(t),
+      },
+    });
+
+    const up = asset?.type === 'stock' ? '#3d9cf0' : '#3ecf8e';
+    const down = '#f07178';
+
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: up,
+      downColor: down,
+      borderUpColor: up,
+      borderDownColor: down,
+      wickUpColor: up,
+      wickDownColor: down,
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    const initial = toCandleData(candleBarsRef.current);
+    series.setData(initial);
+    if (initial.length) chart.timeScale().fitContent();
+    applyPriceLines(series);
+    setChartEpoch((n) => n + 1);
+
+    const onMove = (param) => {
+      if (!param?.time || !param.seriesData) {
+        setHover(null);
+        return;
+      }
+      const candle = param.seriesData.get(series);
+      if (!candle || candle.close == null) {
+        setHover(null);
+        return;
+      }
+      const tSec =
+        typeof param.time === 'number'
+          ? param.time
+          : param.time?.timestamp ?? null;
+      setHover({
+        date: tSec
+          ? new Date(tSec * 1000).toISOString().slice(0, 10)
+          : '',
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      });
+    };
+    chart.subscribeCrosshairMove(onMove);
+
+    return () => {
+      chart.unsubscribeCrosshairMove(onMove);
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      priceLinesRef.current = [];
+    };
+  }, [asset?.type]);
+
+  // Push candle data when bars change (or chart was recreated)
+  useEffect(() => {
+    const series = seriesRef.current;
+    const chart = chartRef.current;
+    if (!series || !chart) return;
+    const data = toCandleData(candleBars);
+    series.setData(data);
+    if (data.length) chart.timeScale().fitContent();
+  }, [candleBars, chartEpoch]);
+
+  // Key S/R + spot price lines
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    applyPriceLines(series);
+  }, [refLevels, spot, chartEpoch]);
 
   return (
     <section className="card price-chart">
@@ -120,88 +297,48 @@ export default function PriceChart({
         <p className="error-banner">Could not load history: {error}</p>
       )}
 
-      {loading && !data.length && (
-        <p className="muted chart-empty">Loading daily closes…</p>
+      {loading && !candleBars.length && (
+        <p className="muted chart-empty">Loading daily candles…</p>
       )}
 
-      {!loading && !data.length && !error && (
+      {!loading && !candleBars.length && !error && (
         <p className="muted chart-empty">No daily history yet.</p>
       )}
 
-      {data.length > 0 && (
-        <div className="chart-wrap">
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart
-              data={data}
-              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-            >
-              <defs>
-                <linearGradient id="cryptoFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#c2a633" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#c2a633" stopOpacity={0.02} />
-                </linearGradient>
-                <linearGradient id="stockFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3d9cf0" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#3d9cf0" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#1c2636" strokeDasharray="3 3" />
-              <XAxis
-                dataKey="t"
-                type="number"
-                domain={['dataMin', 'dataMax']}
-                tickFormatter={formatAxisDate}
-                stroke="#8b9bb4"
-                tick={{ fill: '#8b9bb4', fontSize: 11 }}
-                minTickGap={40}
-              />
-              <YAxis
-                domain={yDomain}
-                tickFormatter={yTick}
-                stroke="#8b9bb4"
-                tick={{ fill: '#8b9bb4', fontSize: 11 }}
-                width={64}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="close"
-                stroke={stroke}
-                strokeWidth={2}
-                fill={`url(#${fillId})`}
-                isAnimationActive={false}
-                name="Close"
-              />
-              {refLevels.map((lvl) => (
-                <ReferenceLine
-                  key={lvl.id}
-                  y={lvl.price}
-                  stroke={LEVEL_COLORS[lvl.type] || LEVEL_COLORS.neutral}
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.85}
-                />
-              ))}
-              {spot != null && (
-                <ReferenceLine
-                  y={spot}
-                  stroke="#e8eef7"
-                  strokeWidth={1.5}
-                  label={{
-                    value: 'spot',
-                    fill: '#e8eef7',
-                    fontSize: 11,
-                    position: 'insideTopRight',
-                  }}
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-          <p className="muted small chart-legend">
-            Area = daily close · tooltip shows high/low · green dashed =
-            support · red dashed = resistance · white = spot
-          </p>
+      {/* Keep container mounted so the chart can attach even while loading */}
+      <div
+        className="chart-wrap"
+        style={{ display: candleBars.length ? undefined : 'none' }}
+      >
+        <div className="chart-ohlc" aria-live="polite">
+          {hover ? (
+            <>
+              <span className="muted small">{hover.date}</span>
+              <span>
+                O <strong className="mono">{formatPrice(hover.open)}</strong>
+              </span>
+              <span>
+                H <strong className="mono">{formatPrice(hover.high)}</strong>
+              </span>
+              <span>
+                L <strong className="mono">{formatPrice(hover.low)}</strong>
+              </span>
+              <span>
+                C <strong className="mono">{formatPrice(hover.close)}</strong>
+              </span>
+            </>
+          ) : (
+            <span className="muted small">
+              Hover a candle for open / high / low / close
+            </span>
+          )}
         </div>
-      )}
+        <div ref={containerRef} className="chart-canvas" />
+        <p className="muted small chart-legend">
+          Candles = daily OHLC · green/blue up · red down · green dashed = key
+          support · red dashed = resistance · white = spot
+        </p>
+      </div>
     </section>
   );
 }

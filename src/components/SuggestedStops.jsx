@@ -23,7 +23,8 @@ export default function SuggestedStops({ levels, spot, position }) {
       <p className="hint">
         A <strong>stop</strong> is the price where you’d cut the trade if it
         breaks down — so a small loss doesn’t become a big one. These ideas use
-        support levels (prices that have held before) below today’s spot.
+        the same short list of key supports as the Support panel (nearest /
+        strong / wider) — not every statistical floor.
       </p>
 
       {!spot && (

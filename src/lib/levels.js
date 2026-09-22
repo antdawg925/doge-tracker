@@ -202,27 +202,194 @@ export function positionCoins(dogeValue, spot, avgCost) {
   return 0;
 }
 
-/** Preferred support ids when building stop candidates (order = preference). */
-const STOP_PREFER_IDS = [
+/** Supports only (below spot). */
+export function supportLevels(levels, spot) {
+  if (!levels?.length || !Number.isFinite(spot)) return [];
+  return levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price < spot * 0.998 &&
+        (l.type === 'support' || l.price < spot),
+    )
+    .sort((a, b) => b.price - a.price);
+}
+
+/** Resistances only (above spot). */
+export function resistanceLevels(levels, spot) {
+  if (!levels?.length || !Number.isFinite(spot)) return [];
+  return levels
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) &&
+        l.price > spot * 1.002 &&
+        (l.type === 'resistance' || l.price > spot),
+    )
+    .sort((a, b) => a.price - b.price);
+}
+
+/** Preferred ids when choosing the strong / key support. */
+const KEY_SUPPORT_IDS = [
   'swing_low',
   'p25',
-  'median',
   'roll20_low',
   'mean_minus_1s',
-  'roll50_low',
+  'median',
+];
+
+/** Preferred ids for a wider structural floor. */
+const WIDER_SUPPORT_IDS = [
   'range_low',
+  'roll50_low',
+  'mean_minus_1s',
+  'p25',
+  'swing_low',
 ];
 
 const MIN_MEANINGFUL_PCT = 3; // prefer ≥3% below spot for primary stop
+const DEDUPE_PCT = 0.01; // ~1% of spot = near-identical
 
-function stopFriendlyLabel(index, total, _distPctBelow) {
+function isNear(a, b, spot, pct = DEDUPE_PCT) {
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(spot) || spot <= 0) {
+    return false;
+  }
+  return Math.abs(a - b) / spot < pct;
+}
+
+function stopLabelFromFriendly(friendlyLabel, index, total) {
+  if (friendlyLabel === 'Nearest support') return 'Tight stop (nearest support)';
+  if (friendlyLabel === 'Key support') return 'Key stop (strong support)';
+  if (friendlyLabel === 'Wider support') return 'Wider stop (structural support)';
+  if (friendlyLabel === 'Next support') return 'Mid stop (next support)';
   if (index === 0) return 'Tight stop (nearest support)';
   if (index === total - 1) return 'Wider stop (stronger support)';
   return 'Mid stop (next support)';
 }
 
 /**
- * Suggest stop-loss prices from support levels below spot.
+ * Pick ~2–4 key supports below spot for the Support panel and stops.
+ * Prefers nearest floor, a strong/primary trough (swing / p25 / multi-week low),
+ * and optionally one wider structural support. Dedupes near-identical prices.
+ *
+ * Each item: { ...level, friendlyLabel, sourceName }.
+ */
+export function pickKeySupports(levels, spot) {
+  const below = supportLevels(levels, spot);
+  if (!below.length || !Number.isFinite(spot) || spot <= 0) return [];
+
+  // Deduplicate near-identical prices (keep first = nearest-first order)
+  const deduped = [];
+  for (const l of below) {
+    if (deduped.some((p) => isNear(p.price, l.price, spot))) continue;
+    deduped.push(l);
+  }
+  if (!deduped.length) return [];
+
+  const nearest = deduped[0];
+
+  // Key / strong support: prefer familiar trough markers, ideally ≥3% below
+  let key = null;
+  for (const id of KEY_SUPPORT_IDS) {
+    const hit = deduped.find(
+      (l) => l.id === id && !isNear(l.price, nearest.price, spot),
+    );
+    if (!hit) continue;
+    key = hit;
+    const pctBelow = ((spot - hit.price) / spot) * 100;
+    if (pctBelow >= MIN_MEANINGFUL_PCT) break;
+  }
+  if (!key) {
+    key = deduped.find((l) => {
+      if (isNear(l.price, nearest.price, spot)) return false;
+      return ((spot - l.price) / spot) * 100 >= MIN_MEANINGFUL_PCT;
+    });
+  }
+  if (!key) {
+    key = deduped.find((l) => !isNear(l.price, nearest.price, spot)) || null;
+  }
+
+  const used = [nearest.price];
+  if (key) used.push(key.price);
+
+  // Wider structural support — farthest meaningful distinct floor
+  let wider = null;
+  for (const id of WIDER_SUPPORT_IDS) {
+    const hit = deduped.find(
+      (l) =>
+        l.id === id && used.every((p) => !isNear(p, l.price, spot, 0.012)),
+    );
+    if (hit) {
+      wider = hit;
+      break;
+    }
+  }
+  if (!wider) {
+    for (let i = deduped.length - 1; i >= 0; i -= 1) {
+      const l = deduped[i];
+      if (used.every((p) => !isNear(p, l.price, spot, 0.015))) {
+        wider = l;
+        break;
+      }
+    }
+  }
+
+  const picked = [];
+  const push = (lvl, friendlyLabel) => {
+    if (!lvl) return;
+    if (picked.some((p) => isNear(p.price, lvl.price, spot))) return;
+    if (picked.length >= 4) return;
+    picked.push({
+      ...lvl,
+      friendlyLabel,
+      sourceName: lvl.name,
+    });
+  };
+
+  push(nearest, 'Nearest support');
+  if (key) push(key, 'Key support');
+  if (wider) push(wider, 'Wider support');
+
+  // If only nearest so far but more distinct levels exist, add one more
+  if (picked.length === 1) {
+    const extra = deduped.find((l) => !isNear(l.price, picked[0].price, spot));
+    if (extra) push(extra, 'Key support');
+  }
+
+  // Optional mid between key and wider when gap is large and we have room
+  if (picked.length === 2 && deduped.length >= 3) {
+    const hi = picked[0].price;
+    const lo = picked[picked.length - 1].price;
+    const mid = deduped.find((l) => {
+      if (picked.some((p) => isNear(p.price, l.price, spot))) return false;
+      return l.price < hi && l.price > lo;
+    });
+    if (mid && ((hi - lo) / spot) >= 0.06) {
+      push(mid, 'Next support');
+    }
+  }
+
+  picked.sort((a, b) => b.price - a.price);
+
+  // Normalize dad-friendly labels by rank
+  if (picked.length === 2) {
+    picked[0].friendlyLabel = 'Nearest support';
+    picked[1].friendlyLabel = 'Key support';
+  } else if (picked.length === 3) {
+    picked[0].friendlyLabel = 'Nearest support';
+    picked[1].friendlyLabel = 'Key support';
+    picked[2].friendlyLabel = 'Wider support';
+  } else if (picked.length >= 4) {
+    picked[0].friendlyLabel = 'Nearest support';
+    picked[1].friendlyLabel = 'Key support';
+    picked[2].friendlyLabel = 'Next support';
+    picked[3].friendlyLabel = 'Wider support';
+  }
+
+  return picked.slice(0, 4);
+}
+
+/**
+ * Suggest stop-loss prices aligned with the simplified key supports.
  * Returns { candidates, primaryId } for dad-friendly stop UI.
  */
 export function suggestStops(levels, spot, coins, avgCost) {
@@ -230,58 +397,9 @@ export function suggestStops(levels, spot, coins, avgCost) {
     return { candidates: [], primaryId: null };
   }
 
-  // Supports meaningfully below spot (~0.2%+ to skip noise at the mark)
-  const below = levels
-    .filter(
-      (l) =>
-        Number.isFinite(l.price) &&
-        l.price > 0 &&
-        l.price < spot * 0.998 &&
-        (l.type === 'support' || l.price < spot),
-    )
-    .sort((a, b) => b.price - a.price); // nearest first
-
-  if (!below.length) {
+  const unique = pickKeySupports(levels, spot);
+  if (!unique.length) {
     return { candidates: [], primaryId: null };
-  }
-
-  // Prefer known support markers; fill with nearest others up to 4
-  const picked = [];
-  const used = new Set();
-
-  for (const id of STOP_PREFER_IDS) {
-    const hit = below.find((l) => l.id === id && !used.has(l.id));
-    if (hit) {
-      picked.push(hit);
-      used.add(hit.id);
-    }
-  }
-  for (const l of below) {
-    if (picked.length >= 4) break;
-    if (used.has(l.id)) continue;
-    // Skip near-duplicates of already picked (~1%)
-    const near = picked.some(
-      (p) => Math.abs(p.price - l.price) / spot < 0.01,
-    );
-    if (near) continue;
-    picked.push(l);
-    used.add(l.id);
-  }
-
-  // Ensure nearest support is always included
-  if (!used.has(below[0].id)) {
-    picked.unshift(below[0]);
-  }
-
-  // Sort nearest → farthest, cap at 4
-  picked.sort((a, b) => b.price - a.price);
-  const unique = [];
-  for (const l of picked) {
-    if (unique.length >= 4) break;
-    const near = unique.some(
-      (p) => Math.abs(p.price - l.price) / spot < 0.008,
-    );
-    if (!near) unique.push(l);
   }
 
   const c = Number.isFinite(coins) && coins > 0 ? coins : 0;
@@ -295,20 +413,20 @@ export function suggestStops(levels, spot, coins, avgCost) {
       c > 0 && costPer != null ? c * (lvl.price - costPer) : null;
     return {
       id: lvl.id,
-      name: lvl.name,
+      name: lvl.sourceName || lvl.name,
       price: lvl.price,
       distPct,
       distPctBelow,
       riskVsSpot,
       riskVsCost,
-      label: stopFriendlyLabel(index, unique.length, distPctBelow),
+      label: stopLabelFromFriendly(lvl.friendlyLabel, index, unique.length),
+      friendlyLabel: lvl.friendlyLabel,
     };
   });
 
   // Primary: closest support ≥ ~3% below spot (noise buffer); else nearest.
-  // Prefer a ≥5% support when it is the first meaningful one found.
   const primary =
-    candidates.find((c) => c.distPctBelow >= MIN_MEANINGFUL_PCT) ||
+    candidates.find((x) => x.distPctBelow >= MIN_MEANINGFUL_PCT) ||
     candidates[0] ||
     null;
 
@@ -479,31 +597,6 @@ export function suggestResistance(
   };
 }
 
-/** Supports only (below spot). */
-export function supportLevels(levels, spot) {
-  if (!levels?.length || !Number.isFinite(spot)) return [];
-  return levels
-    .filter(
-      (l) =>
-        Number.isFinite(l.price) &&
-        l.price < spot * 0.998 &&
-        (l.type === 'support' || l.price < spot),
-    )
-    .sort((a, b) => b.price - a.price);
-}
-
-/** Resistances only (above spot). */
-export function resistanceLevels(levels, spot) {
-  if (!levels?.length || !Number.isFinite(spot)) return [];
-  return levels
-    .filter(
-      (l) =>
-        Number.isFinite(l.price) &&
-        l.price > spot * 1.002 &&
-        (l.type === 'resistance' || l.price > spot),
-    )
-    .sort((a, b) => a.price - b.price);
-}
 
 /** Find local swing highs (peaks) with `lookback` bars on each side. */
 export function findSwingHighs(values, lookback = 5) {

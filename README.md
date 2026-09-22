@@ -77,9 +77,9 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 ## Features
 
 - Live spot + 24h change
-- Daily chart (30d / 90d) with key S/R markers (recharts)
+- Daily **candlestick** chart (30d / 90d) with key S/R markers ([lightweight-charts](https://tradingview.github.io/lightweight-charts/))
 - **Suggested stop losses** from supports below spot (own section)
-- **Support** panel — levels below spot
+- **Support** panel — **2–4 key floors** only (nearest / key / wider), not a long laundry list
 - **Resistance** panel — multi-timeframe ceilings from **long history** (chart can stay on 30/90):
   - Groups: **6M**, **1Y**, **5Y+** (or max available if the free API caps shorter)
   - Per TF: period high, swing / major peaks, 75th pct, median close
@@ -91,8 +91,8 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 
 ## How stops are chosen
 
-1. Statistical supports from daily history that sit **below** spot.
-2. Prefer familiar markers (swing low, 25th pct, median, 20d/50d lows…); up to ~4 levels.
+1. Same **key supports** as the Support panel (nearest, strong trough, optional wider floor) — not every statistical line.
+2. Prefer familiar markers (swing low, 25th pct, multi-week / range lows); **2–4** levels max, deduped.
 3. **Primary stop** = closest support at least ~**3%** below spot when available.
 4. Each card: price, % below spot, $ risk vs spot and vs cost.
 
@@ -118,6 +118,10 @@ Support / suggested stops still use the chart lookback (30d / 90d). **Resistance
 When 5 years isn’t available, the UI labels the long bucket honestly, e.g. **Max (~2y)**, with a soft warning. Rate limits (429) keep the last good long-history cache.
 
 Hook: `useLongHistory` → `fetchLongDailyBars` → `buildTfBarSets` → `buildMultiTfResistance`.
+
+## Chart library
+
+Daily price view uses **TradingView [lightweight-charts](https://tradingview.github.io/lightweight-charts/)** candlesticks (OHLC) on the dark theme. Hover shows open / high / low / close. Day-range toggle remains **30d / 90d**. (Earlier versions used a recharts area/line chart.)
 
 ## Project layout
 
