@@ -43,11 +43,7 @@ export function displaySymbol(asset) {
   return (asset?.symbol || '—').toUpperCase();
 }
 
-/** Sensible empty defaults when switching to a new symbol. */
-export function emptyPositionFor(asset) {
-  if (asset?.type === 'stock') {
-    return { coins: 10, avgCost: 100, targetPrice: 150 };
-  }
-  // Crypto: leave small illustrative amounts; DOGE keeps classic defaults elsewhere
-  return { coins: 100, avgCost: 1, targetPrice: 2 };
+/** Blank position fields when researching / switching symbols. */
+export function emptyPositionFor(_asset) {
+  return { coins: 0, avgCost: 0, targetPrice: 0 };
 }

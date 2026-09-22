@@ -19,7 +19,7 @@ import {
   positionFor,
   saveAppState,
 } from '../lib/defaults';
-import { assetKey } from '../lib/assets';
+import { assetKey, emptyPositionFor } from '../lib/assets';
 import { computeLevels } from '../lib/levels';
 
 export default function Home() {
@@ -79,9 +79,13 @@ export default function Home() {
   const onSelectAsset = useCallback((nextAsset) => {
     setAppState((prev) => {
       const key = assetKey(nextAsset);
+      const prevKey = assetKey(prev.selected);
       const positions = { ...prev.positions };
-      if (!positions[key]) {
-        positions[key] = defaultPositionFor(nextAsset);
+      // New lookup → clear shares / avg cost / target for a fresh research form
+      if (key !== prevKey) {
+        positions[key] = emptyPositionFor(nextAsset);
+      } else if (!positions[key]) {
+        positions[key] = emptyPositionFor(nextAsset);
       }
       return { selected: nextAsset, positions };
     });
