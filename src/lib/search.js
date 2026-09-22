@@ -4,6 +4,65 @@ import { fetchCoinGeckoJson } from './coingecko.js';
 import { searchYahoo } from './yahoo.js';
 
 /**
+ * Tickers that are overwhelmingly equities/ETFs. Same-symbol CoinGecko coins
+ * should not outrank Yahoo stock hits for these.
+ */
+const KNOWN_STOCK_TICKERS = new Set([
+  'SPY',
+  'QQQ',
+  'IWM',
+  'DIA',
+  'VTI',
+  'VOO',
+  'TQQQ',
+  'SQQQ',
+  'IVV',
+  'VEA',
+  'IEFA',
+  'AGG',
+  'BND',
+  'GLD',
+  'SLV',
+  'XLF',
+  'XLE',
+  'XLK',
+  'ARKK',
+  'AAPL',
+  'MSFT',
+  'GOOG',
+  'GOOGL',
+  'AMZN',
+  'META',
+  'NVDA',
+  'TSLA',
+  'BRK.B',
+  'BRK-B',
+  'JPM',
+  'V',
+  'MA',
+  'UNH',
+  'JNJ',
+  'WMT',
+  'XOM',
+  'CVX',
+]);
+
+/** Top-N CoinGecko market-cap ranks treated as "real" coins for ambiguous tickers. */
+const HIGH_CRYPTO_RANK = 50;
+
+function isEquityLike(item) {
+  if (item?.type !== 'stock') return false;
+  const qt = String(item.quoteType || '').toUpperCase();
+  return (
+    qt === 'EQUITY' ||
+    qt === 'ETF' ||
+    qt === 'MUTUALFUND' ||
+    qt === 'INDEX' ||
+    !qt
+  );
+}
+
+/**
  * Search both sources in parallel. Returns mixed list with `type` labels.
  * Soft-fails per source so one outage doesn't blank results.
  */
@@ -59,19 +118,50 @@ export async function searchSymbols(query, { signal, limit = 6 } = {}) {
   crypto = c;
   stocks = s;
 
-  // Interleave: prefer exact symbol matches first across both
   const upper = q.toUpperCase();
+  const exactStockSymbols = new Set(
+    stocks.filter((item) => item.symbol === upper).map((item) => item.symbol),
+  );
+  const knownStockQuery = KNOWN_STOCK_TICKERS.has(upper);
+
+  // Drop CoinGecko hits that only collide on ticker when Yahoo has an exact
+  // equity/ETF, or the query is a known mega stock/ETF (SPY/QQQ/…). Keep a
+  // same-symbol coin only if there is no stock exact and rank is very high.
+  const filteredCrypto = crypto.filter((item) => {
+    if (item.symbol !== upper) return true;
+    if (exactStockSymbols.has(item.symbol) || knownStockQuery) return false;
+    const rank = item.marketCapRank;
+    if (rank != null && rank > 0 && rank <= HIGH_CRYPTO_RANK) return true;
+    // Ambiguous low-rank coin with no stock exact — still show (user can pick)
+    return true;
+  });
+
   const score = (item) => {
     let s = 0;
-    if (item.symbol === upper) s += 100;
+    const exact = item.symbol === upper;
+    if (exact) s += 100;
     else if (item.symbol?.startsWith(upper)) s += 50;
-    if (item.type === 'crypto' && item.marketCapRank != null) {
-      s += Math.max(0, 30 - Math.min(30, item.marketCapRank));
+
+    if (item.type === 'stock') {
+      // Exact-match stocks beat exact-match crypto
+      if (exact) s += 40;
+      if (isEquityLike(item)) s += 25;
+      const qt = String(item.quoteType || '').toUpperCase();
+      if (qt === 'ETF' || qt === 'EQUITY') s += 10;
+      if (KNOWN_STOCK_TICKERS.has(item.symbol)) s += 50;
+    } else if (item.type === 'crypto') {
+      if (item.marketCapRank != null) {
+        s += Math.max(0, 30 - Math.min(30, item.marketCapRank));
+      }
+      if (exact && exactStockSymbols.has(item.symbol)) s -= 80;
+      if (KNOWN_STOCK_TICKERS.has(item.symbol)) s -= 100;
     }
     return s;
   };
 
-  const merged = [...crypto, ...stocks].sort((a, b) => score(b) - score(a));
+  const merged = [...filteredCrypto, ...stocks].sort(
+    (a, b) => score(b) - score(a),
+  );
 
   return { results: merged.slice(0, limit * 2), warnings };
 }

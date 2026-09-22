@@ -55,9 +55,13 @@ export default function SymbolSearch({ asset, onSelect }) {
     const exact = hits.filter((h) => h.symbol === upper);
     if (exact.length === 1) return exact[0];
     if (exact.length > 1) {
-      // Prefer crypto if current asset is crypto, else first exact
-      const prefer = asset?.type || 'crypto';
-      return exact.find((h) => h.type === prefer) || exact[0];
+      // Always prefer stock/ETF over crypto when both share the ticker
+      // (e.g. SPY/QQQ must not auto-pick a CoinGecko coin while on DOGE).
+      return (
+        exact.find((h) => h.type === 'stock') ||
+        exact.find((h) => h.type === 'crypto') ||
+        exact[0]
+      );
     }
     if (hits.length === 1) return hits[0];
     return null;
