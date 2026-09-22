@@ -24,7 +24,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
         A <strong>stop</strong> is the price where you’d cut the trade if it
         breaks down — so a small loss doesn’t become a big one. These ideas use
         the same condensed Top supports as the Support panel — not every
-        statistical floor.
+        statistical floor. Risk is measured from <strong>today’s price</strong>.
       </p>
 
       {!spot && (
@@ -42,6 +42,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
         <ul className="stop-list">
           {candidates.map((s) => {
             const isPrimary = s.id === primaryId;
+            const riskUsd = s.riskVsSpot;
             return (
               <li
                 key={s.id}
@@ -63,40 +64,14 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
                 {s.why && <p className="stop-card__why muted small">{s.why}</p>}
 
                 <div className="stop-card__meta">
-                  <span>{formatPct(-s.distPctBelow, 1)} below spot</span>
+                  <span>{formatPct(-s.distPctBelow, 1)} below today</span>
                   <span className="muted">·</span>
-                  <span
-                    className={
-                      s.riskVsSpot == null
-                        ? ''
-                        : s.riskVsSpot <= 0
-                          ? 'neg'
-                          : 'pos'
-                    }
-                  >
-                    {s.riskVsSpot == null
-                      ? '—'
-                      : `${formatUsd(s.riskVsSpot, {
-                          sign: true,
+                  <span className={riskUsd == null ? 'muted' : 'neg'}>
+                    {riskUsd == null
+                      ? 'Risk from here: —'
+                      : `Risk from here: lose about ${formatUsd(Math.abs(riskUsd), {
                           decimals: 0,
-                        })} vs spot`}
-                  </span>
-                  <span className="muted">·</span>
-                  <span
-                    className={
-                      s.riskVsCost == null
-                        ? ''
-                        : s.riskVsCost >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }
-                  >
-                    {s.riskVsCost == null
-                      ? '—'
-                      : `${formatUsd(s.riskVsCost, {
-                          sign: true,
-                          decimals: 0,
-                        })} vs cost`}
+                        })} (${s.distPctBelow.toFixed(1)}%) from today`}
                   </span>
                 </div>
 

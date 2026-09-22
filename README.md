@@ -83,10 +83,10 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 - Soft note when a crypto history source lacks volume (price candles still render)
 - **Momentum / pattern stage box** near the top (estimated 1–7 stage, tradability hint, RVOL / structure chips) — pattern context only
 - **Suggested stop losses** aligned with the same Top supports (own section)
-- **Support** panel — **Top 5** floors with a one-sentence why each (nearest structural, 20d/50d-ish, 6M / 1Y / max lows when available)
+- **Support** panel — **Top 5** floors with a one-sentence why each and **risk from today** (nearest structural, 20d/50d-ish, 6M / 1Y / max lows when available)
 - **Resistance** panel — **Top 5** ceilings with a one-sentence why each, mixed from long history (6M / 1Y / max):
   - Condensed list (not a dump of every TF row)
-  - Each level: price, % above spot, $ upside vs spot & cost, brief significance note
+  - Each level: price, % above today, upside from today ($ and %), brief significance note
   - Optional secondary comparison of 6M / 1Y / 5Y+ period highs
   - Primary **trim zone** weighted toward longer TF significance (1Y / 5Y+)
   - Clear note when spot is near ATH / top of available history
@@ -97,7 +97,7 @@ Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
 1. Same **Top 5 supports** as the Support panel — not every statistical line.
 2. Prefer familiar markers across timeframes (swing low, 20d/50d, 6M / 1Y / max lows); **≤5** levels, deduped.
 3. **Primary stop** = closest support at least ~**3%** below spot when available.
-4. Each card: price, % below spot, $ risk vs spot and vs cost (plus the same one-line why when available).
+4. Each card: price, % below today, risk from today ($ and %) — not vs cost (plus the same one-line why when available).
 
 
 ## Multi-timeframe resistance

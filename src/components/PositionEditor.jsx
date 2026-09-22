@@ -130,7 +130,7 @@ export default function PositionEditor({
             </dd>
           </div>
           <div>
-            <dt>P&amp;L vs cost</dt>
+            <dt>P&amp;L vs average cost</dt>
             <dd
               className={`mono ${
                 m.atTargetPnl == null
