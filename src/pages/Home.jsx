@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from '../components/Header';
 import SymbolSearch from '../components/SymbolSearch';
+import Watchlist from '../components/Watchlist';
 import StageBox from '../components/StageBox';
 import PriceCard from '../components/PriceCard';
 import PriceChart from '../components/PriceChart';
@@ -22,9 +23,16 @@ import {
 import { assetKey, emptyPositionFor } from '../lib/assets';
 import { computeLevels } from '../lib/levels';
 
+function upsertWatchlist(list, asset) {
+  const key = assetKey(asset);
+  if (list.some((a) => assetKey(a) === key)) return list;
+  return [...list, { ...asset }];
+}
+
 export default function Home() {
   const [appState, setAppState] = useState(() => loadAppState());
   const asset = appState.selected;
+  const watchlist = appState.watchlist || [];
   const position = positionFor(appState.positions, asset);
 
   const {
@@ -63,9 +71,10 @@ export default function Home() {
   const setPosition = useCallback((next) => {
     setAppState((prev) => {
       const key = assetKey(prev.selected);
-      const value = typeof next === 'function'
-        ? next(positionFor(prev.positions, prev.selected))
-        : next;
+      const value =
+        typeof next === 'function'
+          ? next(positionFor(prev.positions, prev.selected))
+          : next;
       return {
         ...prev,
         positions: {
@@ -87,8 +96,28 @@ export default function Home() {
       } else if (!positions[key]) {
         positions[key] = emptyPositionFor(nextAsset);
       }
-      return { selected: nextAsset, positions };
+      const list = Array.isArray(prev.watchlist) ? prev.watchlist : [];
+      return {
+        selected: nextAsset,
+        positions,
+        watchlist: upsertWatchlist(list, nextAsset),
+      };
     });
+  }, []);
+
+  const onAddToWatchlist = useCallback(() => {
+    setAppState((prev) => ({
+      ...prev,
+      watchlist: upsertWatchlist(prev.watchlist || [], prev.selected),
+    }));
+  }, []);
+
+  const onRemoveFromWatchlist = useCallback((target) => {
+    const key = assetKey(target);
+    setAppState((prev) => ({
+      ...prev,
+      watchlist: (prev.watchlist || []).filter((a) => assetKey(a) !== key),
+    }));
   }, []);
 
   const onReset = useCallback(() => {
@@ -107,22 +136,32 @@ export default function Home() {
   );
 
   return (
-    <div className="app">
-      <Header
-        asset={asset}
-        lastUpdated={lastUpdated}
-        loading={loading}
-        error={error}
-        warning={warning}
-        onRefresh={onRefreshAll}
-      />
+    <div className="desk-body">
+      <div className="desk-top">
+        <SymbolSearch asset={asset} onSelect={onSelectAsset} />
+        <Header
+          asset={asset}
+          lastUpdated={lastUpdated}
+          loading={loading}
+          error={error}
+          warning={warning}
+          onRefresh={onRefreshAll}
+        />
+      </div>
 
-      <SymbolSearch asset={asset} onSelect={onSelectAsset} />
+      <div className="desk-workspace">
+        <aside className="desk-sidebar">
+          <Watchlist
+            items={watchlist}
+            selected={asset}
+            onSelect={onSelectAsset}
+            onAddCurrent={onAddToWatchlist}
+            onRemove={onRemoveFromWatchlist}
+          />
+        </aside>
 
-      <StageBox bars={bars} asset={asset} loading={histLoading} />
-
-      <main className="layout">
-        <div className="layout__primary">
+        <main className="desk-main">
+          <StageBox bars={bars} asset={asset} loading={histLoading} />
           <PriceCard
             asset={asset}
             price={price}
@@ -132,7 +171,6 @@ export default function Home() {
             warning={warning}
             source={source}
           />
-          <PositionSummary position={position} spot={price} asset={asset} />
           <PriceChart
             asset={asset}
             bars={bars}
@@ -167,8 +205,11 @@ export default function Home() {
             warning={longWarning}
             chartLevels={levels}
           />
-        </div>
-        <aside className="layout__side">
+          <Disclaimer />
+        </main>
+
+        <aside className="desk-aside">
+          <PositionSummary position={position} spot={price} asset={asset} />
           <PositionEditor
             position={position}
             spot={price}
@@ -177,9 +218,7 @@ export default function Home() {
             onReset={onReset}
           />
         </aside>
-      </main>
-
-      <Disclaimer />
+      </div>
     </div>
   );
 }

@@ -27,7 +27,7 @@ export function defaultPositionFor(asset) {
 }
 
 /**
- * Load app state: selected asset + positions map keyed by assetKey().
+ * Load app state: selected asset + positions map + watchlist.
  * Migrates legacy v1 single-position DOGE storage.
  */
 export function loadAppState() {
@@ -53,6 +53,7 @@ export function loadAppState() {
         positions: {
           [assetKey(asset)]: { ...DEFAULTS, ...pos },
         },
+        watchlist: [{ ...asset }],
       };
     }
   } catch {
@@ -64,19 +65,45 @@ export function loadAppState() {
     positions: {
       [assetKey(DEFAULT_ASSET)]: { ...DEFAULTS },
     },
+    watchlist: [{ ...DEFAULT_ASSET }],
   };
+}
+
+function normalizeAsset(raw) {
+  if (!raw || !raw.symbol) return null;
+  return {
+    symbol: String(raw.symbol).toUpperCase(),
+    name: raw.name || raw.symbol,
+    type: raw.type === 'stock' ? 'stock' : 'crypto',
+    id: raw.id || undefined,
+  };
+}
+
+function normalizeWatchlist(raw, selected) {
+  const out = [];
+  const seen = new Set();
+  const push = (asset) => {
+    if (!asset) return;
+    const key = assetKey(asset);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(asset);
+  };
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      push(normalizeAsset(item));
+    }
+  }
+
+  // Ensure selected is on the list so the rail isn't empty after migrate
+  push(selected);
+  return out;
 }
 
 function normalizeState(raw) {
   const selected =
-    raw?.selected && raw.selected.symbol
-      ? {
-          symbol: String(raw.selected.symbol).toUpperCase(),
-          name: raw.selected.name || raw.selected.symbol,
-          type: raw.selected.type === 'stock' ? 'stock' : 'crypto',
-          id: raw.selected.id || undefined,
-        }
-      : { ...DEFAULT_ASSET };
+    normalizeAsset(raw?.selected) || { ...DEFAULT_ASSET };
 
   const positions = {};
   if (raw?.positions && typeof raw.positions === 'object') {
@@ -95,7 +122,9 @@ function normalizeState(raw) {
     positions[key] = defaultPositionFor(selected);
   }
 
-  return { selected, positions };
+  const watchlist = normalizeWatchlist(raw?.watchlist, selected);
+
+  return { selected, positions, watchlist };
 }
 
 export function saveAppState(state) {
@@ -105,6 +134,7 @@ export function saveAppState(state) {
       JSON.stringify({
         selected: state.selected,
         positions: state.positions,
+        watchlist: Array.isArray(state.watchlist) ? state.watchlist : [],
       }),
     );
   } catch {

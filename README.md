@@ -1,20 +1,20 @@
-# Position Tracker (crypto & stocks)
+# Trade Desk (doge-tracker)
 
-A small Vite + React dashboard for sharing a **simple position** with non-traders: what you hold, what you paid, where you’d take profit, where support/resistance sit, and where you’d set a stop.
+Vite + React **Trade Desk** — a StocksToTrade-lite workspace for researching crypto and stocks: momentum stage, candles + volume/RVOL, top support/resistance with why-notes, suggested stops, and a right-rail position editor.
 
-Default symbol is **DOGE** (crypto). Search any crypto (CoinGecko) or stock/ETF (Yahoo) — e.g. BTC, ETH, AAPL, TSLA.
+Package name stays `doge-tracker`. Default symbol is **DOGE** (crypto). Search any crypto (CoinGecko) or stock/ETF (Yahoo).
 
 **Not investment advice.** Numbers are editable defaults for a personal plan — **not** live brokerage positions.
 
 ## Quick start
 
 ```bash
-cd /workspace/doge-tracker
+cd /workspace/doge-tracker   # or clone https://github.com/antdawg925/doge-tracker
 npm install
 npm run dev
 ```
 
-Then open the URL Vite prints (usually `http://localhost:5173`). The app redirects `/` → `/home`, so you can also open `http://localhost:5173/home` directly.
+Open the URL Vite prints (usually `http://localhost:5173`). `/` redirects to `/home`.
 
 ```bash
 npm run build
@@ -26,50 +26,47 @@ npm run preview   # optional local preview of dist/
 | Path | Page |
 | --- | --- |
 | `/` | Redirects to `/home` |
-| `/home` | Main position tracker (current UI) |
+| `/home` | **Desk** — watchlist + analysis workspace |
+| `/scanner` | Placeholder (Milestone 2 — % change / RVOL scan) |
+| `/alerts` | Placeholder (Milestone 2 — price / stage / RVOL alerts) |
 
-More pages can be added under `src/pages/` and wired in `src/App.jsx`.
+Shared chrome: `AppLayout` (brand **Trade Desk** + nav). Desk workspace: left **Watchlist** (persisted), center analysis widgets, right position summary/editor.
 
 ### VS Code / editor notes
 
-If you open deep links like `/home` while the Vite dev server is running, they work out of the box (Vite’s SPA history fallback). For production hosts, configure an SPA rewrite so unknown paths serve `index.html` (see Deploy note below). In VS Code Simple Browser or Live Preview, prefer the Vite URL (`npm run dev`) rather than opening `dist/index.html` as a file.
+Deep links like `/home` work with Vite’s SPA history fallback. For production hosts, configure an SPA rewrite so unknown paths serve `index.html`. Prefer `npm run dev` over opening `dist/index.html` as a file.
 
 ### Deploy note (SPA)
 
-Vite’s dev server already falls back to `index.html` for client-side routes. When you deploy `dist/` later, configure your host the same way (e.g. Netlify `_redirects` `/* /index.html 200`, nginx `try_files $uri /index.html`, GitHub Pages 404.html trick, etc.) so `/home` and future routes load the app instead of a 404.
+When you deploy `dist/` later, configure your host for SPA fallback (e.g. Netlify `_redirects` `/* /index.html 200`, nginx `try_files $uri /index.html`). **This repo does not auto-deploy for Milestone 1.**
 
-## Symbol search
+## Symbol search & watchlist
 
-Type a ticker or name, then press **Enter** or click **Search** (lookup does not run on hover or while typing alone). Results are labeled **Crypto** vs **Stock**. Selecting one:
+Type a ticker or name, then press **Enter** or click **Search**. Selecting a symbol:
 
-1. Stores `{ symbol, name, type: 'crypto'|'stock', id? }` (`id` = CoinGecko coin id for crypto)
-2. Refetches live spot + daily history
-3. Recomputes support / resistance / suggested stops
-4. Loads that symbol’s saved position fields from `localStorage` (or sensible defaults)
+1. Loads `{ symbol, name, type: 'crypto'|'stock', id? }`
+2. Auto-adds it to the **Watchlist** (left rail) if missing
+3. Clears shares / avg cost / target when the asset key changes (fresh research form)
+4. Refetches spot + history and recomputes S/R / stops
+
+Watchlist + positions persist in `localStorage` key `doge-tracker-state-v2` (`selected`, `positions`, `watchlist`).
 
 ### How symbol resolution works
 
 | Type | Search | Spot | History |
 | --- | --- | --- | --- |
-| **Crypto** | CoinGecko `/search?query=` | CoinGecko `/simple/price?ids=` → **Kraken** ticker (mapped pairs) → Yahoo `SYMBOL-USD` | Short chart: CoinGecko `market_chart` / `ohlc`; **Kraken** fallback. Long resistance: CoinGecko `days=max`/`365` + Kraken (~720d) — see Multi-timeframe resistance |
-| **Stock** | Yahoo `/v1/finance/search?q=` | Yahoo chart meta only (`regularMarketPrice` + previous close → 24h %) — never CoinGecko | Yahoo chart `range=1mo\|3mo` (display); `6mo\|1y\|5y` for multi-TF resistance |
+| **Crypto** | CoinGecko `/search` | CoinGecko → Kraken → Yahoo `SYMBOL-USD` | CoinGecko / Kraken (+ long TF for resistance) |
+| **Stock** | Yahoo search | Yahoo chart meta | Yahoo chart ranges |
 
-Vite proxies (CORS + Yahoo User-Agent):
-
-- `/api/coingecko/*` → `api.coingecko.com/api/v3/*`
-- `/api/kraken/*` → `api.kraken.com/*`
-- `/api/yahoo/*` → `query1.finance.yahoo.com/*`
-- `/api/yahoo-search/*` → `query2.finance.yahoo.com/*`
+Vite proxies: `/api/coingecko/*`, `/api/kraken/*`, `/api/yahoo/*`, `/api/yahoo-search/*`.
 
 ### Free-tier rate limits (429)
 
-CoinGecko’s public/demo tier often returns **HTTP 429** when you scan many symbols. Spot fetch **limits CoinGecko retries (1–2 attempts)** and **falls back** to Kraken (when a USD pair is mapped: DOGE, BTC/XBT, ETH, SOL, …) then Yahoo crypto charts (`DOGE-USD`, `BTC-USD`, …). Stocks stay on Yahoo only.
+CoinGecko often returns **HTTP 429**. Spot limits retries and falls back to Kraken/Yahoo. Soft warning, keep last good cache. Wait before hammering Search.
 
-On 429 / network errors: soft warning (not a hard crash), keep last good cache, slower poll. Successful fallbacks may show a brief “via Kraken/Yahoo” note. **Refresh** retries spot + history — if rate-limited, wait a minute or two before hammering Search again.
+## Position model (three inputs)
 
-## Shareable model (three inputs)
-
-Right-side editor (labels adapt to coins vs shares):
+Right-side editor:
 
 | Field | Meaning |
 | --- | --- |
@@ -77,95 +74,40 @@ Right-side editor (labels adapt to coins vs shares):
 | **Average cost** | $ per unit paid |
 | **Target price** | Take-profit idea ($ per unit) |
 
-Derived: position value, cost basis, unrealized P&L, value/P&L if target hits.
-
-### Persistence
-
-`localStorage` key `doge-tracker-state-v2`:
-
-```json
-{
-  "selected": { "symbol": "DOGE", "name": "Dogecoin", "type": "crypto", "id": "dogecoin" },
-  "positions": {
-    "crypto:dogecoin": { "coins": 24324, "avgCost": 0.074, "targetPrice": 0.2 },
-    "stock:AAPL": { "coins": 10, "avgCost": 180, "targetPrice": 220 }
-  }
-}
-```
-
-Legacy `doge-tracker-position-v1` migrates into the DOGE entry automatically.
-
-## Features
+## Features (Desk / V1)
 
 - Live spot + 24h change
-- Daily **candlestick** chart (30d / 90d) with key S/R markers ([lightweight-charts](https://tradingview.github.io/lightweight-charts/))
-- **Volume** histogram under the candles (green/red by candle direction) + optional **20-day average** line
-- Dad-friendly **volume strip**: today’s volume, 20-day average, **RVOL** (Quiet / Normal / Elevated / Very high), and a short rising/fading hint
-- Soft note when a crypto history source lacks volume (price candles still render)
-- **Momentum / pattern stage box** near the top (estimated 1–7 stage, tradability hint, RVOL / structure chips) — pattern context only
-- **Suggested stop losses** aligned with the same Top supports (own section)
-- **Support** panel — **Top 5** floors with a one-sentence why each and **risk from here** (nearest structural, 20d/50d-ish, 6M / 1Y / max lows when available)
-  - With a holding (qty + avg cost): **$ and % vs average cost** for the whole position
-  - Researching only (no shares or no avg cost): **% below today** only — no invented dollars
-- **Resistance** panel — **Top 5** ceilings with a one-sentence why each, mixed from long history (6M / 1Y / max):
-  - Condensed list (not a dump of every TF row)
-  - Each level: price, % above today, plus **Upside from here** (with a holding: $ and % vs average cost; otherwise % from today only)
-  - Optional secondary comparison of 6M / 1Y / 5Y+ period highs
-  - Primary **trim zone** weighted toward longer TF significance (1Y / 5Y+)
-  - Clear note when spot is near ATH / top of available history
-- Plain-language copy — not a pro terminal
-
-## How stops are chosen
-
-1. Same **Top 5 supports** as the Support panel — not every statistical line.
-2. Prefer familiar markers across timeframes (swing low, 20d/50d, 6M / 1Y / max lows); **≤5** levels, deduped.
-3. **Primary stop** = closest support at least ~**3%** below spot when available.
-4. Each card: price, % below today, plus **Risk from here** — with a holding: $ and % **vs average cost**; researching only: % below today (no invented dollars). Same one-line why when available.
-
-
-## Multi-timeframe resistance
-
-Support / suggested stops still use the chart lookback (30d / 90d). **Resistance** loads a separate long daily series and slices it:
-
-| Bucket | Target lookback | Typical source |
-| --- | --- | --- |
-| **6M** | ~180 trading days | Slice of long series |
-| **1Y** | ~365 days | Slice of long series |
-| **5Y+** | ~1825 days | Full long series (or max available) |
-
-### API range limits (discovered)
-
-| Asset type | Source | Practical max history |
-| --- | --- | --- |
-| **Stocks** | Yahoo `range=5y` | Full ~5 years (~1825 calendar days) |
-| **Crypto** | CoinGecko `market_chart` (free / demo) | Often capped around **~365 days** (`days=max` / long ints may still truncate) |
-| **Crypto** | Kraken public OHLC `interval=1440` | **~720 daily bars** (~2 years) — used when longer than CoinGecko or on 429 |
-
-When 5 years isn’t available, the UI labels the long bucket honestly, e.g. **Max (~2y)**, with a soft warning. Rate limits (429) keep the last good long-history cache.
-
-Hook: `useLongHistory` → `fetchLongDailyBars` → `buildTfBarSets` → `buildMultiTfResistance`.
-
-## Chart library
-
-Daily price view uses **TradingView [lightweight-charts](https://tradingview.github.io/lightweight-charts/)** candlesticks (OHLC) on the dark theme, with a synced **volume histogram** pane underneath. Hover shows open / high / low / close / volume. Day-range toggle remains **30d / 90d**.
-
-Volume comes from Yahoo (stocks), CoinGecko `market_chart` `total_volumes` (crypto), or Kraken OHLC (crypto fallback). CoinGecko’s OHLC-only fallback has no volume — the UI notes that and still shows candles.
-
-Helpers: `src/lib/volume.js` (`computeVolumeMetrics`, RVOL bands).
+- Daily **candlestick** chart (30d / 90d) + volume / **RVOL** strip
+- **Momentum / pattern stage** box (estimated 1–7 — pattern context only; no vendor names in UI)
+- **Suggested stops** aligned with top supports
+- **Support** / **Resistance** — Top 5 with why-notes
+- Watchlist (add / remove / click to load), persisted
+- Position editor clears on symbol change
 
 ## Project layout
 
 ```
 src/
-  App.jsx       # BrowserRouter + routes (`/` → `/home`, `/home` → Home)
-  main.jsx
-  pages/        # Route pages (Home.jsx = current tracker; add more here)
-  components/   # Header, SymbolSearch, StageBox, PriceCard, PositionSummary, PositionEditor,
-                # PriceChart, SuggestedStops, SupportPanel, ResistancePanel, Disclaimer
-  hooks/        # useAssetPrice, useAssetHistory, useLongHistory
-  lib/          # assets, defaults, format, math, levels, volume, marketStage, coingecko,
-                # yahoo, history, price, search
+  App.jsx              # Router + AppLayout routes
+  components/
+    AppLayout.jsx      # Trade Desk chrome + NavLink
+    Watchlist.jsx      # Left rail
+    Header.jsx         # Refresh / last updated toolbar
+    SymbolSearch, StageBox, PriceCard, PriceChart,
+    SuggestedStops, SupportPanel, ResistancePanel,
+    PositionSummary, PositionEditor, Disclaimer
+  pages/
+    Home.jsx           # Desk workspace
+    Scanner.jsx        # M2 placeholder
+    Alerts.jsx         # M2 placeholder
+  hooks/               # useAssetPrice, useAssetHistory, useLongHistory
+  lib/                 # assets, defaults, levels, volume, marketStage, …
 ```
+
+## Milestone 2 (planned)
+
+- **Scanner**: % change + RVOL scan over watchlist / liquid names
+- **Alerts**: price, stage, and RVOL thresholds with notifications
 
 ## License
 
