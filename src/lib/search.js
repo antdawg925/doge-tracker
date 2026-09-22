@@ -124,15 +124,17 @@ export async function searchSymbols(query, { signal, limit = 6 } = {}) {
   );
   const knownStockQuery = KNOWN_STOCK_TICKERS.has(upper);
 
-  // Drop CoinGecko hits that only collide on ticker when Yahoo has an exact
-  // equity/ETF, or the query is a known mega stock/ETF (SPY/QQQ/…). Keep a
-  // same-symbol coin only if there is no stock exact and rank is very high.
+  // Keep notable (high market-cap) coins even when a same-ticker stock exists
+  // so the user can choose Stock vs Crypto (e.g. XRP). Drop only obscure
+  // same-ticker CoinGecko noise for known mega stocks / exact Yahoo equities.
+  // Ranking still prefers SPY/QQQ stocks; UI never auto-picks.
   const filteredCrypto = crypto.filter((item) => {
     if (item.symbol !== upper) return true;
-    if (exactStockSymbols.has(item.symbol) || knownStockQuery) return false;
     const rank = item.marketCapRank;
-    if (rank != null && rank > 0 && rank <= HIGH_CRYPTO_RANK) return true;
-    // Ambiguous low-rank coin with no stock exact — still show (user can pick)
+    const isHighRank =
+      rank != null && rank > 0 && rank <= HIGH_CRYPTO_RANK;
+    if (isHighRank) return true;
+    if (exactStockSymbols.has(item.symbol) || knownStockQuery) return false;
     return true;
   });
 
