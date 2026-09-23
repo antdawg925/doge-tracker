@@ -403,7 +403,10 @@ export default function Scanner() {
           ) : null}
         </div>
 
-        <ScannerPreview row={selectedRow} />
+        <ScannerPreview
+          row={selectedRow}
+          onClose={() => setSelectedSymbol(null)}
+        />
       </div>
     </main>
   );

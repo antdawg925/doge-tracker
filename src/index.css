@@ -2184,8 +2184,39 @@ p {
     grid-template-columns: 1fr;
   }
 
-  .scanner-preview {
-    order: -1;
+  /* Empty desktop-style rail is noise on phones — hide it */
+  .scanner-preview--empty {
+    display: none;
+  }
+
+  /* Selected preview becomes a dismissible bottom sheet */
+  .scanner-preview__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: rgba(6, 10, 16, 0.55);
+    cursor: pointer;
+  }
+
+  .scanner-preview--open {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 41;
+    max-height: min(78vh, 720px);
+    overflow-y: auto;
+    padding: 0.75rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+    background: var(--bg, #0b111a);
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.45);
+    /* override desktop sticky */
+    order: 0;
   }
 }
 
@@ -2204,14 +2235,36 @@ p {
 }
 
 /* ===== Scanner preview pane ===== */
+.scanner-preview__backdrop {
+  display: none;
+}
+
 .scanner-preview {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  position: sticky;
-  top: 0.75rem;
-  max-height: calc(100vh - 1.5rem);
-  overflow-y: auto;
+}
+
+/* Sticky only when there is room for a side rail (desktop) */
+@media (min-width: 1101px) {
+  .scanner-preview {
+    position: sticky;
+    top: 0.75rem;
+    max-height: calc(100vh - 1.5rem);
+    overflow-y: auto;
+  }
+}
+
+.scanner-preview__meta-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.scanner-preview__close {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
 }
 
 .scanner-preview.card,

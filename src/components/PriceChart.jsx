@@ -88,25 +88,36 @@ function toVolumeData(bars, upColor, downColor) {
 }
 
 
-/** Readable candle width; fitContent alone crushes ~90 bars to ~1px. */
-const READABLE_BAR_SPACING = 8;
-const MIN_BAR_SPACING = 6;
+/** Readable candle body width (px between bars). */
+const READABLE_BAR_SPACING = 10;
+const MIN_BAR_SPACING = 7;
+/** How many recent daily bars to show for dense (90d) lookbacks. */
+const DENSE_VISIBLE_BARS = 48;
 
 /**
- * Keep candles wide enough to read. Dense lookbacks (90d / many bars)
- * use fixed spacing + scroll to latest; shorter ranges may fitContent
- * when that stays at/above min spacing.
+ * Keep candles as real bodies, not 1px dashes.
+ * fitContent() packs ~90 bars into the viewport and flattens them — for
+ * dense lookbacks we lock barSpacing and show a recent window instead.
  */
 function applyReadableTimeScale(chart, { barCount, days }) {
   if (!chart || !barCount) return;
   const ts = chart.timeScale();
-  ts.applyOptions({
-    barSpacing: READABLE_BAR_SPACING,
-    minBarSpacing: MIN_BAR_SPACING,
-  });
   const dense = days >= 90 || barCount > 40;
+  const spacing = dense ? READABLE_BAR_SPACING : 8;
+  ts.applyOptions({
+    barSpacing: spacing,
+    minBarSpacing: MIN_BAR_SPACING,
+    rightOffset: 4,
+  });
   if (dense) {
-    ts.scrollToRealTime();
+    const visible = Math.min(barCount, DENSE_VISIBLE_BARS);
+    const from = Math.max(-0.5, barCount - visible);
+    const to = barCount - 1 + 3;
+    try {
+      ts.setVisibleLogicalRange({ from, to });
+    } catch {
+      ts.scrollToRealTime();
+    }
   } else {
     ts.fitContent();
   }
@@ -452,6 +463,10 @@ export default function PriceChart({
       borderDownColor: down,
       wickUpColor: up,
       wickDownColor: down,
+      borderVisible: true,
+      wickVisible: true,
+      // Slightly thicker border so bodies stay visible on dense ranges
+      priceLineVisible: false,
     });
 
     const volSeries = chart.addSeries(
@@ -558,6 +573,12 @@ export default function PriceChart({
     applyReadableTimeScale(chart, {
       barCount: data.length,
       days,
+    });
+    // autoSize / layout can reset the viewport — re-assert after paint
+    requestAnimationFrame(() => {
+      if (chartRef.current === chart) {
+        applyReadableTimeScale(chart, { barCount: data.length, days });
+      }
     });
   }, [candleBars, chartEpoch, asset?.type, hasVolumePane, days]);
 
