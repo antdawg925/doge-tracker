@@ -251,15 +251,39 @@ export default function PriceChart({
   metricsRef.current = volMetrics;
   daysRef.current = days;
 
+  /**
+   * Keep the Y-axis anchored to candle volatility. Only fold in S/R that
+   * sit near the visible candle range so far-away resistance does not
+   * flatten the chart into a line.
+   */
+  function nearbyBand(candleMin, candleMax) {
+    const span = Math.max(
+      candleMax - candleMin,
+      Math.abs(candleMax) * 0.01,
+      1e-8,
+    );
+    return {
+      span,
+      // ~35% of recent candle range above highs / 25% below lows
+      floor: candleMin - span * 0.25,
+      ceiling: candleMax + span * 0.35,
+    };
+  }
+
   function applyAutoscale(series) {
     if (!series) return;
     series.applyOptions({
       autoscaleInfoProvider: (original) => {
         const base = typeof original === 'function' ? original() : null;
         if (!base?.priceRange) return base;
-        let { minValue, maxValue } = base.priceRange;
+        const candleMin = base.priceRange.minValue;
+        const candleMax = base.priceRange.maxValue;
+        const { span, floor, ceiling } = nearbyBand(candleMin, candleMax);
+        let minValue = candleMin;
+        let maxValue = candleMax;
         for (const lvl of refLevelsRef.current) {
           if (!Number.isFinite(lvl.price)) continue;
+          if (lvl.price < floor || lvl.price > ceiling) continue;
           minValue = Math.min(minValue, lvl.price);
           maxValue = Math.max(maxValue, lvl.price);
         }
@@ -268,17 +292,12 @@ export default function PriceChart({
           minValue = Math.min(minValue, s);
           maxValue = Math.max(maxValue, s);
         }
-        const span = Math.max(
-          maxValue - minValue,
-          Math.abs(maxValue) * 0.01,
-          1e-8,
-        );
-        // Extra headroom so higher / future resistance stays on-screen
+        const outSpan = Math.max(maxValue - minValue, span);
         return {
           ...base,
           priceRange: {
-            minValue: minValue - span * 0.06,
-            maxValue: maxValue + span * 0.14,
+            minValue: minValue - outSpan * 0.04,
+            maxValue: maxValue + outSpan * 0.06,
           },
         };
       },
@@ -300,8 +319,27 @@ export default function PriceChart({
     }
     priceLinesRef.current = [];
 
+    const bars = candleBarsRef.current || [];
+    let candleMin = Infinity;
+    let candleMax = -Infinity;
+    for (const b of bars) {
+      if (Number.isFinite(b.low)) candleMin = Math.min(candleMin, b.low);
+      if (Number.isFinite(b.high)) candleMax = Math.max(candleMax, b.high);
+    }
+    const band =
+      Number.isFinite(candleMin) && Number.isFinite(candleMax)
+        ? nearbyBand(candleMin, candleMax)
+        : null;
+
     for (const lvl of refLevelsRef.current) {
       if (!Number.isFinite(lvl.price)) continue;
+      // Skip far S/R so axis labels do not pull attention off the action
+      if (
+        band &&
+        (lvl.price < band.floor || lvl.price > band.ceiling)
+      ) {
+        continue;
+      }
       const color =
         lvl.type === 'support'
           ? 'rgba(62, 207, 142, 0.85)'
@@ -385,7 +423,7 @@ export default function PriceChart({
       },
       rightPriceScale: {
         borderColor: '#243044',
-        scaleMargins: { top: 0.14, bottom: 0.08 },
+        scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       timeScale: {
         borderColor: '#243044',
@@ -628,7 +666,7 @@ export default function PriceChart({
           {hasVolumePane
             ? ' · bars below = daily volume (dashed = 20-day avg)'
             : ''}{' '}
-          · green dashed = key support · red dashed = resistance (incl. longer lookbacks) · white =
+          · green dashed = key support · red dashed = nearby resistance · white =
           spot
         </p>
       </div>
