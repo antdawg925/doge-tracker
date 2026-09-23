@@ -281,7 +281,12 @@ export default function Scanner() {
                     sort={sort}
                     onSort={onSort}
                   />
-                  <th className="num">RVOL</th>
+                  <SortTh
+                    id="relVolume"
+                    label="RVOL"
+                    sort={sort}
+                    onSort={onSort}
+                  />
                   {tab === 'investable' ? (
                     <SortTh
                       id="marketCap"
