@@ -4,7 +4,7 @@ const PROXY_BASE = '/api/coingecko';
 const DIRECT_BASE = 'https://api.coingecko.com/api/v3';
 
 const PRICE_CACHE_KEY = 'doge-tracker-price-cache-v1';
-const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v1';
+const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v2';
 
 export function loadJsonCache(key) {
   try {

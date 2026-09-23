@@ -206,12 +206,32 @@ function formatHistoryError(err) {
 
 async function fetchCryptoDailyBars(asset, days, signal) {
   const coinId = asset.id || 'dogecoin';
-  const chartDays = days >= 90 ? Math.max(days, 91) : days;
+  const want = Math.max(1, Number(days) || 90);
   let lastErr = null;
+
+  // CoinGecko market_chart granularity:
+  //   days <= 90 → hourly points (aggregate into real daily OHLC)
+  //   days > 90  → one daily close (open=high=low=close → flat "dash" candles)
+  // Never request 91+ here or 90d crypto charts look like green dashes.
+  const marketChartDays = want >= 90 ? 90 : want;
+
+  // Prefer Kraken true daily OHLC when we know the pair (best 90d candles).
+  const pair = krakenPairFor(asset);
+  if (pair) {
+    try {
+      const bars = await fetchKrakenDailyBars(pair, want, signal);
+      if (bars.length) {
+        return { bars, source: 'kraken' };
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+  }
 
   try {
     const { data } = await fetchCoinGeckoJson(
-      `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${chartDays}`,
+      `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${marketChartDays}`,
       { signal, maxRetries: 3 },
     );
     const bars = aggregateMarketChartToDaily(
@@ -219,7 +239,13 @@ async function fetchCryptoDailyBars(asset, days, signal) {
       data?.total_volumes,
     );
     if (bars.length) {
-      return { bars: bars.slice(-days), source: 'coingecko' };
+      return {
+        bars: bars.slice(-want),
+        source: 'coingecko',
+        warning: pair
+          ? 'History via CoinGecko (Kraken unavailable)'
+          : undefined,
+      };
     }
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
@@ -227,14 +253,15 @@ async function fetchCryptoDailyBars(asset, days, signal) {
   }
 
   try {
+    // Last resort: CG OHLC (may be 4h / multi-day buckets for long windows)
     const { data } = await fetchCoinGeckoJson(
-      `/coins/${encodeURIComponent(coinId)}/ohlc?vs_currency=usd&days=${days}`,
+      `/coins/${encodeURIComponent(coinId)}/ohlc?vs_currency=usd&days=${marketChartDays}`,
       { signal, maxRetries: 2 },
     );
     const bars = normalizeOhlc(data);
     if (bars.length) {
       return {
-        bars,
+        bars: bars.slice(-want),
         source: 'coingecko',
         warning:
           'Volume unavailable from this history source — price candles only',
@@ -243,32 +270,6 @@ async function fetchCryptoDailyBars(asset, days, signal) {
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     lastErr = err;
-  }
-
-  const pair = krakenPairFor(asset);
-  if (pair) {
-    try {
-      const bars = await fetchKrakenDailyBars(pair, days, signal);
-      const limited = Boolean(
-        lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
-      );
-      return {
-        bars,
-        source: 'kraken',
-        warning: limited
-          ? `History via Kraken (CoinGecko rate-limited)`
-          : `History via Kraken (CoinGecko unavailable)`,
-      };
-    } catch (err) {
-      if (err?.name === 'AbortError') throw err;
-      const cg = formatHistoryError(lastErr);
-      const kr = err?.message || 'Kraken failed';
-      const wrapped = new Error(`${cg}; Kraken fallback failed (${kr})`);
-      wrapped.rateLimited = Boolean(
-        lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
-      );
-      throw wrapped;
-    }
   }
 
   const wrapped = new Error(formatHistoryError(lastErr));
