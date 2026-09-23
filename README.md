@@ -38,7 +38,7 @@ Deep links like `/home` work with Vite’s SPA history fallback. For production 
 
 ### Deploy note (SPA)
 
-When you deploy `dist/` later, configure your host for SPA fallback (e.g. Netlify `_redirects` `/* /index.html 200`, nginx `try_files $uri /index.html`). **This repo does not auto-deploy for Milestone 1.**
+Production target is **Vercel**. `vercel.json` SPA-rewrites unknown paths to `index.html`. Serverless routes under `api/` proxy Yahoo / CoinGecko / Kraken the same way the Vite dev proxy does.
 
 ## Symbol search & watchlist
 
@@ -176,5 +176,5 @@ Personal / educational scaffold — use at your own risk.
 3. On your phone (same Wi‑Fi), open that URL
 4. If it fails, allow **Node.js** / port **5173** through Windows Firewall (Private networks)
 
-This is **not** public internet hosting — only devices on your home network. Cloud deploy stays off until you approve it.
+This is **not** public internet hosting — only devices on your home network. Public deploy is on Vercel when linked; local LAN access still uses `npm run dev`.
 
