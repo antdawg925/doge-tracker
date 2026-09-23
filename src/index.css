@@ -2338,6 +2338,11 @@ p {
   margin: 0;
 }
 
+.scanner-chart__tf {
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
 .scanner-chart__empty,
 .scanner-chart__error {
   font-size: 0.8rem;

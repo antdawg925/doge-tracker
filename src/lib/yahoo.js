@@ -79,12 +79,14 @@ export async function searchYahoo(query, { signal, limit = 8 } = {}) {
 }
 
 /**
- * Normalize Yahoo chart result into daily bars + spot meta.
+ * Normalize Yahoo chart result into OHLC bars + spot meta.
  * `range`: '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y'
+ * `interval`: '1d' | '1wk' | '1mo' (default '1d' for backward compatibility)
  */
-export async function fetchYahooChart(symbol, range = '3mo', { signal } = {}) {
+export async function fetchYahooChart(symbol, range = '3mo', { signal, interval = '1d' } = {}) {
   const sym = encodeURIComponent(String(symbol || '').toUpperCase());
-  const path = `/v8/finance/chart/${sym}?interval=1d&range=${encodeURIComponent(range)}`;
+  const iv = ['1d', '1wk', '1mo'].includes(interval) ? interval : '1d';
+  const path = `/v8/finance/chart/${sym}?interval=${encodeURIComponent(iv)}&range=${encodeURIComponent(range)}`;
   const data = await fetchYahooJson(chartUrls(path), { signal });
   const result = data?.chart?.result?.[0];
   if (!result) {

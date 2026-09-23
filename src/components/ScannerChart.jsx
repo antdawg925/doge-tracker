@@ -10,9 +10,9 @@ import { formatPrice } from '../lib/format';
 
 /** UI range → Yahoo chart range */
 export const SCANNER_RANGES = [
-  { id: '1M', yahoo: '1mo', label: '1M' },
-  { id: '1Y', yahoo: '1y', label: '1Y' },
-  { id: '5Y', yahoo: '5y', label: '5Y' },
+  { id: '1M', yahoo: '1mo', interval: '1d', label: '1M', tfLabel: 'daily' },
+  { id: '1Y', yahoo: '1y', interval: '1wk', label: '1Y', tfLabel: 'weekly' },
+  { id: '5Y', yahoo: '5y', interval: '1mo', label: '5Y', tfLabel: 'monthly' },
 ];
 
 function ensureOhlcBars(bars) {
@@ -54,8 +54,8 @@ function formatAxisDate(tsSec) {
 }
 
 /**
- * Compact daily candle chart for Scanner preview.
- * Fetches Yahoo history for 1mo / 1y / 5y.
+ * Compact candle chart for Scanner preview.
+ * 1M daily / 1Y weekly / 5Y monthly via Yahoo.
  */
 export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) {
   const containerRef = useRef(null);
@@ -81,7 +81,10 @@ export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) 
     const ac = new AbortController();
     setLoading(true);
     setError(null);
-    fetchYahooChart(symbol, range.yahoo, { signal: ac.signal })
+    fetchYahooChart(symbol, range.yahoo, {
+      signal: ac.signal,
+      interval: range.interval,
+    })
       .then((result) => {
         if (ac.signal.aborted) return;
         setBars(result.bars || []);
@@ -94,7 +97,7 @@ export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) 
         setLoading(false);
       });
     return () => ac.abort();
-  }, [symbol, range.yahoo]);
+  }, [symbol, range.yahoo, range.interval]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -131,8 +134,8 @@ export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) 
       timeScale: {
         borderColor: '#243044',
         timeVisible: false,
-        barSpacing: rangeId === '1M' ? 7 : rangeId === '1Y' ? 4 : 2.5,
-        minBarSpacing: 1.5,
+        barSpacing: rangeId === '1M' ? 7 : rangeId === '1Y' ? 7 : 9,
+        minBarSpacing: 2,
       },
       localization: {
         priceFormatter: (p) => yTick(p),
@@ -195,11 +198,7 @@ export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) 
     if (!series || !chart) return;
     series.setData(candleBars);
     if (candleBars.length) {
-      if (rangeId === '1M') {
-        chart.timeScale().fitContent();
-      } else {
-        chart.timeScale().scrollToRealTime();
-      }
+      chart.timeScale().fitContent();
     }
   }, [candleBars, chartEpoch, rangeId]);
 
@@ -208,6 +207,9 @@ export default function ScannerChart({ symbol, rangeId = '1Y', onRangeChange }) 
       <div className="scanner-chart__head">
         <h3 className="scanner-chart__title">
           {symbol ? `${symbol} chart` : 'Chart'}
+          {symbol ? (
+            <span className="muted small scanner-chart__tf"> · {range.tfLabel}</span>
+          ) : null}
         </h3>
         <div className="segmented" role="group" aria-label="Chart range">
           {SCANNER_RANGES.map((r) => (
