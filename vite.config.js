@@ -21,6 +21,10 @@ export default defineConfig({
   // for unknown paths (historyApiFallback equivalent). Production hosts need the
   // same rewrite when deploying dist/ — see README.
   server: {
+    // Allow phone / other devices on the same Wi‑Fi (e.g. http://10.0.0.x:5173)
+    host: true,
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api/coingecko': {
         target: 'https://api.coingecko.com',

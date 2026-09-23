@@ -165,3 +165,16 @@ Shared **news** pipeline for Scanner preview and Desk:
 ## License
 
 Personal / educational scaffold — use at your own risk.
+
+
+### View on your phone (same Wi‑Fi)
+
+`vite.config.js` sets `server.host: true` so the dev server listens on your LAN.
+
+1. On your PC: `npm run dev`
+2. Note the Network URL Vite prints (e.g. `http://10.0.0.238:5173`)
+3. On your phone (same Wi‑Fi), open that URL
+4. If it fails, allow **Node.js** / port **5173** through Windows Firewall (Private networks)
+
+This is **not** public internet hosting — only devices on your home network. Cloud deploy stays off until you approve it.
+
