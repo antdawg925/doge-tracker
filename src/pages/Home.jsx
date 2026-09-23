@@ -3,6 +3,7 @@ import Header from '../components/Header';
 import SymbolSearch from '../components/SymbolSearch';
 import Watchlist from '../components/Watchlist';
 import StageBox from '../components/StageBox';
+import PumpDumpBanner from '../components/PumpDumpBanner';
 import PriceCard from '../components/PriceCard';
 import PriceChart from '../components/PriceChart';
 import SupportPanel from '../components/SupportPanel';
@@ -22,6 +23,7 @@ import {
 } from '../lib/defaults';
 import { assetKey, emptyPositionFor } from '../lib/assets';
 import { computeLevels } from '../lib/levels';
+import { assessPumpDump } from '../lib/pumpDump';
 
 function upsertWatchlist(list, asset) {
   const key = assetKey(asset);
@@ -57,6 +59,7 @@ export default function Home() {
   } = useAssetHistory(asset, 90);
 
   const {
+    bars: longBars,
     tfSets,
     loading: longLoading,
     error: longError,
@@ -130,6 +133,11 @@ export default function Home() {
     refreshLong();
   }, [refresh, refreshHistory, refreshLong]);
 
+  const pumpDump = useMemo(
+    () => assessPumpDump(asset, longBars),
+    [asset, longBars],
+  );
+
   const levels = useMemo(
     () => computeLevels(bars, price),
     [bars, price],
@@ -161,6 +169,7 @@ export default function Home() {
         </aside>
 
         <main className="desk-main">
+          <PumpDumpBanner assessment={pumpDump} />
           <StageBox bars={bars} asset={asset} loading={histLoading} />
           <PriceCard
             asset={asset}

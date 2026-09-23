@@ -1799,3 +1799,87 @@ p {
   text-transform: none;
   letter-spacing: 0;
 }
+
+
+/* Pump / dump beware banner */
+.pump-dump-banner {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius, 12px);
+  border: 1px solid rgba(240, 113, 120, 0.55);
+  background:
+    linear-gradient(135deg, rgba(240, 113, 120, 0.18), rgba(230, 162, 60, 0.08)),
+    var(--bg-elev, #121821);
+  box-shadow: 0 0 0 1px rgba(240, 113, 120, 0.12), var(--shadow, 0 8px 24px rgba(0,0,0,0.35));
+}
+
+.pump-dump-banner__mark {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #1a0a0a;
+  background: linear-gradient(145deg, #f07178, #c9444c);
+}
+
+.pump-dump-banner__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.pump-dump-banner__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.pump-dump-banner__title {
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+  color: #ffd4d6;
+  text-transform: none;
+}
+
+.pump-dump-banner__via,
+.pump-dump-banner__conf {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 113, 120, 0.35);
+  color: #f5b4b8;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.pump-dump-banner__conf {
+  border-color: rgba(230, 162, 60, 0.45);
+  color: #f0d09a;
+}
+
+.pump-dump-banner__detail {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text, #e8eef7);
+  line-height: 1.4;
+}
+
+.pump-dump-banner__reasons {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted, #8b9bb4);
+  font-size: 0.8rem;
+}
+
+.pump-dump-banner__reasons li {
+  margin-bottom: 0.15rem;
+}
