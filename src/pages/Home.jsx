@@ -13,6 +13,7 @@ import PositionSummary from '../components/PositionSummary';
 import PositionEditor from '../components/PositionEditor';
 import Disclaimer from '../components/Disclaimer';
 import NewsPanel from '../components/NewsPanel';
+import FundamentalsPanel from '../components/FundamentalsPanel';
 import { useAssetPrice } from '../hooks/useAssetPrice';
 import { useAssetHistory } from '../hooks/useAssetHistory';
 import { useLongHistory } from '../hooks/useLongHistory';
@@ -194,6 +195,7 @@ export default function Home() {
             tfSets={tfSets}
           />
           <NewsPanel asset={asset} />
+          <FundamentalsPanel asset={asset} />
           <SuggestedStops
             levels={levels}
             spot={price}

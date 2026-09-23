@@ -60,6 +60,18 @@ export function normalizeScreenerQuote(q) {
       ? volume / avgVolume
       : null;
 
+  // Screener payloads rarely include sector / short% / cash-debt — leave null
+  // for quoteSummary enrichment (Scanner fills top N in the background).
+  const sector = q.sector || q.sectorDisp || null;
+  const shortPercentOfFloat =
+    typeof q.shortPercentOfFloat === 'number' ? q.shortPercentOfFloat : null;
+  const totalCash = typeof q.totalCash === 'number' ? q.totalCash : null;
+  const totalDebt = typeof q.totalDebt === 'number' ? q.totalDebt : null;
+  let netCash = null;
+  if (totalCash != null || totalDebt != null) {
+    netCash = (totalCash ?? 0) - (totalDebt ?? 0);
+  }
+
   return {
     symbol: String(q.symbol).toUpperCase(),
     name: q.longName || q.shortName || q.displayName || q.symbol,
@@ -73,6 +85,12 @@ export function normalizeScreenerQuote(q) {
     marketCap,
     exchange: q.fullExchangeName || q.exchange || null,
     quoteType: quoteType || 'EQUITY',
+    sector: sector ? String(sector) : null,
+    netCash,
+    shortPercentOfFloat,
+    fundamentalsLoaded: Boolean(
+      sector || netCash != null || shortPercentOfFloat != null,
+    ),
   };
 }
 

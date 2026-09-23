@@ -8,6 +8,11 @@ import {
   rowToStockAsset,
 } from '../lib/scanner.js';
 import {
+  enrichScannerRows,
+  formatNetCash,
+  formatRatioPct,
+} from '../lib/fundamentals.js';
+import {
   defaultPositionFor,
   loadAppState,
   saveAppState,
@@ -34,6 +39,10 @@ const TABS = [
   },
 ];
 
+/** How many top rows get quoteSummary enrichment (rate-limit friendly). */
+const ENRICH_TOP_N = 35;
+const ENRICH_CONCURRENCY = 2;
+
 function formatCap(n) {
   if (n == null || Number.isNaN(n)) return '—';
   const abs = Math.abs(n);
@@ -52,12 +61,29 @@ function upsertWatchlist(list, asset) {
 function compareSortValues(a, b, field, dir) {
   const av = a?.[field];
   const bv = b?.[field];
-  const aNull = av == null || Number.isNaN(av);
-  const bNull = bv == null || Number.isNaN(bv);
+  const aNull =
+    av == null ||
+    av === '' ||
+    (typeof av === 'number' && Number.isNaN(av));
+  const bNull =
+    bv == null ||
+    bv === '' ||
+    (typeof bv === 'number' && Number.isNaN(bv));
   if (aNull && bNull) return 0;
   if (aNull) return 1; // nulls last
   if (bNull) return -1;
-  if (av === bv) return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  if (typeof av === 'string' || typeof bv === 'string') {
+    const cmp = String(av).localeCompare(String(bv), undefined, {
+      sensitivity: 'base',
+    });
+    if (cmp === 0) {
+      return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  }
+  if (av === bv) {
+    return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  }
   const mul = dir === 'asc' ? 1 : -1;
   return av < bv ? -1 * mul : 1 * mul;
 }
@@ -103,11 +129,18 @@ function openOnDesk(row) {
   });
 }
 
+function cellOrEllipsis(loaded, formatted) {
+  if (formatted != null && formatted !== '—') return formatted;
+  if (!loaded) return '…';
+  return '—';
+}
+
 export default function Scanner() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('momentum');
   const [rawRows, setRawRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [sourceNote, setSourceNote] = useState('');
@@ -120,6 +153,7 @@ export default function Scanner() {
   const load = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
+    setEnriching(false);
     try {
       const result = await fetchScannerUniverse(undefined, { signal });
       if (signal?.aborted) return;
@@ -143,6 +177,54 @@ export default function Scanner() {
     load(ac.signal);
     return () => ac.abort();
   }, [load, tick]);
+
+  // After screener rows land, enrich top N of the *current lane order* gently.
+  // Re-runs when tab changes so Investable top-N also fills.
+  useEffect(() => {
+    if (loading || !rawRows.length) return undefined;
+    const ac = new AbortController();
+    const base =
+      tab === 'investable'
+        ? applyInvestableProfile(rawRows)
+        : applyMomentumProfile(rawRows);
+
+    setEnriching(true);
+    enrichScannerRows(base, {
+      signal: ac.signal,
+      limit: ENRICH_TOP_N,
+      concurrency: ENRICH_CONCURRENCY,
+      onProgress: (updatedLane) => {
+        if (ac.signal.aborted) return;
+        // Merge enriched fields back into rawRows by symbol
+        const enrichBySym = new Map(
+          updatedLane.map((r) => [
+            r.symbol,
+            {
+              sector: r.sector,
+              netCash: r.netCash,
+              shortPercentOfFloat: r.shortPercentOfFloat,
+              floatShares: r.floatShares,
+              fundamentalsLoaded: r.fundamentalsLoaded,
+            },
+          ]),
+        );
+        setRawRows((prev) =>
+          prev.map((r) => {
+            const extra = enrichBySym.get(r.symbol);
+            return extra ? { ...r, ...extra } : r;
+          }),
+        );
+      },
+    })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return;
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setEnriching(false);
+      });
+
+    return () => ac.abort();
+  }, [loading, rawRows.length, tab, tick]); // eslint-like: length+tab+tick gates re-enrich
 
   // Fresh lane → restore profile default until the user picks a column
   useEffect(() => {
@@ -214,6 +296,7 @@ export default function Scanner() {
             </button>
             <p className="scanner__updated muted">
               Updated {formatTime(lastUpdated)}
+              {enriching ? ' · fundamentals…' : ''}
             </p>
           </div>
         </div>
@@ -304,6 +387,20 @@ export default function Scanner() {
                       sort={sort}
                       onSort={onSort}
                     />
+                    <SortTh
+                      id="sector"
+                      label="Sector"
+                      sort={sort}
+                      onSort={onSort}
+                      className="scanner-table__sector"
+                    />
+                    <SortTh id="netCash" label="Net" sort={sort} onSort={onSort} />
+                    <SortTh
+                      id="shortPercentOfFloat"
+                      label="Short %"
+                      sort={sort}
+                      onSort={onSort}
+                    />
                     {tab === 'investable' ? (
                       <SortTh
                         id="marketCap"
@@ -334,6 +431,7 @@ export default function Scanner() {
                             ? 'is-neg'
                             : '';
                     const isSelected = selectedSymbol === row.symbol;
+                    const loaded = Boolean(row.fundamentalsLoaded);
                     return (
                       <tr
                         key={row.symbol}
@@ -367,6 +465,26 @@ export default function Scanner() {
                             ? `${row.relVolume.toFixed(2)}x`
                             : '—'}
                         </td>
+                        <td
+                          className="num scanner-table__sector"
+                          title={row.sector || undefined}
+                        >
+                          {cellOrEllipsis(loaded, row.sector || '—')}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            row.netCash != null ? formatNetCash(row.netCash) : '—',
+                          )}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            row.shortPercentOfFloat != null
+                              ? formatRatioPct(row.shortPercentOfFloat)
+                              : '—',
+                          )}
+                        </td>
                         <td className="num mono">
                           {tab === 'investable'
                             ? formatCap(row.marketCap)
@@ -397,8 +515,8 @@ export default function Scanner() {
               Showing {rows.length} liquid equities · click a row to preview ·{' '}
               <strong>Open</strong> loads Desk
               {tab === 'momentum'
-                ? ' · Float shows "—" when Yahoo free data omits it (still ranked by RVOL / % change)'
-                : ' · Sorted by market cap / price among volume-gated names'}
+                ? ' · Float / Sector / Net / Short % show "—" when Yahoo omits them (top rows enrich via quoteSummary, concurrency-limited)'
+                : ' · Sorted by market cap / price among volume-gated names · Sector / Net / Short % fill for top rows'}
             </p>
           ) : null}
         </div>

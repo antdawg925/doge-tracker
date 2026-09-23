@@ -1,10 +1,10 @@
-const YAHOO_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+import { YAHOO_UA, fetchYahooUpstream } from './_yahooUpstream.js'
 
 const PROVIDERS = {
   yahoo: {
     base: 'https://query1.finance.yahoo.com',
     yahooHeaders: true,
+    yahooSession: true,
   },
   'yahoo-search': {
     base: 'https://query2.finance.yahoo.com',
@@ -85,6 +85,23 @@ export default async function handler(req, res) {
       return
     }
 
+    // Yahoo chart host: use crumb-aware upstream (HTML fallback for quoteSummary)
+    if (cfg.yahooSession) {
+      const result = await fetchYahooUpstream(rest, req.query, {
+        method: req.method,
+      })
+      res.statusCode = result.status
+      res.setHeader('Content-Type', result.contentType)
+      res.setHeader(
+        'Cache-Control',
+        result.status >= 400
+          ? 'no-store'
+          : 'public, s-maxage=60, stale-while-revalidate=120',
+      )
+      res.end(req.method === 'HEAD' ? '' : result.body)
+      return
+    }
+
     const url = buildUrl(cfg.base, rest, req.query)
     const headers = { Accept: 'application/json,text/plain,*/*' }
     if (cfg.yahooHeaders) headers['User-Agent'] = YAHOO_UA
@@ -101,7 +118,7 @@ export default async function handler(req, res) {
         ? 'no-store'
         : 'public, s-maxage=30, stale-while-revalidate=60',
     )
-    res.end(body)
+    res.end(req.method === 'HEAD' ? '' : body)
   } catch (err) {
     res.statusCode = 502
     res.setHeader('Content-Type', 'application/json')

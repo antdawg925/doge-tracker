@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import ScannerChart from './ScannerChart';
 import NewsPanel from './NewsPanel';
+import { FundamentalsStrip } from './FundamentalsPanel';
 import { rowToStockAsset } from '../lib/scanner';
 import { formatPct, formatPrice } from '../lib/format';
+import { useStockFundamentals } from '../hooks/useStockFundamentals';
 
 /**
- * Right-rail preview for a selected scanner row: chart + news.
+ * Right-rail preview for a selected scanner row: chart + fundamentals strip + news.
  * On mobile this is a bottom sheet (see CSS) with an explicit close.
  */
 export default function ScannerPreview({ row, onClose }) {
   const [rangeId, setRangeId] = useState('1Y');
+  const asset = row ? rowToStockAsset(row) : null;
+  const { data: fundamentals } = useStockFundamentals(asset);
 
   if (!row) {
     return (
@@ -24,7 +28,6 @@ export default function ScannerPreview({ row, onClose }) {
     );
   }
 
-  const asset = rowToStockAsset(row);
   const ch = row.changePct;
   const chClass =
     ch == null ? '' : ch > 0 ? 'is-pos' : ch < 0 ? 'is-neg' : '';
@@ -76,6 +79,8 @@ export default function ScannerPreview({ row, onClose }) {
             onRangeChange={setRangeId}
           />
         </div>
+
+        <FundamentalsStrip row={row} fundamentals={fundamentals} />
 
         <NewsPanel asset={asset} compact title={`${row.symbol} news`} />
       </aside>
