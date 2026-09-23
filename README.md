@@ -98,10 +98,13 @@ src/
     PositionSummary, PositionEditor, Disclaimer
   pages/
     Home.jsx           # Desk workspace
-    Scanner.jsx        # Momentum / Investable scanner
+    Scanner.jsx        # Momentum / Investable scanner + preview pane
+    NewsPanel.jsx       # Shared Yahoo news + significance badges
+    ScannerChart.jsx    # Compact 1M/1Y/5Y candles
+    ScannerPreview.jsx  # Scanner right rail (chart + news)
     Alerts.jsx         # M2 placeholder
   hooks/               # useAssetPrice, useAssetHistory, useLongHistory
-  lib/                 # assets, defaults, scanner, levels, volume, marketStage, …
+  lib/                 # assets, defaults, scanner, news, newsSignificance, levels, …
 ```
 
 ## Scanner (Milestone 2)
@@ -115,9 +118,45 @@ src/
 
 **Liquidity floor:** prefer **average daily volume (3-month ADV) ≥ 5,000,000**; if ADV is missing, today's volume ≥ 5M also passes. Micros under **$0.50** need **≥ 10M** day volume or they are dropped. Float often shows **—** on free Yahoo screeners — rows still rank by volume / RVOL / % change.
 
-Data: Yahoo predefined screeners (`day_gainers`, `day_losers`, `most_actives`, `small_cap_gainers`, `undervalued_large_caps`, `growth_technology_stocks`) via `/api/yahoo` → client filter/sort. Soft-handles **429**s with warnings. Click a row (or **Open**) to save `{ type: 'stock', symbol, name }` into `doge-tracker-state-v2` and navigate to **Desk** (`/home`).
+Data: Yahoo predefined screeners (`day_gainers`, `day_losers`, `most_actives`, `small_cap_gainers`, `undervalued_large_caps`, `growth_technology_stocks`) via `/api/yahoo` → client filter/sort. Soft-handles **429**s with warnings. Click a row to **preview** chart/news; **Open** to save `{ type: 'stock', symbol, name }` into `doge-tracker-state-v2` and navigate to **Desk** (`/home`).
 
 Logic lives in `src/lib/scanner.js`; UI in `src/pages/Scanner.jsx`.
+
+
+## Symbol preview & news (Scanner + Desk)
+
+Shared **news** pipeline for Scanner preview and Desk:
+
+| Piece | Role |
+| --- | --- |
+| `src/lib/news.js` | Yahoo Finance search (`newsCount`) via `/api/yahoo-search` |
+| `src/lib/newsSignificance.js` | Heuristic keyword scorer → `significant` / `watch` / `low` |
+| `src/components/NewsPanel.jsx` | Shared UI: badges, summary line, low-signal collapsed by default |
+
+### Scanner preview
+
+- Click a table row to **select** it (highlight). Does **not** navigate away.
+- **Open** still loads the symbol onto Desk (`/home`) as before.
+- Right-hand **preview pane**: compact candle chart (`1M` / `1Y` / `5Y`, default `1Y`) + `NewsPanel`.
+- Chart ranges map to Yahoo daily bars: `1M→1mo`, `1Y→1y`, `5Y→5y` (`ScannerChart` + `fetchYahooChart`).
+- Empty state: “Select a symbol to preview chart & news.”
+
+### Desk
+
+- `NewsPanel` sits in the main column under the price chart for the selected symbol (stocks and crypto via Yahoo `SYMBOL-USD` when needed).
+
+### Significance scoring (v1, no LLM)
+
+- **Significant**: earnings/EPS/revenue beat-miss, guidance changes, FDA, clinical trials, dilution/ATM/offering, bankruptcy, M&A, C-suite exits, halts, SEC/DOJ probes, splits, buybacks, PT moves, material contracts, delisting.
+- **Watch**: partnership, expansion, insider activity, initiations, conferences, plain upgrades/downgrades, dividends.
+- **Low**: top-movers lists, generic “shares rise/fall”, market wraps, SEO spam — hidden behind “Show low-signal” by default.
+- Summary line e.g. `2 significant items — dilution/offering + earnings beat/miss`.
+
+### Limitations
+
+- Yahoo search news quality varies; many items are low-signal aggregators.
+- Free Yahoo endpoints can **429**; news failures show a soft warning and do not break the scanner table or Desk chart.
+- Heuristic scorer can miss nuance / non-English headlines; no LLM in v1.
 
 ### Still planned
 

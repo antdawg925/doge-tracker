@@ -19,6 +19,7 @@ import {
   formatTime,
   formatVolume,
 } from '../lib/format.js';
+import ScannerPreview from '../components/ScannerPreview.jsx';
 
 const TABS = [
   {
@@ -47,8 +48,6 @@ function upsertWatchlist(list, asset) {
   if (list.some((a) => assetKey(a) === key)) return list;
   return [...list, { ...asset }];
 }
-
-
 
 function compareSortValues(a, b, field, dir) {
   const av = a?.[field];
@@ -116,7 +115,7 @@ export default function Scanner() {
   const [tick, setTick] = useState(0);
   // null key = lane default order; first click = desc (highest), second = asc (lowest)
   const [sort, setSort] = useState({ key: null, dir: 'desc' });
-
+  const [selectedSymbol, setSelectedSymbol] = useState(null);
 
   const load = useCallback(async (signal) => {
     setLoading(true);
@@ -168,6 +167,23 @@ export default function Scanner() {
     );
   }, [rawRows, tab, sort]);
 
+  // Keep selection if still in the filtered list; otherwise clear
+  useEffect(() => {
+    if (!selectedSymbol) return;
+    if (!rows.some((r) => r.symbol === selectedSymbol)) {
+      setSelectedSymbol(null);
+    }
+  }, [rows, selectedSymbol]);
+
+  const selectedRow = useMemo(
+    () => rows.find((r) => r.symbol === selectedSymbol) || null,
+    [rows, selectedSymbol],
+  );
+
+  const onSelect = useCallback((row) => {
+    setSelectedSymbol(row.symbol);
+  }, []);
+
   const onOpen = useCallback(
     (row) => {
       openOnDesk(row);
@@ -177,7 +193,7 @@ export default function Scanner() {
   );
 
   const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
-  
+
   return (
     <main className="scanner">
       <div className="scanner__header card">
@@ -248,139 +264,146 @@ export default function Scanner() {
         </div>
       ) : null}
 
-      <div className="scanner__table-wrap card">
-        {loading && !rows.length ? (
-          <p className="scanner__state muted">Loading liquid names from Yahoo…</p>
-        ) : null}
+      <div className="scanner__body">
+        <div className="scanner__table-wrap card">
+          {loading && !rows.length ? (
+            <p className="scanner__state muted">Loading liquid names from Yahoo…</p>
+          ) : null}
 
-        {!loading && !error && !rows.length ? (
-          <p className="scanner__state muted">
-            No names passed the volume floor. Try Refresh in a minute (Yahoo may
-            be rate-limiting).
-          </p>
-        ) : null}
+          {!loading && !error && !rows.length ? (
+            <p className="scanner__state muted">
+              No names passed the volume floor. Try Refresh in a minute (Yahoo may
+              be rate-limiting).
+            </p>
+          ) : null}
 
-        {rows.length > 0 ? (
-          <div className="scanner__scroll">
-            <table className="scanner-table">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Name</th>
-                  <SortTh id="price" label="Price" sort={sort} onSort={onSort} />
-                  <SortTh
-                    id="changePct"
-                    label="Change %"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  <SortTh id="volume" label="Volume" sort={sort} onSort={onSort} />
-                  <SortTh
-                    id="avgVolume"
-                    label="Avg Vol"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  <SortTh
-                    id="relVolume"
-                    label="RVOL"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  {tab === 'investable' ? (
+          {rows.length > 0 ? (
+            <div className="scanner__scroll">
+              <table className="scanner-table">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Name</th>
+                    <SortTh id="price" label="Price" sort={sort} onSort={onSort} />
                     <SortTh
-                      id="marketCap"
-                      label="Mkt Cap"
+                      id="changePct"
+                      label="Change %"
                       sort={sort}
                       onSort={onSort}
                     />
-                  ) : (
+                    <SortTh id="volume" label="Volume" sort={sort} onSort={onSort} />
                     <SortTh
-                      id="floatShares"
-                      label="Float"
+                      id="avgVolume"
+                      label="Avg Vol"
                       sort={sort}
                       onSort={onSort}
                     />
-                  )}
-                  <th className="action">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const ch = row.changePct;
-                  const chClass =
-                    ch == null
-                      ? ''
-                      : ch > 0
-                        ? 'is-pos'
-                        : ch < 0
-                          ? 'is-neg'
-                          : '';
-                  return (
-                    <tr
-                      key={row.symbol}
-                      tabIndex={0}
-                      className="scanner-table__row"
-                      onClick={() => onOpen(row)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          onOpen(row);
-                        }
-                      }}
-                    >
-                      <td className="sym">{row.symbol}</td>
-                      <td className="name" title={row.name}>
-                        {row.name}
-                      </td>
-                      <td className="num mono">{formatPrice(row.price)}</td>
-                      <td className={`num mono ${chClass}`}>
-                        {formatPct(ch)}
-                      </td>
-                      <td className="num mono">
-                        {formatVolume(row.volume)}
-                      </td>
-                      <td className="num mono">
-                        {formatVolume(row.avgVolume)}
-                      </td>
-                      <td className="num mono">
-                        {row.relVolume != null && Number.isFinite(row.relVolume)
-                          ? `${row.relVolume.toFixed(2)}x`
-                          : '—'}
-                      </td>
-                      <td className="num mono">
-                        {tab === 'investable'
-                          ? formatCap(row.marketCap)
-                          : formatVolume(row.floatShares)}
-                      </td>
-                      <td className="action">
-                        <button
-                          type="button"
-                          className="btn btn--ghost scanner__open"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpen(row);
-                          }}
-                        >
-                          Open
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+                    <SortTh
+                      id="relVolume"
+                      label="RVOL"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                    {tab === 'investable' ? (
+                      <SortTh
+                        id="marketCap"
+                        label="Mkt Cap"
+                        sort={sort}
+                        onSort={onSort}
+                      />
+                    ) : (
+                      <SortTh
+                        id="floatShares"
+                        label="Float"
+                        sort={sort}
+                        onSort={onSort}
+                      />
+                    )}
+                    <th className="action">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const ch = row.changePct;
+                    const chClass =
+                      ch == null
+                        ? ''
+                        : ch > 0
+                          ? 'is-pos'
+                          : ch < 0
+                            ? 'is-neg'
+                            : '';
+                    const isSelected = selectedSymbol === row.symbol;
+                    return (
+                      <tr
+                        key={row.symbol}
+                        tabIndex={0}
+                        className={`scanner-table__row${isSelected ? ' is-selected' : ''}`}
+                        aria-selected={isSelected}
+                        onClick={() => onSelect(row)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onSelect(row);
+                          }
+                        }}
+                      >
+                        <td className="sym">{row.symbol}</td>
+                        <td className="name" title={row.name}>
+                          {row.name}
+                        </td>
+                        <td className="num mono">{formatPrice(row.price)}</td>
+                        <td className={`num mono ${chClass}`}>
+                          {formatPct(ch)}
+                        </td>
+                        <td className="num mono">
+                          {formatVolume(row.volume)}
+                        </td>
+                        <td className="num mono">
+                          {formatVolume(row.avgVolume)}
+                        </td>
+                        <td className="num mono">
+                          {row.relVolume != null && Number.isFinite(row.relVolume)
+                            ? `${row.relVolume.toFixed(2)}x`
+                            : '—'}
+                        </td>
+                        <td className="num mono">
+                          {tab === 'investable'
+                            ? formatCap(row.marketCap)
+                            : formatVolume(row.floatShares)}
+                        </td>
+                        <td className="action">
+                          <button
+                            type="button"
+                            className="btn btn--ghost scanner__open"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpen(row);
+                            }}
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
 
-        {rows.length > 0 ? (
-          <p className="scanner__footer muted">
-            Showing {rows.length} liquid equities · click column headers to sort · click a row to open on Desk
-            {tab === 'momentum'
-              ? ' · Float shows "—" when Yahoo free data omits it (still ranked by RVOL / % change)'
-              : ' · Sorted by market cap / price among volume-gated names'}
-          </p>
-        ) : null}
+          {rows.length > 0 ? (
+            <p className="scanner__footer muted">
+              Showing {rows.length} liquid equities · click a row to preview ·{' '}
+              <strong>Open</strong> loads Desk
+              {tab === 'momentum'
+                ? ' · Float shows "—" when Yahoo free data omits it (still ranked by RVOL / % change)'
+                : ' · Sorted by market cap / price among volume-gated names'}
+            </p>
+          ) : null}
+        </div>
+
+        <ScannerPreview row={selectedRow} />
       </div>
     </main>
   );
