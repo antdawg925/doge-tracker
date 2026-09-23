@@ -160,3 +160,11 @@ export function daysToYahooRange(days) {
 
 /** Alias — same mapping as daysToYahooRange. */
 export const yahooRangeForLookback = daysToYahooRange;
+
+/**
+ * Fetch arbitrary Yahoo Finance JSON path via chart host (query1) then direct.
+ * Used by scanner predefined screeners, etc.
+ */
+export async function fetchYahooFinance(path, { signal } = {}) {
+  return fetchYahooJson(chartUrls(path), { signal });
+}

@@ -27,7 +27,7 @@ npm run preview   # optional local preview of dist/
 | --- | --- |
 | `/` | Redirects to `/home` |
 | `/home` | **Desk** — watchlist + analysis workspace |
-| `/scanner` | Placeholder (Milestone 2 — % change / RVOL scan) |
+| `/scanner` | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/alerts` | Placeholder (Milestone 2 — price / stage / RVOL alerts) |
 
 Shared chrome: `AppLayout` (brand **Trade Desk** + nav). Desk workspace: left **Watchlist** (persisted), center analysis widgets, right position summary/editor.
@@ -98,15 +98,29 @@ src/
     PositionSummary, PositionEditor, Disclaimer
   pages/
     Home.jsx           # Desk workspace
-    Scanner.jsx        # M2 placeholder
+    Scanner.jsx        # Momentum / Investable scanner
     Alerts.jsx         # M2 placeholder
   hooks/               # useAssetPrice, useAssetHistory, useLongHistory
-  lib/                 # assets, defaults, levels, volume, marketStage, …
+  lib/                 # assets, defaults, scanner, levels, volume, marketStage, …
 ```
 
-## Milestone 2 (planned)
+## Scanner (Milestone 2)
 
-- **Scanner**: % change + RVOL scan over watchlist / liquid names
+`/scanner` replaces the placeholder with two Yahoo-backed stock lanes (crypto skipped):
+
+| Tab | Intent | Sort |
+| --- | --- | --- |
+| **Momentum** | Volatile / quick-trade | Relative volume ↓, then \|% change\| ↓ (lower float when Yahoo provides it) |
+| **Investable** | Quality / longer horizon | Market cap ↓, then price ↓ among liquid names |
+
+**Liquidity floor:** prefer **average daily volume (3-month ADV) ≥ 5,000,000**; if ADV is missing, today's volume ≥ 5M also passes. Micros under **$0.50** need **≥ 10M** day volume or they are dropped. Float often shows **—** on free Yahoo screeners — rows still rank by volume / RVOL / % change.
+
+Data: Yahoo predefined screeners (`day_gainers`, `day_losers`, `most_actives`, `small_cap_gainers`, `undervalued_large_caps`, `growth_technology_stocks`) via `/api/yahoo` → client filter/sort. Soft-handles **429**s with warnings. Click a row (or **Open**) to save `{ type: 'stock', symbol, name }` into `doge-tracker-state-v2` and navigate to **Desk** (`/home`).
+
+Logic lives in `src/lib/scanner.js`; UI in `src/pages/Scanner.jsx`.
+
+### Still planned
+
 - **Alerts**: price, stage, and RVOL thresholds with notifications
 
 ## License

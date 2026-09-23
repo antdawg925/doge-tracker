@@ -1883,3 +1883,258 @@ p {
 .pump-dump-banner__reasons li {
   margin-bottom: 0.15rem;
 }
+
+/* ===== Scanner (Milestone 2) ===== */
+.scanner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1rem 2rem;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.scanner__header {
+  padding: 1rem 1.15rem 0.95rem;
+}
+
+.scanner__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.scanner__kicker {
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+.scanner__header h1 {
+  font-size: 1.35rem;
+  margin-bottom: 0.3rem;
+}
+
+.scanner__subtitle {
+  font-size: 0.88rem;
+  max-width: 42rem;
+}
+
+.scanner__controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.scanner__updated {
+  font-size: 0.75rem;
+}
+
+.scanner__tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  margin-bottom: 0.75rem;
+}
+
+.scanner__tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.scanner__tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.scanner__tab.is-active {
+  color: var(--text);
+  background: rgba(61, 156, 240, 0.14);
+  border-color: rgba(61, 156, 240, 0.35);
+}
+
+.scanner__note,
+.scanner__source {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.scanner__note {
+  margin-bottom: 0.25rem;
+}
+
+.scanner__note strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.scanner__source {
+  opacity: 0.85;
+}
+
+.scanner__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.scanner__banner p {
+  margin: 0;
+}
+
+.scanner__banner--warn {
+  background: rgba(230, 162, 60, 0.1);
+  border-color: rgba(230, 162, 60, 0.4);
+  color: #f0d09a;
+}
+
+.scanner__banner--error {
+  background: rgba(240, 113, 120, 0.1);
+  border-color: rgba(240, 113, 120, 0.4);
+  color: #f5b4b8;
+}
+
+.scanner__table-wrap {
+  padding: 0;
+  overflow: hidden;
+}
+
+.scanner__scroll {
+  overflow-x: auto;
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+}
+
+.scanner__state {
+  padding: 1.5rem 1.2rem;
+  font-size: 0.92rem;
+}
+
+.scanner__footer {
+  padding: 0.65rem 1rem 0.85rem;
+  font-size: 0.75rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.scanner-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.scanner-table th,
+.scanner-table td {
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.scanner-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #151c28;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scanner-table th.num,
+.scanner-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.scanner-table th.action,
+.scanner-table td.action {
+  text-align: right;
+  width: 1%;
+}
+
+.scanner-table .sym {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-2);
+}
+
+.scanner-table .name {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.scanner-table .mono {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.scanner-table .is-pos {
+  color: var(--pos);
+}
+
+.scanner-table .is-neg {
+  color: var(--neg);
+}
+
+.scanner-table__row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.scanner-table__row:hover,
+.scanner-table__row:focus-visible {
+  background: rgba(61, 156, 240, 0.08);
+  outline: none;
+}
+
+.scanner__open {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .scanner {
+    padding: 0.75rem 0.75rem 1.5rem;
+  }
+
+  .scanner__controls {
+    align-items: flex-start;
+  }
+
+  .scanner-table .name {
+    max-width: 8rem;
+  }
+}
