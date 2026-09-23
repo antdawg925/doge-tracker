@@ -18,8 +18,19 @@ const PROVIDERS = {
   },
 }
 
-function slugParts(query) {
-  const raw = query?.slug
+function slugParts(query, reqUrl) {
+  let raw = query?.slug ?? query?.path
+  if ((raw == null || (Array.isArray(raw) && raw.length === 0)) && reqUrl) {
+    try {
+      const u = new URL(reqUrl, 'http://localhost')
+      // /api/yahoo/v8/... → drop leading "api"
+      const segs = u.pathname.split('/').filter(Boolean)
+      if (segs[0] === 'api') segs.shift()
+      raw = segs
+    } catch {
+      raw = null
+    }
+  }
   const list = Array.isArray(raw) ? raw : raw != null ? [raw] : []
   return list
     .flatMap((s) => String(s).split('/'))
@@ -31,7 +42,7 @@ function buildUrl(base, restPath, query) {
   const qs = new URLSearchParams()
   if (query && typeof query === 'object') {
     for (const [k, v] of Object.entries(query)) {
-      if (k === 'slug') continue
+      if (k === 'slug' || k === 'path') continue
       if (Array.isArray(v)) v.forEach((item) => qs.append(k, String(item)))
       else if (v != null) qs.set(k, String(v))
     }
@@ -50,7 +61,7 @@ export default async function handler(req, res) {
       return
     }
 
-    const parts = slugParts(req.query)
+    const parts = slugParts(req.query, req.url)
     if (parts.length === 0) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
