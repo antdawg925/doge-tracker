@@ -2070,6 +2070,48 @@ p {
   letter-spacing: 0.04em;
 }
 
+
+.scanner-table th.sortable {
+  padding: 0;
+}
+
+.scanner-table__sort {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: inherit;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  white-space: nowrap;
+}
+
+.scanner-table__sort:hover {
+  color: var(--text, #e8eef7);
+}
+
+.scanner-table__sort.is-active {
+  color: var(--accent-2, #3d9cf0);
+}
+
+.scanner-table__sort-ind {
+  opacity: 0.45;
+  font-size: 0.85em;
+}
+
+.scanner-table__sort.is-active .scanner-table__sort-ind {
+  opacity: 1;
+}
+
 .scanner-table th.num,
 .scanner-table td.num {
   text-align: right;

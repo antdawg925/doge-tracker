@@ -48,6 +48,44 @@ function upsertWatchlist(list, asset) {
   return [...list, { ...asset }];
 }
 
+
+
+function compareSortValues(a, b, field, dir) {
+  const av = a?.[field];
+  const bv = b?.[field];
+  const aNull = av == null || Number.isNaN(av);
+  const bNull = bv == null || Number.isNaN(bv);
+  if (aNull && bNull) return 0;
+  if (aNull) return 1; // nulls last
+  if (bNull) return -1;
+  if (av === bv) return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  const mul = dir === 'asc' ? 1 : -1;
+  return av < bv ? -1 * mul : 1 * mul;
+}
+
+function SortTh({ id, label, sort, onSort, className = '' }) {
+  const active = sort.key === id;
+  const ariaSort = !active ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending';
+  const marker = !active ? '' : sort.dir === 'asc' ? ' ↑' : ' ↓';
+  return (
+    <th className={`num sortable ${className}`.trim()} aria-sort={ariaSort}>
+      <button
+        type="button"
+        className={`scanner-table__sort${active ? ' is-active' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSort(id);
+        }}
+      >
+        {label}
+        <span className="scanner-table__sort-ind" aria-hidden>
+          {marker || ' ↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function openOnDesk(row) {
   const asset = rowToStockAsset(row);
   const prev = loadAppState();
@@ -76,6 +114,9 @@ export default function Scanner() {
   const [sourceNote, setSourceNote] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
   const [tick, setTick] = useState(0);
+  // null key = lane default order; first click = desc (highest), second = asc (lowest)
+  const [sort, setSort] = useState({ key: null, dir: 'desc' });
+
 
   const load = useCallback(async (signal) => {
     setLoading(true);
@@ -104,10 +145,28 @@ export default function Scanner() {
     return () => ac.abort();
   }, [load, tick]);
 
+  // Fresh lane → restore profile default until the user picks a column
+  useEffect(() => {
+    setSort({ key: null, dir: 'desc' });
+  }, [tab]);
+
+  const onSort = useCallback((key) => {
+    setSort((prev) => {
+      if (prev.key !== key) return { key, dir: 'desc' };
+      return { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' };
+    });
+  }, []);
+
   const rows = useMemo(() => {
-    if (tab === 'investable') return applyInvestableProfile(rawRows);
-    return applyMomentumProfile(rawRows);
-  }, [rawRows, tab]);
+    const base =
+      tab === 'investable'
+        ? applyInvestableProfile(rawRows)
+        : applyMomentumProfile(rawRows);
+    if (!sort.key) return base;
+    return [...base].sort((a, b) =>
+      compareSortValues(a, b, sort.key, sort.dir),
+    );
+  }, [rawRows, tab, sort]);
 
   const onOpen = useCallback(
     (row) => {
@@ -118,8 +177,7 @@ export default function Scanner() {
   );
 
   const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
-  const extraCol = tab === 'investable' ? 'Mkt Cap' : 'Float';
-
+  
   return (
     <main className="scanner">
       <div className="scanner__header card">
@@ -209,12 +267,36 @@ export default function Scanner() {
                 <tr>
                   <th>Symbol</th>
                   <th>Name</th>
-                  <th className="num">Price</th>
-                  <th className="num">Change %</th>
-                  <th className="num">Volume</th>
-                  <th className="num">Avg Vol</th>
+                  <SortTh id="price" label="Price" sort={sort} onSort={onSort} />
+                  <SortTh
+                    id="changePct"
+                    label="Change %"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  <SortTh id="volume" label="Volume" sort={sort} onSort={onSort} />
+                  <SortTh
+                    id="avgVolume"
+                    label="Avg Vol"
+                    sort={sort}
+                    onSort={onSort}
+                  />
                   <th className="num">RVOL</th>
-                  <th className="num">{extraCol}</th>
+                  {tab === 'investable' ? (
+                    <SortTh
+                      id="marketCap"
+                      label="Mkt Cap"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                  ) : (
+                    <SortTh
+                      id="floatShares"
+                      label="Float"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                  )}
                   <th className="action">Action</th>
                 </tr>
               </thead>
@@ -288,7 +370,7 @@ export default function Scanner() {
 
         {rows.length > 0 ? (
           <p className="scanner__footer muted">
-            Showing {rows.length} liquid equities · click a row to open on Desk
+            Showing {rows.length} liquid equities · click column headers to sort · click a row to open on Desk
             {tab === 'momentum'
               ? ' · Float shows "—" when Yahoo free data omits it (still ranked by RVOL / % change)'
               : ' · Sorted by market cap / price among volume-gated names'}
