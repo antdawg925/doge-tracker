@@ -98,15 +98,14 @@ p {
 }
 
 .desk-nav__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   object-fit: cover;
   object-position: center;
   flex-shrink: 0;
   background: #0b0f14;
   box-shadow: 0 0 0 1px rgba(46, 230, 255, 0.35);
-  image-rendering: auto;
 }
 
 .desk-nav__mark {

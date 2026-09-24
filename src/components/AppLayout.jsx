@@ -20,8 +20,8 @@ export default function AppLayout() {
             src="/bull-logo.png"
             srcSet="/bull-logo.png 1x, /bull-logo@2x.png 2x"
             alt="Trade Smart"
-            width={40}
-            height={40}
+            width={48}
+            height={48}
             decoding="async"
           />
           <span className="desk-nav__title">Trade Smart</span>
