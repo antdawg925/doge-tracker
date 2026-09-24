@@ -65,7 +65,7 @@ p {
   padding: 1.25rem 1.25rem 2.5rem;
 }
 
-/* ===== Trade Desk chrome (Milestone 1) ===== */
+/* ===== Trade Smart chrome (Milestone 1) ===== */
 .desk-shell {
   min-height: 100vh;
   min-height: 100dvh;
@@ -95,6 +95,15 @@ p {
   text-decoration: none;
   color: var(--text);
   margin-right: 0.5rem;
+}
+
+.desk-nav__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(56, 232, 255, 0.25);
 }
 
 .desk-nav__mark {

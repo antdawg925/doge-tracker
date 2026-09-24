@@ -31,8 +31,8 @@ export default function Home() {
   return (
     <main className="landing">
       <section className="landing__hero">
-        <p className="landing__kicker muted">Trade Desk</p>
-        <h1>Personal research desk</h1>
+        <p className="landing__kicker muted">Trade Smart</p>
+        <h1>Trade Smart research</h1>
         <p className="landing__lede muted">
           Liquid stocks &amp; crypto — chart, levels, scanners, and short-interest
           tools in one dark workspace.

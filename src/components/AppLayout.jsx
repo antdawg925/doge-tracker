@@ -15,10 +15,14 @@ export default function AppLayout() {
     <div className="desk-shell">
       <header className="desk-nav">
         <NavLink to="/" className="desk-nav__brand" end>
-          <span className="desk-nav__mark" aria-hidden>
-            TD
-          </span>
-          <span className="desk-nav__title">Trade Desk</span>
+          <img
+            className="desk-nav__logo"
+            src="/bull-logo.png"
+            alt=""
+            width={32}
+            height={32}
+          />
+          <span className="desk-nav__title">Trade Smart</span>
         </NavLink>
         <nav className="desk-nav__links" aria-label="Primary">
           {NAV.map(({ to, label, end, match }) => (
