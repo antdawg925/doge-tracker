@@ -18,9 +18,11 @@ export default function AppLayout() {
           <img
             className="desk-nav__logo"
             src="/bull-logo.png"
-            alt=""
-            width={32}
-            height={32}
+            srcSet="/bull-logo.png 1x, /bull-logo@2x.png 2x"
+            alt="Trade Smart"
+            width={40}
+            height={40}
+            decoding="async"
           />
           <span className="desk-nav__title">Trade Smart</span>
         </NavLink>
