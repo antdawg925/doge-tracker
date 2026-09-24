@@ -4,7 +4,7 @@ Vite + React **Trade Desk** — a StocksToTrade-lite workspace for researching c
 
 Package name stays `doge-tracker`. Default symbol is **DOGE** (crypto). Search any crypto (CoinGecko) or stock/ETF (Yahoo).
 
-**Not investment advice.** Numbers are editable defaults for a personal plan — **not** live brokerage positions.
+Numbers are editable defaults for a personal plan — not a live brokerage feed.
 
 ## Quick start
 
@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). `/` redirects to `/home`.
+Open the URL Vite prints (usually `http://localhost:5173`). `/` and `/home` are the landing page.
 
 ```bash
 npm run build
@@ -25,12 +25,13 @@ npm run preview   # optional local preview of dist/
 
 | Path | Page |
 | --- | --- |
-| `/` | Redirects to `/home` |
-| `/home` | **Desk** — watchlist + analysis workspace |
+| `/`, `/home` | **Home** — landing / capability overview |
+| `/research` | **Research** — watchlist + analysis workstation |
 | `/scanner` | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
+| `/short-kings` | **Short Kings** — My Shorts + Hunt (float / short interest) |
 | `/alerts` | Placeholder (Milestone 2 — price / stage / RVOL alerts) |
 
-Shared chrome: `AppLayout` (brand **Trade Desk** + nav). Desk workspace: left **Watchlist** (persisted), center analysis widgets, right position summary/editor.
+Shared chrome: `AppLayout` (brand **Trade Desk** + nav). Research workspace: left **Watchlist** (persisted), center analysis widgets, right position summary/editor.
 
 ### VS Code / editor notes
 
@@ -74,7 +75,7 @@ Right-side editor:
 | **Average cost** | $ per unit paid |
 | **Target price** | Take-profit idea ($ per unit) |
 
-## Features (Desk / V1)
+## Features (Research / V1)
 
 - Live spot + 24h change
 - Daily **candlestick** chart (30d / 90d) + volume / **RVOL** strip
@@ -95,9 +96,10 @@ src/
     Header.jsx         # Refresh / last updated toolbar
     SymbolSearch, StageBox, PriceCard, PriceChart,
     SuggestedStops, SupportPanel, ResistancePanel,
-    PositionSummary, PositionEditor, Disclaimer
+    PositionSummary, PositionEditor
   pages/
-    Home.jsx           # Desk workspace
+    Home.jsx           # Landing
+    Research.jsx       # Research workstation
     Scanner.jsx        # Momentum / Investable scanner + preview pane
     NewsPanel.jsx       # Shared Yahoo news + significance badges
     ScannerChart.jsx    # Compact 1M/1Y/5Y candles
@@ -118,14 +120,14 @@ src/
 
 **Liquidity floor:** prefer **average daily volume (3-month ADV) ≥ 5,000,000**; if ADV is missing, today's volume ≥ 5M also passes. Micros under **$0.50** need **≥ 10M** day volume or they are dropped. Float often shows **—** on free Yahoo screeners — rows still rank by volume / RVOL / % change.
 
-Data: Yahoo predefined screeners (`day_gainers`, `day_losers`, `most_actives`, `small_cap_gainers`, `undervalued_large_caps`, `growth_technology_stocks`) via `/api/yahoo` → client filter/sort. Soft-handles **429**s with warnings. Click a row to **preview** chart/news; **Open** to save `{ type: 'stock', symbol, name }` into `doge-tracker-state-v2` and navigate to **Desk** (`/home`).
+Data: Yahoo predefined screeners (`day_gainers`, `day_losers`, `most_actives`, `small_cap_gainers`, `undervalued_large_caps`, `growth_technology_stocks`) via `/api/yahoo` → client filter/sort. Soft-handles **429**s with warnings. Click a row to **preview** chart/news; **Open** to save `{ type: 'stock', symbol, name }` into `doge-tracker-state-v2` and navigate to **Research** (`/research`).
 
 Logic lives in `src/lib/scanner.js`; UI in `src/pages/Scanner.jsx`.
 
 
-## Symbol preview & news (Scanner + Desk)
+## Symbol preview & news (Scanner + Research)
 
-Shared **news** pipeline for Scanner preview and Desk:
+Shared **news** pipeline for Scanner preview and Research:
 
 | Piece | Role |
 | --- | --- |
@@ -136,12 +138,12 @@ Shared **news** pipeline for Scanner preview and Desk:
 ### Scanner preview
 
 - Click a table row to **select** it (highlight). Does **not** navigate away.
-- **Open** still loads the symbol onto Desk (`/home`) as before.
+- **Open** still loads the symbol onto Research (`/research`) as before.
 - Right-hand **preview pane**: compact candle chart (`1M` / `1Y` / `5Y`, default `1Y`) + `NewsPanel`.
 - Chart ranges map to Yahoo daily bars: `1M→1mo`, `1Y→1y`, `5Y→5y` (`ScannerChart` + `fetchYahooChart`).
 - Empty state: “Select a symbol to preview chart & news.”
 
-### Desk
+### Research
 
 - `NewsPanel` sits in the main column under the price chart for the selected symbol (stocks and crypto via Yahoo `SYMBOL-USD` when needed).
 
@@ -155,7 +157,7 @@ Shared **news** pipeline for Scanner preview and Desk:
 ### Limitations
 
 - Yahoo search news quality varies; many items are low-signal aggregators.
-- Free Yahoo endpoints can **429**; news failures show a soft warning and do not break the scanner table or Desk chart.
+- Free Yahoo endpoints can **429**; news failures show a soft warning and do not break the scanner table or Research chart.
 - Heuristic scorer can miss nuance / non-English headlines; no LLM in v1.
 
 ### Still planned

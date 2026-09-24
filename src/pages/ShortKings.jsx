@@ -306,7 +306,7 @@ export default function ShortKings() {
   const onOpen = useCallback(
     (row) => {
       openOnDesk(row);
-      navigate('/home');
+      navigate('/research');
     },
     [navigate],
   );
@@ -353,7 +353,7 @@ export default function ShortKings() {
             <p className="scanner__kicker muted">Short Kings</p>
             <h1>Short Kings</h1>
             <p className="scanner__subtitle muted">
-              Float &amp; short-interest research — not trade advice.
+              Float &amp; short-interest research.
             </p>
             <p className="scanner__subtitle muted">{activeTab.blurb}</p>
           </div>
@@ -671,7 +671,7 @@ export default function ShortKings() {
             <p className="scanner__footer muted">
               Showing {rows.length}{' '}
               {tab === 'my-shorts' ? 'watchlist' : 'Hunt'} equities · click a
-              row to preview · <strong>Open</strong> loads Desk
+              row to preview · <strong>Open</strong> loads Research
               {tab === 'hunt'
                 ? ' · Default order: short % ↓ · net cash ↑ (debt first) · RVOL ↓ · |% move| ↓ · My Shorts excluded'
                 : ' · Fundamentals fill via quoteSummary (concurrency-limited)'}

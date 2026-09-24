@@ -271,7 +271,7 @@ export default function Scanner() {
   const onOpen = useCallback(
     (row) => {
       openOnDesk(row);
-      navigate('/home');
+      navigate('/research');
     },
     [navigate],
   );
@@ -515,7 +515,7 @@ export default function Scanner() {
           {rows.length > 0 ? (
             <p className="scanner__footer muted">
               Showing {rows.length} liquid equities · click a row to preview ·{' '}
-              <strong>Open</strong> loads Desk
+              <strong>Open</strong> loads Research
               {tab === 'momentum'
                 ? ' · Float / Sector / Net / Short % show "—" when Yahoo omits them (top rows enrich via quoteSummary, concurrency-limited)'
                 : ' · Sorted by market cap / price among volume-gated names · Sector / Net / Short % fill for top rows'}
