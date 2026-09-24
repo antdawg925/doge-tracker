@@ -589,6 +589,15 @@ p {
   cursor: not-allowed;
 }
 
+.btn--primary {
+  background: linear-gradient(135deg, #1a9bb8, #2ee6ff);
+  color: #061018;
+  border: none;
+  font-weight: 700;
+}
+.btn--primary:hover {
+  filter: brightness(1.08);
+}
 .btn--ghost {
   background: transparent;
   font-weight: 500;
