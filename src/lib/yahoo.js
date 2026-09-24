@@ -127,16 +127,20 @@ export async function fetchYahooChart(symbol, range = '3mo', { signal, interval 
         ? bars[bars.length - 1].close
         : null;
 
-  const prev =
-    Number.isFinite(meta.chartPreviousClose)
-      ? meta.chartPreviousClose
-      : Number.isFinite(meta.previousClose)
-        ? meta.previousClose
-        : null;
-
+  // Prefer Yahoo's session change. Do NOT use chartPreviousClose on
+  // multi-day ranges — that is the close before the chart window, not yesterday.
   let change24h = null;
-  if (spot != null && prev != null && prev > 0) {
-    change24h = ((spot - prev) / prev) * 100;
+  if (Number.isFinite(meta.regularMarketChangePercent)) {
+    change24h = meta.regularMarketChangePercent;
+  } else {
+    const prevClose = Number.isFinite(meta.previousClose)
+      ? meta.previousClose
+      : bars.length >= 2
+        ? bars[bars.length - 2].close
+        : null;
+    if (spot != null && prevClose != null && prevClose > 0) {
+      change24h = ((spot - prevClose) / prevClose) * 100;
+    }
   }
 
   return {

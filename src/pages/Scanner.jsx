@@ -372,7 +372,7 @@ export default function Scanner() {
                     <SortTh id="price" label="Price" sort={sort} onSort={onSort} />
                     <SortTh
                       id="changePct"
-                      label="Change %"
+                      label="Day %"
                       sort={sort}
                       onSort={onSort}
                     />

@@ -490,7 +490,7 @@ export default function ShortKings() {
                     />
                     <SortTh
                       id="changePct"
-                      label="Change %"
+                      label="Day %"
                       sort={sort}
                       onSort={onSort}
                     />
