@@ -236,6 +236,9 @@ export default function ShortKings() {
               floatShares: r.floatShares,
               shortRatio: r.shortRatio,
               pctFromHigh: r.pctFromHigh,
+              pctFromLow: r.pctFromLow,
+              fiftyTwoWeekHigh: r.fiftyTwoWeekHigh,
+              fiftyTwoWeekLow: r.fiftyTwoWeekLow,
               fundamentalsLoaded: r.fundamentalsLoaded,
               // Prefer fresher name/price from fundamentals merge when present
               name: r.name,
@@ -538,6 +541,18 @@ export default function ShortKings() {
                       className="scanner-table__sector"
                     />
                     <SortTh
+                      id="fiftyTwoWeekHigh"
+                      label="52w high"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                    <SortTh
+                      id="fiftyTwoWeekLow"
+                      label="52w low"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                    <SortTh
                       id="pctFromHigh"
                       label="Dist 52w hi"
                       sort={sort}
@@ -627,6 +642,22 @@ export default function ShortKings() {
                           title={row.sector || undefined}
                         >
                           {cellOrEllipsis(loaded, row.sector || '—')}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            row.fiftyTwoWeekHigh != null
+                              ? formatPrice(row.fiftyTwoWeekHigh)
+                              : '—',
+                          )}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            row.fiftyTwoWeekLow != null
+                              ? formatPrice(row.fiftyTwoWeekLow)
+                              : '—',
+                          )}
                         </td>
                         <td className="num mono">
                           {cellOrEllipsis(

@@ -351,6 +351,9 @@ export function fundamentalsToScannerFields(f) {
       floatShares: null,
       shortRatio: null,
       pctFromHigh: null,
+      pctFromLow: null,
+      fiftyTwoWeekHigh: null,
+      fiftyTwoWeekLow: null,
       fundamentalsLoaded: false,
     };
   }
@@ -361,6 +364,9 @@ export function fundamentalsToScannerFields(f) {
     floatShares: f.floatShares ?? null,
     shortRatio: f.shortRatio ?? null,
     pctFromHigh: f.pctFromHigh ?? null,
+    pctFromLow: f.pctFromLow ?? null,
+    fiftyTwoWeekHigh: f.fiftyTwoWeekHigh ?? null,
+    fiftyTwoWeekLow: f.fiftyTwoWeekLow ?? null,
     fundamentalsLoaded: true,
   };
 }

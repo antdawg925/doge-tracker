@@ -62,6 +62,9 @@ export function emptyShortRow(symbol, name = null) {
     shortPercentOfFloat: null,
     shortRatio: null,
     pctFromHigh: null,
+    pctFromLow: null,
+    fiftyTwoWeekHigh: null,
+    fiftyTwoWeekLow: null,
     fundamentalsLoaded: false,
   };
 }
