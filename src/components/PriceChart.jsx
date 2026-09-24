@@ -437,7 +437,7 @@ export default function PriceChart({
 
     const chart = createChart(el, {
       autoSize: true,
-      height: 360,
+      height: 560,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#8b9bb4',
@@ -461,7 +461,7 @@ export default function PriceChart({
       },
       rightPriceScale: {
         borderColor: '#243044',
-        scaleMargins: { top: 0.08, bottom: 0.08 },
+        scaleMargins: { top: 0.05, bottom: 0.06 },
       },
       timeScale: {
         borderColor: '#243044',
