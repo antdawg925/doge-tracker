@@ -2945,8 +2945,6 @@ p {
   50% { transform: translateY(-14px) rotate(1.5deg); }
   75% { transform: translateY(-6px) rotate(-1.5deg); }
 }
-  50% { transform: translateY(-10px) scale(1.03); }
-}
 
 @media (max-width: 640px) {
   .landing__grid {
