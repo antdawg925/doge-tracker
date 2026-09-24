@@ -32,6 +32,13 @@ function writeCache(aKey, rangeId, payload) {
 export function useAssetHistory(asset, initialRangeId = '90D') {
   const key = assetKey(asset);
   const [rangeId, setRangeId] = useState(initialRangeId);
+  // Free crypto history rarely exceeds ~5y — drop 10Y for crypto
+  useEffect(() => {
+    if (asset?.type === 'crypto' && rangeId === '10Y') {
+      setRangeId('5Y');
+    }
+  }, [asset?.type, rangeId]);
+
   const rangeMeta = researchRangeById(rangeId);
   const initialCache = cacheBucket(key, initialRangeId);
   const [bars, setBars] = useState(initialCache?.bars ?? []);

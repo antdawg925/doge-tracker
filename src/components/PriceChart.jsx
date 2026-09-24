@@ -213,6 +213,14 @@ export default function PriceChart({
                 : '10Y'
       : '90D');
   const rangeMeta = researchRangeById(rangeIdResolved);
+  const visibleRanges = useMemo(() => {
+    if (asset?.type === 'crypto') {
+      return RESEARCH_RANGES.filter((r) => r.id !== '10Y');
+    }
+    return RESEARCH_RANGES;
+  }, [asset?.type]);
+
+
   const tfLabel = tfLabelProp || rangeMeta.tfLabel;
   const rangeIdRef = useRef(rangeIdResolved);
   const tfLabelRef = useRef(tfLabel);
@@ -639,7 +647,7 @@ export default function PriceChart({
           <span className="muted small price-chart__tf"> · {tfLabel}</span>
         </h2>
         <div className="segmented" role="group" aria-label="Chart range">
-          {RESEARCH_RANGES.map((r) => (
+          {visibleRanges.map((r) => (
             <button
               key={r.id}
               type="button"
