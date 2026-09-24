@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  ENRICH_CONCURRENCY,
+  HUNT_ENRICH_TOP_N,
   MIN_VOLUME,
-  applyInvestableProfile,
-  applyMomentumProfile,
-  fetchScannerUniverse,
+  SHORT_KINGS_WATCHLIST,
+  applyHuntProfile,
+  enrichShortRows,
+  fetchHuntUniverse,
+  fetchWatchlistRows,
+  loadWatchlist,
   rowToStockAsset,
-} from '../lib/scanner.js';
+  saveWatchlist,
+} from '../lib/shortKings.js';
 import {
-  enrichScannerRows,
   formatNetCash,
   formatRatioPct,
+  formatShares,
 } from '../lib/fundamentals.js';
 import {
   defaultPositionFor,
@@ -28,29 +34,17 @@ import ScannerPreview from '../components/ScannerPreview.jsx';
 
 const TABS = [
   {
-    id: 'momentum',
-    label: 'Momentum',
-    blurb: 'High relative volume & stronger % moves — quick-trade lane.',
+    id: 'my-shorts',
+    label: 'My Shorts',
+    blurb: 'Seeded watchlist — quotes & short-interest fundamentals.',
   },
   {
-    id: 'investable',
-    label: 'Investable',
-    blurb: 'Liquid, larger / more established names — longer-horizon lane.',
+    id: 'hunt',
+    label: 'Hunt',
+    blurb:
+      'Liquid names ranked for short research: short % · net cash · RVOL · moves.',
   },
 ];
-
-/** How many top rows get quoteSummary enrichment (rate-limit friendly). */
-const ENRICH_TOP_N = 35;
-const ENRICH_CONCURRENCY = 2;
-
-function formatCap(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  const abs = Math.abs(n);
-  if (abs >= 1e12) return `$${(abs / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `$${(abs / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `$${(abs / 1e6).toFixed(2)}M`;
-  return `$${abs.toFixed(0)}`;
-}
 
 function upsertWatchlist(list, asset) {
   const key = assetKey(asset);
@@ -70,7 +64,7 @@ function compareSortValues(a, b, field, dir) {
     bv === '' ||
     (typeof bv === 'number' && Number.isNaN(bv));
   if (aNull && bNull) return 0;
-  if (aNull) return 1; // nulls last
+  if (aNull) return 1;
   if (bNull) return -1;
   if (typeof av === 'string' || typeof bv === 'string') {
     const cmp = String(av).localeCompare(String(bv), undefined, {
@@ -90,7 +84,11 @@ function compareSortValues(a, b, field, dir) {
 
 function SortTh({ id, label, sort, onSort, className = '' }) {
   const active = sort.key === id;
-  const ariaSort = !active ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending';
+  const ariaSort = !active
+    ? 'none'
+    : sort.dir === 'asc'
+      ? 'ascending'
+      : 'descending';
   const marker = !active ? '' : sort.dir === 'asc' ? ' ↑' : ' ↓';
   return (
     <th className={`num sortable ${className}`.trim()} aria-sort={ariaSort}>
@@ -135,9 +133,16 @@ function cellOrEllipsis(loaded, formatted) {
   return '—';
 }
 
-export default function Scanner() {
+function formatDistFromHigh(pctFromHigh) {
+  if (pctFromHigh == null || Number.isNaN(pctFromHigh)) return '—';
+  // Yahoo ratio: -0.25 → −25.0% from 52w high
+  return formatRatioPct(pctFromHigh, 1);
+}
+
+export default function ShortKings() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState('momentum');
+  const [tab, setTab] = useState('my-shorts');
+  const [watchSymbols, setWatchSymbols] = useState(() => loadWatchlist());
   const [rawRows, setRawRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
@@ -146,31 +151,49 @@ export default function Scanner() {
   const [sourceNote, setSourceNote] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
   const [tick, setTick] = useState(0);
-  // null key = lane default order; first click = desc (highest), second = asc (lowest)
   const [sort, setSort] = useState({ key: null, dir: 'desc' });
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  const [addDraft, setAddDraft] = useState('');
 
-  const load = useCallback(async (signal) => {
-    setLoading(true);
-    setError(null);
-    setEnriching(false);
-    try {
-      const result = await fetchScannerUniverse(undefined, { signal });
-      if (signal?.aborted) return;
-      setRawRows(result.rows || []);
-      setWarnings(result.warnings || []);
-      setSourceNote(result.sourceNote || '');
-      setLastUpdated(result.fetchedAt || Date.now());
-    } catch (err) {
-      if (err?.name === 'AbortError') return;
-      setRawRows([]);
-      setWarnings(err?.warnings || []);
-      setError(err?.message || 'Scanner failed');
-      setLastUpdated(null);
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (signal) => {
+      setLoading(true);
+      setError(null);
+      setEnriching(false);
+      try {
+        if (tab === 'my-shorts') {
+          const result = await fetchWatchlistRows(watchSymbols, { signal });
+          if (signal?.aborted) return;
+          setRawRows(result.rows || []);
+          setWarnings(result.warnings || []);
+          setSourceNote(
+            `My Shorts · ${SHORT_KINGS_WATCHLIST.length}-name seed (editable below). Stocks only.`,
+          );
+          setLastUpdated(result.fetchedAt || Date.now());
+        } else {
+          const result = await fetchHuntUniverse({
+            signal,
+            excludeSymbols: watchSymbols,
+            limit: 75,
+          });
+          if (signal?.aborted) return;
+          setRawRows(result.rows || []);
+          setWarnings(result.warnings || []);
+          setSourceNote(result.sourceNote || '');
+          setLastUpdated(result.fetchedAt || Date.now());
+        }
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        setRawRows([]);
+        setWarnings(err?.warnings || []);
+        setError(err?.message || 'Short Kings failed to load');
+        setLastUpdated(null);
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [tab, watchSymbols],
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -178,26 +201,33 @@ export default function Scanner() {
     return () => ac.abort();
   }, [load, tick]);
 
-  // After screener rows land, enrich top N of the *current lane order* gently.
-  // Re-runs when tab changes so Investable top-N also fills.
+  // Enrich top N (all My Shorts; Hunt top N) with concurrency 2
   useEffect(() => {
     if (loading || !rawRows.length) return undefined;
     const ac = new AbortController();
     const base =
-      tab === 'investable'
-        ? applyInvestableProfile(rawRows)
-        : applyMomentumProfile(rawRows);
+      tab === 'hunt'
+        ? applyHuntProfile(rawRows, {
+            excludeSymbols: watchSymbols,
+            bootstrap: true,
+            limit: 75,
+          })
+        : rawRows;
+
+    const limit =
+      tab === 'my-shorts'
+        ? base.length
+        : Math.min(HUNT_ENRICH_TOP_N, base.length);
 
     setEnriching(true);
-    enrichScannerRows(base, {
+    enrichShortRows(base, {
       signal: ac.signal,
-      limit: ENRICH_TOP_N,
+      limit,
       concurrency: ENRICH_CONCURRENCY,
-      onProgress: (updatedLane) => {
+      onProgress: (updated) => {
         if (ac.signal.aborted) return;
-        // Merge enriched fields back into rawRows by symbol
         const enrichBySym = new Map(
-          updatedLane.map((r) => [
+          updated.map((r) => [
             r.symbol,
             {
               sector: r.sector,
@@ -207,6 +237,8 @@ export default function Scanner() {
               shortRatio: r.shortRatio,
               pctFromHigh: r.pctFromHigh,
               fundamentalsLoaded: r.fundamentalsLoaded,
+              // Prefer fresher name/price from fundamentals merge when present
+              name: r.name,
             },
           ]),
         );
@@ -226,11 +258,11 @@ export default function Scanner() {
       });
 
     return () => ac.abort();
-  }, [loading, rawRows.length, tab, tick]); // eslint-like: length+tab+tick gates re-enrich
+  }, [loading, rawRows.length, tab, tick, watchSymbols]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fresh lane → restore profile default until the user picks a column
   useEffect(() => {
     setSort({ key: null, dir: 'desc' });
+    setSelectedSymbol(null);
   }, [tab]);
 
   const onSort = useCallback((key) => {
@@ -242,16 +274,19 @@ export default function Scanner() {
 
   const rows = useMemo(() => {
     const base =
-      tab === 'investable'
-        ? applyInvestableProfile(rawRows)
-        : applyMomentumProfile(rawRows);
+      tab === 'hunt'
+        ? applyHuntProfile(rawRows, {
+            excludeSymbols: watchSymbols,
+            bootstrap: false,
+            limit: 75,
+          })
+        : rawRows;
     if (!sort.key) return base;
     return [...base].sort((a, b) =>
       compareSortValues(a, b, sort.key, sort.dir),
     );
-  }, [rawRows, tab, sort]);
+  }, [rawRows, tab, sort, watchSymbols]);
 
-  // Keep selection if still in the filtered list; otherwise clear
   useEffect(() => {
     if (!selectedSymbol) return;
     if (!rows.some((r) => r.symbol === selectedSymbol)) {
@@ -276,15 +311,50 @@ export default function Scanner() {
     [navigate],
   );
 
+  const removeSymbol = useCallback((sym) => {
+    setWatchSymbols((prev) => {
+      const next = prev.filter((s) => s !== sym);
+      saveWatchlist(next.length ? next : [...SHORT_KINGS_WATCHLIST]);
+      return next.length ? next : [...SHORT_KINGS_WATCHLIST];
+    });
+    setTick((n) => n + 1);
+  }, []);
+
+  const addSymbol = useCallback(() => {
+    const sym = String(addDraft || '')
+      .toUpperCase()
+      .trim()
+      .replace(/[^A-Z0-9.-]/g, '');
+    if (!sym) return;
+    setWatchSymbols((prev) => {
+      if (prev.includes(sym)) return prev;
+      const next = [...prev, sym];
+      saveWatchlist(next);
+      return next;
+    });
+    setAddDraft('');
+    setTick((n) => n + 1);
+  }, [addDraft]);
+
+  const resetWatchlist = useCallback(() => {
+    const seed = [...SHORT_KINGS_WATCHLIST];
+    saveWatchlist(seed);
+    setWatchSymbols(seed);
+    setTick((n) => n + 1);
+  }, []);
+
   const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
 
   return (
-    <main className="scanner">
+    <main className="scanner short-kings">
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__kicker muted">Scanner</p>
-            <h1>Stock Scanner</h1>
+            <p className="scanner__kicker muted">Short Kings</p>
+            <h1>Short Kings</h1>
+            <p className="scanner__subtitle muted">
+              Float &amp; short-interest research — not trade advice.
+            </p>
             <p className="scanner__subtitle muted">{activeTab.blurb}</p>
           </div>
           <div className="scanner__controls">
@@ -294,7 +364,7 @@ export default function Scanner() {
               disabled={loading}
               onClick={() => setTick((n) => n + 1)}
             >
-              {loading ? 'Scanning…' : 'Refresh'}
+              {loading ? 'Loading…' : 'Refresh'}
             </button>
             <p className="scanner__updated muted">
               Updated {formatTime(lastUpdated)}
@@ -303,7 +373,11 @@ export default function Scanner() {
           </div>
         </div>
 
-        <div className="scanner__tabs" role="tablist" aria-label="Scanner lane">
+        <div
+          className="scanner__tabs"
+          role="tablist"
+          aria-label="Short Kings mode"
+        >
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -319,12 +393,49 @@ export default function Scanner() {
         </div>
 
         <p className="scanner__note muted">
-          Floor: prefer <strong>~{MIN_VOLUME.toLocaleString('en-US')}+</strong>{' '}
-          average daily volume (3-month ADV when available; otherwise today&apos;s
-          volume). Thin / micro names are filtered out. Stocks only — no crypto.
+          Floor: prefer{' '}
+          <strong>~{MIN_VOLUME.toLocaleString('en-US')}+</strong> average daily
+          volume on Hunt. Stocks only — no crypto. No squeeze scores or “short
+          this” calls — just the numbers.
         </p>
         {sourceNote ? (
           <p className="scanner__source muted">{sourceNote}</p>
+        ) : null}
+
+        {tab === 'my-shorts' ? (
+          <div className="short-kings__watch-edit">
+            <form
+              className="short-kings__add"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addSymbol();
+              }}
+            >
+              <label className="sr-only" htmlFor="sk-add">
+                Add symbol
+              </label>
+              <input
+                id="sk-add"
+                className="short-kings__input"
+                value={addDraft}
+                onChange={(e) => setAddDraft(e.target.value)}
+                placeholder="Add ticker"
+                maxLength={12}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button type="submit" className="btn btn--ghost">
+                Add
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={resetWatchlist}
+              >
+                Reset seed
+              </button>
+            </form>
+          </div>
         ) : null}
       </div>
 
@@ -352,13 +463,16 @@ export default function Scanner() {
       <div className="scanner__body">
         <div className="scanner__table-wrap card">
           {loading && !rows.length ? (
-            <p className="scanner__state muted">Loading liquid names from Yahoo…</p>
+            <p className="scanner__state muted">
+              {tab === 'my-shorts'
+                ? 'Loading My Shorts quotes…'
+                : 'Hunting liquid short research candidates…'}
+            </p>
           ) : null}
 
           {!loading && !error && !rows.length ? (
             <p className="scanner__state muted">
-              No names passed the volume floor. Try Refresh in a minute (Yahoo may
-              be rate-limiting).
+              No rows to show. Try Refresh (Yahoo may be rate-limiting).
             </p>
           ) : null}
 
@@ -368,18 +482,15 @@ export default function Scanner() {
                 <thead>
                   <tr>
                     <th>Symbol</th>
-                    <th>Name</th>
-                    <SortTh id="price" label="Price" sort={sort} onSort={onSort} />
                     <SortTh
-                      id="changePct"
-                      label="Change %"
+                      id="price"
+                      label="Price"
                       sort={sort}
                       onSort={onSort}
                     />
-                    <SortTh id="volume" label="Volume" sort={sort} onSort={onSort} />
                     <SortTh
-                      id="avgVolume"
-                      label="Avg Vol"
+                      id="changePct"
+                      label="Change %"
                       sort={sort}
                       onSort={onSort}
                     />
@@ -390,34 +501,48 @@ export default function Scanner() {
                       onSort={onSort}
                     />
                     <SortTh
-                      id="sector"
-                      label="Sector"
+                      id="volume"
+                      label="Volume"
                       sort={sort}
                       onSort={onSort}
-                      className="scanner-table__sector"
                     />
-                    <SortTh id="netCash" label="Net" sort={sort} onSort={onSort} />
+                    <SortTh
+                      id="floatShares"
+                      label="Float"
+                      sort={sort}
+                      onSort={onSort}
+                    />
                     <SortTh
                       id="shortPercentOfFloat"
                       label="Short %"
                       sort={sort}
                       onSort={onSort}
                     />
-                    {tab === 'investable' ? (
-                      <SortTh
-                        id="marketCap"
-                        label="Mkt Cap"
-                        sort={sort}
-                        onSort={onSort}
-                      />
-                    ) : (
-                      <SortTh
-                        id="floatShares"
-                        label="Float"
-                        sort={sort}
-                        onSort={onSort}
-                      />
-                    )}
+                    <SortTh
+                      id="shortRatio"
+                      label="Days to cover"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                    <SortTh
+                      id="netCash"
+                      label="Net"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                    <SortTh
+                      id="sector"
+                      label="Sector"
+                      sort={sort}
+                      onSort={onSort}
+                      className="scanner-table__sector"
+                    />
+                    <SortTh
+                      id="pctFromHigh"
+                      label="Dist 52w hi"
+                      sort={sort}
+                      onSort={onSort}
+                    />
                     <th className="action">Action</th>
                   </tr>
                 </thead>
@@ -448,35 +573,28 @@ export default function Scanner() {
                           }
                         }}
                       >
-                        <td className="sym">{row.symbol}</td>
-                        <td className="name" title={row.name}>
-                          {row.name}
+                        <td className="sym" title={row.name}>
+                          {row.symbol}
                         </td>
                         <td className="num mono">{formatPrice(row.price)}</td>
                         <td className={`num mono ${chClass}`}>
                           {formatPct(ch)}
                         </td>
                         <td className="num mono">
-                          {formatVolume(row.volume)}
-                        </td>
-                        <td className="num mono">
-                          {formatVolume(row.avgVolume)}
-                        </td>
-                        <td className="num mono">
-                          {row.relVolume != null && Number.isFinite(row.relVolume)
+                          {row.relVolume != null &&
+                          Number.isFinite(row.relVolume)
                             ? `${row.relVolume.toFixed(2)}x`
                             : '—'}
                         </td>
-                        <td
-                          className="num scanner-table__sector"
-                          title={row.sector || undefined}
-                        >
-                          {cellOrEllipsis(loaded, row.sector || '—')}
+                        <td className="num mono">
+                          {formatVolume(row.volume)}
                         </td>
                         <td className="num mono">
                           {cellOrEllipsis(
                             loaded,
-                            row.netCash != null ? formatNetCash(row.netCash) : '—',
+                            row.floatShares != null
+                              ? formatShares(row.floatShares)
+                              : '—',
                           )}
                         </td>
                         <td className="num mono">
@@ -488,9 +606,33 @@ export default function Scanner() {
                           )}
                         </td>
                         <td className="num mono">
-                          {tab === 'investable'
-                            ? formatCap(row.marketCap)
-                            : formatVolume(row.floatShares)}
+                          {cellOrEllipsis(
+                            loaded,
+                            row.shortRatio != null &&
+                              Number.isFinite(row.shortRatio)
+                              ? row.shortRatio.toFixed(2)
+                              : '—',
+                          )}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            row.netCash != null
+                              ? formatNetCash(row.netCash)
+                              : '—',
+                          )}
+                        </td>
+                        <td
+                          className="num scanner-table__sector"
+                          title={row.sector || undefined}
+                        >
+                          {cellOrEllipsis(loaded, row.sector || '—')}
+                        </td>
+                        <td className="num mono">
+                          {cellOrEllipsis(
+                            loaded,
+                            formatDistFromHigh(row.pctFromHigh),
+                          )}
                         </td>
                         <td className="action">
                           <button
@@ -503,6 +645,19 @@ export default function Scanner() {
                           >
                             Open
                           </button>
+                          {tab === 'my-shorts' ? (
+                            <button
+                              type="button"
+                              className="btn btn--ghost short-kings__remove"
+                              title={`Remove ${row.symbol}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeSymbol(row.symbol);
+                              }}
+                            >
+                              ✕
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -514,11 +669,12 @@ export default function Scanner() {
 
           {rows.length > 0 ? (
             <p className="scanner__footer muted">
-              Showing {rows.length} liquid equities · click a row to preview ·{' '}
-              <strong>Open</strong> loads Desk
-              {tab === 'momentum'
-                ? ' · Float / Sector / Net / Short % show "—" when Yahoo omits them (top rows enrich via quoteSummary, concurrency-limited)'
-                : ' · Sorted by market cap / price among volume-gated names · Sector / Net / Short % fill for top rows'}
+              Showing {rows.length}{' '}
+              {tab === 'my-shorts' ? 'watchlist' : 'Hunt'} equities · click a
+              row to preview · <strong>Open</strong> loads Desk
+              {tab === 'hunt'
+                ? ' · Default order: short % ↓ · net cash ↑ (debt first) · RVOL ↓ · |% move| ↓ · My Shorts excluded'
+                : ' · Fundamentals fill via quoteSummary (concurrency-limited)'}
             </p>
           ) : null}
         </div>

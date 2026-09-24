@@ -349,6 +349,8 @@ export function fundamentalsToScannerFields(f) {
       netCash: null,
       shortPercentOfFloat: null,
       floatShares: null,
+      shortRatio: null,
+      pctFromHigh: null,
       fundamentalsLoaded: false,
     };
   }
@@ -357,6 +359,8 @@ export function fundamentalsToScannerFields(f) {
     netCash: f.netCash ?? null,
     shortPercentOfFloat: f.shortPercentOfFloat ?? null,
     floatShares: f.floatShares ?? null,
+    shortRatio: f.shortRatio ?? null,
+    pctFromHigh: f.pctFromHigh ?? null,
     fundamentalsLoaded: true,
   };
 }
