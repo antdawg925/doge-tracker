@@ -31,12 +31,33 @@ export default function Home() {
   return (
     <main className="landing">
       <section className="landing__hero">
-        <p className="landing__kicker muted">Trade Smart</p>
-        <h1>Trade Smart research</h1>
-        <p className="landing__lede muted">
-          Liquid stocks &amp; crypto — chart, levels, scanners, and short-interest
-          tools in one dark workspace.
-        </p>
+        <div className="landing__brand">
+          <img
+            className="landing__bull"
+            src="/bull-logo.png"
+            srcSet="/bull-logo.png 1x, /bull-logo@2x.png 2x"
+            alt=""
+            width={168}
+            height={168}
+            decoding="async"
+          />
+          <div className="landing__brand-copy">
+            <p className="landing__kicker muted">Trade Smart</p>
+            <h1>Own the tape.</h1>
+            <p className="landing__lede muted">
+              Liquid stocks &amp; crypto — charts, levels, scanners, and
+              short-interest tools in one dark workspace.
+            </p>
+            <div className="landing__cta-row">
+              <Link to="/research" className="btn btn--primary">
+                Open Research
+              </Link>
+              <Link to="/short-kings" className="btn btn--ghost">
+                Short Kings
+              </Link>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="landing__grid" aria-label="App capabilities">

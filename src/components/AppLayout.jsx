@@ -16,12 +16,11 @@ export default function AppLayout() {
       <header className="desk-nav">
         <NavLink to="/" className="desk-nav__brand" end>
           <img
-            className="desk-nav__logo"
-            src="/bull-logo.png"
-            srcSet="/bull-logo.png 1x, /bull-logo@2x.png 2x"
-            alt="Trade Smart"
-            width={48}
-            height={48}
+            className="desk-nav__mark-img"
+            src="/favicon.svg"
+            alt=""
+            width={28}
+            height={28}
             decoding="async"
           />
           <span className="desk-nav__title">Trade Smart</span>
