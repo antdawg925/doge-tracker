@@ -23,6 +23,7 @@ import {
   saveAppState,
 } from '../lib/defaults';
 import { assetKey, emptyPositionFor } from '../lib/assets';
+import { hasEnteredPosition } from '../lib/math';
 import { computeLevels } from '../lib/levels';
 import { assessPumpDump } from '../lib/pumpDump';
 import { sliceBarsLastDays } from '../lib/history';
@@ -235,7 +236,6 @@ export default function Research() {
         </main>
 
         <aside className="desk-aside">
-          <PositionSummary position={position} spot={price} asset={asset} />
           <PositionEditor
             position={position}
             spot={price}
@@ -243,6 +243,9 @@ export default function Research() {
             onChange={setPosition}
             onReset={onReset}
           />
+          {hasEnteredPosition(position.coins, position.avgCost) ? (
+            <PositionSummary position={position} spot={price} asset={asset} />
+          ) : null}
         </aside>
       </div>
     </div>
