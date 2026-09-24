@@ -46,11 +46,11 @@ export function krakenPairFor(asset) {
   return KRAKEN_PAIRS[sym] || null;
 }
 
-function krakenCandidateUrls(pair, endpoint = 'OHLC') {
+function krakenCandidateUrls(pair, endpoint = 'OHLC', intervalMin = 1440) {
   const path =
     endpoint === 'Ticker'
       ? `/0/public/Ticker?pair=${encodeURIComponent(pair)}`
-      : `/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=1440`;
+      : `/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=${encodeURIComponent(intervalMin)}`;
   return [`${KRAKEN_PROXY}${path}`, `${KRAKEN_DIRECT}${path}`];
 }
 
@@ -95,8 +95,8 @@ function pickKrakenPairRows(result) {
   return null;
 }
 
-export async function fetchKrakenDailyBars(pair, days, signal) {
-  const urls = krakenCandidateUrls(pair);
+export async function fetchKrakenDailyBars(pair, days, signal, intervalMin = 1440) {
+  const urls = krakenCandidateUrls(pair, 'OHLC', intervalMin);
   let lastErr = null;
 
   for (const url of urls) {
@@ -120,7 +120,11 @@ export async function fetchKrakenDailyBars(pair, days, signal) {
         lastErr = new Error('Kraken returned empty OHLC');
         continue;
       }
-      const n = Math.max(1, Number(days) || 90);
+      // For non-daily intervals, `days` is treated as calendar days → bar count approx
+      const d = Math.max(1, Number(days) || 90);
+      const barsPerDay =
+        intervalMin >= 1440 ? 1 : Math.max(1, Math.round(1440 / intervalMin));
+      const n = Math.max(1, d * barsPerDay);
       return bars.slice(-n);
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
@@ -483,4 +487,303 @@ export function buildTfBarSets(longBars, spanMeta) {
     };
   }
   return sets;
+}
+
+/** Research chart range → Yahoo range/interval + UX meta. */
+export const RESEARCH_RANGES = [
+  {
+    id: '5D',
+    label: '5D',
+    yahooRange: '5d',
+    yahooInterval: '60m',
+    tfLabel: 'hourly',
+    barSpacing: 5,
+    approxDays: 5,
+  },
+  {
+    id: '30D',
+    label: '30D',
+    yahooRange: '1mo',
+    yahooInterval: '1d',
+    tfLabel: 'daily',
+    barSpacing: 8,
+    approxDays: 30,
+  },
+  {
+    id: '90D',
+    label: '90D',
+    yahooRange: '3mo',
+    yahooInterval: '1d',
+    tfLabel: 'daily',
+    barSpacing: 7,
+    approxDays: 90,
+  },
+  {
+    id: '1Y',
+    label: '1Y',
+    yahooRange: '1y',
+    yahooInterval: '1wk',
+    tfLabel: 'weekly',
+    barSpacing: 8,
+    approxDays: 365,
+  },
+  {
+    id: '5Y',
+    label: '5Y',
+    yahooRange: '5y',
+    yahooInterval: '1mo',
+    tfLabel: 'monthly',
+    barSpacing: 10,
+    approxDays: 1825,
+  },
+  {
+    id: '10Y',
+    label: '10Y',
+    yahooRange: '10y',
+    yahooInterval: '1mo',
+    tfLabel: 'monthly',
+    barSpacing: 8,
+    approxDays: 3650,
+  },
+];
+
+export function researchRangeById(id) {
+  return (
+    RESEARCH_RANGES.find((r) => r.id === id) ||
+    RESEARCH_RANGES.find((r) => r.id === '90D')
+  );
+}
+
+/** Bucket key for weekly (Mon-start UTC) or monthly aggregation. */
+function periodKey(ts, period) {
+  const d = new Date(ts);
+  if (period === 'month') {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  const day = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+  );
+  const dow = day.getUTCDay() || 7;
+  day.setUTCDate(day.getUTCDate() - dow + 1);
+  return day.toISOString().slice(0, 10);
+}
+
+/**
+ * Aggregate daily (or finer) OHLC bars into weekly or monthly candles.
+ */
+export function aggregateBarsToPeriod(bars, period = 'week') {
+  if (!bars?.length) return [];
+  const map = new Map();
+  for (const bar of bars) {
+    if (!Number.isFinite(bar?.close) || !Number.isFinite(bar?.t)) continue;
+    const key = periodKey(bar.t, period);
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, {
+        t: bar.t,
+        date: key,
+        open: Number.isFinite(bar.open) ? bar.open : bar.close,
+        high: Number.isFinite(bar.high) ? bar.high : bar.close,
+        low: Number.isFinite(bar.low) ? bar.low : bar.close,
+        close: bar.close,
+        volume: Number.isFinite(bar.volume) ? bar.volume : 0,
+        _hasVol: Number.isFinite(bar.volume),
+      });
+    } else {
+      prev.high = Math.max(prev.high, Number.isFinite(bar.high) ? bar.high : bar.close);
+      prev.low = Math.min(prev.low, Number.isFinite(bar.low) ? bar.low : bar.close);
+      prev.close = bar.close;
+      prev.t = bar.t;
+      if (Number.isFinite(bar.volume)) {
+        prev.volume += bar.volume;
+        prev._hasVol = true;
+      }
+    }
+  }
+  return [...map.values()]
+    .map(({ _hasVol, volume, ...rest }) => ({
+      ...rest,
+      volume: _hasVol ? volume : null,
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Turn CoinGecko market_chart price points into hourly OHLC bars.
+ */
+export function aggregateMarketChartToHourly(prices, volumes) {
+  if (!Array.isArray(prices)) return [];
+  const byHour = new Map();
+  for (const row of prices) {
+    if (!Array.isArray(row) || row.length < 2) continue;
+    const [ts, price] = row;
+    if (!Number.isFinite(price) || !Number.isFinite(ts)) continue;
+    const hourTs = Math.floor(ts / 3_600_000) * 3_600_000;
+    const prev = byHour.get(hourTs);
+    if (!prev) {
+      byHour.set(hourTs, {
+        t: hourTs,
+        date: new Date(hourTs).toISOString().slice(0, 13),
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: 0,
+        _hasVol: false,
+      });
+    } else {
+      prev.high = Math.max(prev.high, price);
+      prev.low = Math.min(prev.low, price);
+      prev.close = price;
+      prev.t = Math.max(prev.t, hourTs);
+    }
+  }
+  if (Array.isArray(volumes)) {
+    for (const row of volumes) {
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const [ts, vol] = row;
+      if (!Number.isFinite(vol) || vol < 0 || !Number.isFinite(ts)) continue;
+      const hourTs = Math.floor(ts / 3_600_000) * 3_600_000;
+      const prev = byHour.get(hourTs);
+      if (!prev) continue;
+      prev.volume += vol;
+      prev._hasVol = true;
+    }
+  }
+  return [...byHour.values()]
+    .map(({ _hasVol, volume, ...rest }) => ({
+      ...rest,
+      volume: _hasVol ? volume : null,
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
+async function fetchStockChartBars(asset, range, signal) {
+  const { bars } = await fetchYahooChart(asset.symbol, range.yahooRange, {
+    signal,
+    interval: range.yahooInterval,
+  });
+  if (!bars.length) throw new Error('No Yahoo history for symbol');
+  return {
+    bars,
+    source: 'yahoo',
+    rangeId: range.id,
+    interval: range.yahooInterval,
+    tfLabel: range.tfLabel,
+  };
+}
+
+async function fetchCryptoChartBars(asset, range, signal) {
+  const coinId = asset.id || 'dogecoin';
+  const pair = krakenPairFor(asset);
+  let lastErr = null;
+  const wantDays = range.approxDays;
+
+  if (range.id === '5D') {
+    if (pair) {
+      try {
+        const bars = await fetchKrakenDailyBars(pair, 5, signal, 60);
+        if (bars.length) {
+          return {
+            bars,
+            source: 'kraken',
+            rangeId: range.id,
+            interval: '60m',
+            tfLabel: 'hourly',
+          };
+        }
+      } catch (err) {
+        if (err?.name === 'AbortError') throw err;
+        lastErr = err;
+      }
+    }
+    try {
+      const { data } = await fetchCoinGeckoJson(
+        `/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=5`,
+        { signal, maxRetries: 3 },
+      );
+      const bars = aggregateMarketChartToHourly(
+        data?.prices,
+        data?.total_volumes,
+      );
+      if (bars.length) {
+        return {
+          bars,
+          source: 'coingecko',
+          rangeId: range.id,
+          interval: '60m',
+          tfLabel: 'hourly',
+          warning: pair
+            ? 'Hourly via CoinGecko (Kraken unavailable)'
+            : undefined,
+        };
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+    const wrapped = new Error(formatHistoryError(lastErr));
+    wrapped.rateLimited = Boolean(
+      lastErr?.rateLimited || /429/.test(lastErr?.message || ''),
+    );
+    throw wrapped;
+  }
+
+  if (range.id === '30D' || range.id === '90D') {
+    const result = await fetchCryptoDailyBars(asset, wantDays, signal);
+    return {
+      ...result,
+      rangeId: range.id,
+      interval: '1d',
+      tfLabel: 'daily',
+    };
+  }
+
+  // 1Y weekly / 5Y–10Y monthly from longest practical daily series
+  const longResult = await fetchLongDailyBars(asset, signal);
+  let bars = longResult.bars || [];
+  let warning = longResult.warning || null;
+
+  if (range.id === '1Y') {
+    bars = aggregateBarsToPeriod(sliceBarsLastDays(bars, 365), 'week');
+  } else {
+    const needDays = range.id === '10Y' ? 3650 : 1825;
+    const span = barsSpanDays(bars);
+    if (span < needDays * 0.7) {
+      const y = (span / 365).toFixed(1);
+      warning =
+        warning ||
+        `Crypto history ~${y}y available (free APIs) — showing best monthly series`;
+    }
+    if (range.id === '5Y') {
+      bars = sliceBarsLastDays(bars, 1825);
+    }
+    bars = aggregateBarsToPeriod(bars, 'month');
+  }
+
+  if (!bars.length) {
+    throw new Error(formatHistoryError(lastErr) || 'No crypto history');
+  }
+
+  return {
+    bars,
+    source: longResult.source,
+    rangeId: range.id,
+    interval: range.yahooInterval,
+    tfLabel: range.tfLabel,
+    warning,
+  };
+}
+
+/**
+ * Fetch chart bars for Research lookback with matching candle granularity.
+ * Returns `{ bars, source, warning?, rangeId, interval, tfLabel }`.
+ */
+export async function fetchChartBars(asset, rangeId, signal) {
+  if (!asset) throw new Error('No asset selected');
+  const range = researchRangeById(rangeId);
+  if (asset.type === 'stock') {
+    return fetchStockChartBars(asset, range, signal);
+  }
+  return fetchCryptoChartBars(asset, range, signal);
 }

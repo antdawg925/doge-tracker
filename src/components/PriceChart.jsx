@@ -15,6 +15,7 @@ import {
   resistanceLevels,
 } from '../lib/levels';
 import { computeVolumeMetrics, volumeCoverage } from '../lib/volume';
+import { RESEARCH_RANGES, researchRangeById } from '../lib/history';
 
 /**
  * Ensure each bar has usable OHLC. If open is missing, derive from prior
@@ -52,12 +53,25 @@ function ensureOhlcBars(bars) {
     .filter(Boolean);
 }
 
-function formatAxisDate(tsSec) {
+function formatAxisDate(tsSec, { withTime = false } = {}) {
   if (!tsSec) return '';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(tsSec * 1000));
+  const opts = withTime
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+    : { month: 'short', day: 'numeric' };
+  return new Intl.DateTimeFormat('en-US', opts).format(new Date(tsSec * 1000));
+}
+
+function formatHoverDate(tsSec, tfLabel) {
+  if (!tsSec) return '';
+  if (tfLabel === 'hourly') {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(tsSec * 1000));
+  }
+  return new Date(tsSec * 1000).toISOString().slice(0, 10);
 }
 
 function yTick(v) {
@@ -88,39 +102,22 @@ function toVolumeData(bars, upColor, downColor) {
 }
 
 
-/** Readable candle body width (px between bars). */
-const READABLE_BAR_SPACING = 10;
-const MIN_BAR_SPACING = 7;
-/** How many recent daily bars to show for dense (90d) lookbacks. */
-const DENSE_VISIBLE_BARS = 48;
+const MIN_BAR_SPACING = 3;
 
 /**
- * Keep candles as real bodies, not 1px dashes.
- * fitContent() packs ~90 bars into the viewport and flattens them — for
- * dense lookbacks we lock barSpacing and show a recent window instead.
+ * Fit the full lookback with TF-tuned bar spacing (hourly denser, monthly wider).
  */
-function applyReadableTimeScale(chart, { barCount, days }) {
+function applyReadableTimeScale(chart, { barCount, rangeId }) {
   if (!chart || !barCount) return;
+  const meta = researchRangeById(rangeId);
+  const spacing = meta?.barSpacing ?? 8;
   const ts = chart.timeScale();
-  const dense = days >= 90 || barCount > 40;
-  const spacing = dense ? READABLE_BAR_SPACING : 8;
   ts.applyOptions({
     barSpacing: spacing,
     minBarSpacing: MIN_BAR_SPACING,
     rightOffset: 4,
   });
-  if (dense) {
-    const visible = Math.min(barCount, DENSE_VISIBLE_BARS);
-    const from = Math.max(-0.5, barCount - visible);
-    const to = barCount - 1 + 3;
-    try {
-      ts.setVisibleLogicalRange({ from, to });
-    } catch {
-      ts.scrollToRealTime();
-    }
-  } else {
-    ts.fitContent();
-  }
+  ts.fitContent();
 }
 
 
@@ -179,8 +176,11 @@ export default function PriceChart({
   asset,
   bars,
   levels = [],
+  rangeId = '90D',
+  onRangeChange,
   days,
   onDaysChange,
+  tfLabel: tfLabelProp,
   loading,
   error,
   warning,
@@ -197,12 +197,38 @@ export default function PriceChart({
   const refLevelsRef = useRef([]);
   const spotRef = useRef(spot);
   const metricsRef = useRef(null);
-  const daysRef = useRef(days);
+  const rangeIdResolved =
+    rangeId ||
+    (days != null
+      ? days <= 7
+        ? '5D'
+        : days <= 35
+          ? '30D'
+          : days <= 100
+            ? '90D'
+            : days <= 400
+              ? '1Y'
+              : days <= 2000
+                ? '5Y'
+                : '10Y'
+      : '90D');
+  const rangeMeta = researchRangeById(rangeIdResolved);
+  const tfLabel = tfLabelProp || rangeMeta.tfLabel;
+  const rangeIdRef = useRef(rangeIdResolved);
+  const tfLabelRef = useRef(tfLabel);
   const [hover, setHover] = useState(null);
   const [chartEpoch, setChartEpoch] = useState(0);
 
   const candleBars = useMemo(() => ensureOhlcBars(bars), [bars]);
   const sym = displaySymbol(asset);
+
+  const handleRangeChange = (id) => {
+    onRangeChange?.(id);
+    if (!onRangeChange && onDaysChange) {
+      const meta = researchRangeById(id);
+      onDaysChange(meta.approxDays);
+    }
+  };
 
   const volMetrics = useMemo(
     () => computeVolumeMetrics(candleBars),
@@ -260,7 +286,8 @@ export default function PriceChart({
   refLevelsRef.current = refLevels;
   spotRef.current = spot;
   metricsRef.current = volMetrics;
-  daysRef.current = days;
+  rangeIdRef.current = rangeIdResolved;
+  tfLabelRef.current = tfLabel;
 
   /**
    * Keep the Y-axis anchored to candle volatility. Only fold in S/R that
@@ -438,13 +465,14 @@ export default function PriceChart({
       },
       timeScale: {
         borderColor: '#243044',
-        timeVisible: false,
-        barSpacing: READABLE_BAR_SPACING,
+        timeVisible: rangeIdResolved === '5D',
+        barSpacing: rangeMeta.barSpacing,
         minBarSpacing: MIN_BAR_SPACING,
       },
       localization: {
         priceFormatter: (p) => yTick(p),
-        timeFormatter: (t) => formatAxisDate(t),
+        timeFormatter: (t) =>
+          formatAxisDate(t, { withTime: rangeIdResolved === '5D' }),
       },
     });
 
@@ -495,7 +523,7 @@ export default function PriceChart({
     volSeries.setData(toVolumeData(initialBars, upVol, downVol));
     applyReadableTimeScale(chart, {
       barCount: initial.length,
-      days: daysRef.current,
+      rangeId: rangeIdRef.current,
     });
     applyAutoscale(series);
     applyPriceLines(series);
@@ -521,9 +549,7 @@ export default function PriceChart({
         ? candleBarsRef.current.find((b) => b.time === tSec)
         : null;
       setHover({
-        date: tSec
-          ? new Date(tSec * 1000).toISOString().slice(0, 10)
-          : '',
+        date: tSec ? formatHoverDate(tSec, tfLabelRef.current) : '',
         open: candle.open,
         high: candle.high,
         low: candle.low,
@@ -545,7 +571,7 @@ export default function PriceChart({
       priceLinesRef.current = [];
       volumeAvgLineRef.current = null;
     };
-  }, [asset?.type]);
+  }, [asset?.type, rangeIdResolved]);
 
   // Push candle + volume data when bars change (or chart was recreated)
   useEffect(() => {
@@ -572,15 +598,18 @@ export default function PriceChart({
     }
     applyReadableTimeScale(chart, {
       barCount: data.length,
-      days,
+      rangeId: rangeIdResolved,
     });
     // autoSize / layout can reset the viewport — re-assert after paint
     requestAnimationFrame(() => {
       if (chartRef.current === chart) {
-        applyReadableTimeScale(chart, { barCount: data.length, days });
+        applyReadableTimeScale(chart, {
+          barCount: data.length,
+          rangeId: rangeIdResolved,
+        });
       }
     });
-  }, [candleBars, chartEpoch, asset?.type, hasVolumePane, days]);
+  }, [candleBars, chartEpoch, asset?.type, hasVolumePane, rangeIdResolved]);
 
   // Key S/R + spot price lines; expand Y scale to fit higher resistance
   useEffect(() => {
@@ -605,16 +634,19 @@ export default function PriceChart({
   return (
     <section className="card price-chart">
       <div className="card__head">
-        <h2>Daily {sym} chart</h2>
-        <div className="segmented" role="group" aria-label="Lookback days">
-          {[30, 90].map((d) => (
+        <h2>
+          {sym} chart
+          <span className="muted small price-chart__tf"> · {tfLabel}</span>
+        </h2>
+        <div className="segmented" role="group" aria-label="Chart range">
+          {RESEARCH_RANGES.map((r) => (
             <button
-              key={d}
+              key={r.id}
               type="button"
-              className={`segmented__btn${days === d ? ' is-active' : ''}`}
-              onClick={() => onDaysChange?.(d)}
+              className={`segmented__btn${rangeIdResolved === r.id ? ' is-active' : ''}`}
+              onClick={() => handleRangeChange(r.id)}
             >
-              {d}d
+              {r.label}
             </button>
           ))}
         </div>
@@ -628,11 +660,11 @@ export default function PriceChart({
       )}
 
       {loading && !candleBars.length && (
-        <p className="muted chart-empty">Loading daily candles…</p>
+        <p className="muted chart-empty">Loading candles…</p>
       )}
 
       {!loading && !candleBars.length && !error && (
-        <p className="muted chart-empty">No daily history yet.</p>
+        <p className="muted chart-empty">No history for this range yet.</p>
       )}
 
       {/* Keep container mounted so the chart can attach even while loading */}
@@ -677,15 +709,10 @@ export default function PriceChart({
           metrics={volMetrics}
           softNote={volumeSoftNote}
         />
-        {days >= 90 && (
-          <p className="muted small chart-scroll-hint">
-            Scroll / drag chart to see earlier days.
-          </p>
-        )}
         <p className="muted small chart-legend">
-          Candles = daily OHLC · green/blue up · red down
+          Candles = {tfLabel} OHLC · green/blue up · red down
           {hasVolumePane
-            ? ' · bars below = daily volume (dashed = 20-day avg)'
+            ? ` · bars below = ${tfLabel} volume (dashed = 20-bar avg)`
             : ''}{' '}
           · green dashed = key support · red dashed = nearby resistance · white =
           spot

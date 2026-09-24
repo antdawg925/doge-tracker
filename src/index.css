@@ -990,7 +990,12 @@ p {
   margin-bottom: 0.75rem;
 }
 
-/* Segmented control (30d / 90d) */
+/* Segmented control (chart ranges) */
+.price-chart__tf {
+  font-weight: 400;
+  margin-left: 0.15rem;
+}
+
 .segmented {
   display: inline-flex;
   border: 1px solid var(--border);
@@ -1005,9 +1010,9 @@ p {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 650;
-  padding: 0.3rem 0.65rem;
+  padding: 0.3rem 0.5rem;
   cursor: pointer;
 }
 

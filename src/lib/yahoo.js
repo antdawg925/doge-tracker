@@ -80,12 +80,15 @@ export async function searchYahoo(query, { signal, limit = 8 } = {}) {
 
 /**
  * Normalize Yahoo chart result into OHLC bars + spot meta.
- * `range`: '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y'
- * `interval`: '1d' | '1wk' | '1mo' (default '1d' for backward compatibility)
+ * `range`: '5d' | '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y' | '10y'
+ * `interval`: '60m' | '1d' | '1wk' | '1mo' (default '1d')
  */
 export async function fetchYahooChart(symbol, range = '3mo', { signal, interval = '1d' } = {}) {
   const sym = encodeURIComponent(String(symbol || '').toUpperCase());
-  const iv = ['1d', '1wk', '1mo'].includes(interval) ? interval : '1d';
+  // Yahoo accepts 60m (intraday), 1d, 1wk, 1mo. 1h is aliased to 60m.
+  const allowed = new Set(['60m', '1h', '1d', '1wk', '1mo']);
+  let iv = allowed.has(interval) ? interval : '1d';
+  if (iv === '1h') iv = '60m';
   const path = `/v8/finance/chart/${sym}?interval=${encodeURIComponent(iv)}&range=${encodeURIComponent(range)}`;
   const data = await fetchYahooJson(chartUrls(path), { signal });
   const result = data?.chart?.result?.[0];
@@ -156,12 +159,14 @@ export async function fetchYahooChart(symbol, range = '3mo', { signal, interval 
 /** Map lookback days → Yahoo range string. */
 export function daysToYahooRange(days) {
   const d = Number(days) || 90;
+  if (d <= 7) return '5d';
   if (d <= 35) return '1mo';
   if (d <= 100) return '3mo';
   if (d <= 200) return '6mo';
   if (d <= 400) return '1y';
   if (d <= 800) return '2y';
-  return '5y';
+  if (d <= 2000) return '5y';
+  return '10y';
 }
 
 /** Alias — same mapping as daysToYahooRange. */

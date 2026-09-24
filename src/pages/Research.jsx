@@ -25,6 +25,7 @@ import {
 import { assetKey, emptyPositionFor } from '../lib/assets';
 import { computeLevels } from '../lib/levels';
 import { assessPumpDump } from '../lib/pumpDump';
+import { sliceBarsLastDays } from '../lib/history';
 
 function upsertWatchlist(list, asset) {
   const key = assetKey(asset);
@@ -50,14 +51,15 @@ export default function Research() {
   } = useAssetPrice(asset);
 
   const {
-    days,
-    setDays,
+    rangeId,
+    setRangeId,
     bars,
+    tfLabel,
     loading: histLoading,
     error: histError,
     warning: histWarning,
     refresh: refreshHistory,
-  } = useAssetHistory(asset, 90);
+  } = useAssetHistory(asset, '90D');
 
   const {
     bars: longBars,
@@ -139,9 +141,16 @@ export default function Research() {
     [asset, longBars],
   );
 
+  // Levels + stage stay on daily history so weekly/monthly chart TF does not break S/R.
+  const dailyLevelBars = useMemo(() => {
+    if (longBars?.length >= 15) return sliceBarsLastDays(longBars, 90);
+    if (tfLabel === 'daily' && bars?.length) return bars;
+    return bars || [];
+  }, [longBars, bars, tfLabel]);
+
   const levels = useMemo(
-    () => computeLevels(bars, price),
-    [bars, price],
+    () => computeLevels(dailyLevelBars, price),
+    [dailyLevelBars, price],
   );
 
   return (
@@ -171,7 +180,11 @@ export default function Research() {
 
         <main className="desk-main">
           <PumpDumpBanner assessment={pumpDump} />
-          <StageBox bars={bars} asset={asset} loading={histLoading} />
+          <StageBox
+            bars={dailyLevelBars}
+            asset={asset}
+            loading={histLoading || longLoading}
+          />
           <PriceCard
             asset={asset}
             price={price}
@@ -185,8 +198,9 @@ export default function Research() {
             asset={asset}
             bars={bars}
             levels={levels}
-            days={days}
-            onDaysChange={setDays}
+            rangeId={rangeId}
+            onRangeChange={setRangeId}
+            tfLabel={tfLabel}
             loading={histLoading}
             error={histError}
             warning={histWarning}
