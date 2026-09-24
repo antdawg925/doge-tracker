@@ -334,7 +334,7 @@ p {
   width: 100%;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 2.5rem;
+  padding:  2rem 1.25rem 16rem;
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
@@ -2932,15 +2932,19 @@ p {
 
 .landing__mascot-img {
   display: block;
-  width: min(220px, 46vw);
+  width: min(420px, 78vw);
   height: auto;
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.55));
-  animation: landing-bull-bob 3.2s ease-in-out infinite;
-  transform-origin: 50% 85%;
+  filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.55));
+  animation: landing-bull-whip 2.8s ease-in-out infinite;
+  transform-origin: 40% 80%;
 }
 
-@keyframes landing-bull-bob {
-  0%, 100% { transform: translateY(0) scale(1); }
+@keyframes landing-bull-whip {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-8px) rotate(-2.5deg); }
+  50% { transform: translateY(-14px) rotate(1.5deg); }
+  75% { transform: translateY(-6px) rotate(-1.5deg); }
+}
   50% { transform: translateY(-10px) scale(1.03); }
 }
 
@@ -2949,6 +2953,6 @@ p {
     grid-template-columns: 1fr;
   }
   .landing {
-    padding-bottom: 9rem;
+    padding-bottom:  12rem;
   }
 }

@@ -70,8 +70,8 @@ export default function Home() {
           className="landing__mascot-img"
           src="/bull-mascot.png"
           alt=""
-          width={220}
-          height={220}
+          width={420}
+          height={420}
           decoding="async"
         />
       </div>
