@@ -1,17 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="7" fill="#0B0F14"/>
-  <path fill="#2EE6FF" d="
-    M6.5 9.5
-    C5.2 6.2 8.2 3.8 11 5.5
-    L13.2 7
-    C14.2 5.7 15.1 4.9 16 4.9
-    C16.9 4.9 17.8 5.7 18.8 7
-    L21 5.5
-    C23.8 3.8 26.8 6.2 25.5 9.5
-    L23.8 13.5
-    C25 14.7 25.6 16.1 25.6 17.8
-    C25.6 23.2 21.3 27.2 16 27.2
-    C10.7 27.2 6.4 23.2 6.4 17.8
-    C6.4 16.1 7 14.7 8.2 13.5
-    Z"/>
+  <!-- ascending chart line + arrow -->
+  <polyline
+    fill="none"
+    stroke="#2EE6FF"
+    stroke-width="3.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    points="5,23 11,17 15,20 22,9"
+  />
+  <path fill="#2EE6FF" d="M20.2 7.2 L26.2 6.4 L23.6 11.8 Z"/>
 </svg>
