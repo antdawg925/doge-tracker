@@ -531,18 +531,18 @@ export const RESEARCH_RANGES = [
     id: '5Y',
     label: '5Y',
     yahooRange: '5y',
-    yahooInterval: '1mo',
-    tfLabel: 'monthly',
-    barSpacing: 10,
+    yahooInterval: '1wk',
+    tfLabel: 'weekly',
+    barSpacing: 4,
     approxDays: 1825,
   },
   {
     id: '10Y',
     label: '10Y',
     yahooRange: '10y',
-    yahooInterval: '1mo',
-    tfLabel: 'monthly',
-    barSpacing: 8,
+    yahooInterval: '1wk',
+    tfLabel: 'weekly',
+    barSpacing: 3,
     approxDays: 3650,
   },
 ];
@@ -739,7 +739,7 @@ async function fetchCryptoChartBars(asset, range, signal) {
     };
   }
 
-  // 1Y weekly / 5Y–10Y monthly from longest practical daily series
+  // 1Y / 5Y / 10Y weekly from longest practical daily series
   const longResult = await fetchLongDailyBars(asset, signal);
   let bars = longResult.bars || [];
   let warning = longResult.warning || null;
@@ -753,12 +753,13 @@ async function fetchCryptoChartBars(asset, range, signal) {
       const y = (span / 365).toFixed(1);
       warning =
         warning ||
-        `Crypto history ~${y}y available (free APIs) — showing best monthly series`;
+        `Crypto history ~${y}y available (free APIs) — 5Y/10Y may look similar; weekly candles`;
     }
     if (range.id === '5Y') {
       bars = sliceBarsLastDays(bars, 1825);
     }
-    bars = aggregateBarsToPeriod(bars, 'month');
+    // Weekly gives more detail than monthly on long crypto windows
+    bars = aggregateBarsToPeriod(bars, 'week');
   }
 
   if (!bars.length) {

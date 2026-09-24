@@ -10,7 +10,7 @@ import {
   researchRangeById,
 } from '../lib/history.js';
 
-const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v5';
+const HISTORY_CACHE_KEY = 'doge-tracker-history-cache-v6';
 
 function cacheBucket(aKey, rangeId) {
   const all = loadJsonCache(HISTORY_CACHE_KEY) || {};
