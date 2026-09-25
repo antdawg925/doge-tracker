@@ -3,7 +3,7 @@ import { useAuth } from '../../hooks/authContext.js';
 import { FLAG_AUDIENCES, useFeatureFlags } from '../../hooks/featureFlags.js';
 import { supabase } from '../../lib/supabase.js';
 
-const AUDIENCE_LABEL = { owner: 'Owner only', bot: 'Bot members', everyone: 'Everyone' };
+const AUDIENCE_LABEL = { owner: 'Owner only', bot: 'Trade Smart Bot members', everyone: 'Everyone' };
 
 /** Feature flags: choose who sees each feature (owner first, then bot tier, then everyone). */
 export default function AdminBeta() {

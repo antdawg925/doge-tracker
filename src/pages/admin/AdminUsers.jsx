@@ -44,7 +44,7 @@ function DeleteDialog({ user, onCancel, onDeleted }) {
         <h2 id="del-title">Delete account?</h2>
         <p className="muted">
           This permanently deletes <strong>{user.displayName || user.email}</strong> and all of their
-          data (DOGE plan, history, alerts). It can’t be undone.
+          data (DOGE plan, history, alert log). It can’t be undone.
         </p>
         <label className="field">
           Type <span className="mono admin-modal__email">{user.email}</span> to confirm

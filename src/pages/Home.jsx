@@ -24,10 +24,10 @@ const CAPABILITIES = [
     tone: 'rose',
   },
   {
-    to: '/alerts',
-    kicker: 'Alerts · Trade Smart Bot',
+    to: '/bot',
+    kicker: 'My Bot · Trade Smart Bot',
     title: 'DOGE plan & staged stop',
-    body: 'Your own DOGE plan, ATR staged stop, crossing alerts and plan history. Request access from the Alerts tab.',
+    body: 'Your own DOGE plan, ATR staged stop, crossing alerts and plan history. Request access from the My Bot tab.',
     tone: 'amber',
   },
 ];

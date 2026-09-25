@@ -16,7 +16,7 @@ const fmtDate = (iso) =>
     minute: '2-digit',
   });
 
-/** Alerts tab for signed-in members without the bot tier: explain + request access from the owner. */
+/** My Bot tab for signed-in members without the bot tier: explain + request access from the owner. */
 export default function BotLocked() {
   const { botRequestedAt, requestBotAccess } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -45,12 +45,12 @@ export default function BotLocked() {
             </svg>
           </span>
           <div>
-            <p className="scanner__kicker muted">Alerts</p>
+            <p className="scanner__kicker muted">My Bot</p>
             <h1>Trade Smart Bot</h1>
           </div>
         </div>
         <p className="bot-lock__lede muted">
-          Alerts is part of Trade Smart Bot. Access is granted by the Trade Smart owner. Send a request
+          Trade Smart Bot access is granted by the Trade Smart owner. Send a request
           and it unlocks here once approved.
         </p>
 

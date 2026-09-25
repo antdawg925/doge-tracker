@@ -1,5 +1,5 @@
 /**
- * DOGE plan persistence — the ONLY module the Alerts page uses for storage.
+ * DOGE plan persistence — the ONLY module the Trade Smart Bot page uses for storage.
  *
  * All ratchet / history / alert-log rules live here and work on one document
  * through a swappable `backend` ({ read(): doc|null, write(doc) }):

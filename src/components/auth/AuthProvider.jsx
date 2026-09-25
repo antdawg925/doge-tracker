@@ -22,7 +22,7 @@ async function fetchProfile(userId) {
 /**
  * Session + profile for the whole app.
  * Tiers: signed-in member (Research / Scanner / Short Kings) → bot tier
- * (profiles.bot_access, granted by the owner: Alerts / DOGE plan) → owner (Admin).
+ * (profiles.bot_access, granted by the owner: My Bot / DOGE plan) → owner (Admin).
  */
 export default function AuthProvider({ children }) {
   const [session, setSession] = useState(null);

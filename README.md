@@ -33,7 +33,8 @@ npm run preview   # optional local preview of dist/
 | `/research` | Signed in | **Research** — watchlist + analysis workstation |
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
-| `/alerts` | Trade Smart Bot | **Alerts** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
+| `/bot` | Trade Smart Bot | **Trade Smart Bot** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
+| `/alerts` | Redirect | Legacy path that redirects to `/bot` |
 | `/admin/users` · `/admin/beta` · `/admin/system` | Owner | **Admin** — Users (requests, tier, activity, grant / revoke bot, delete), Beta feature flags, System status |
 
 Signed-out visits to protected paths redirect to `/login` and return to the page after sign-in.
@@ -111,7 +112,7 @@ src/
     NewsPanel.jsx       # Shared Yahoo news + significance badges
     ScannerChart.jsx    # Compact 1M/1Y/5Y candles
     ScannerPreview.jsx  # Scanner right rail (chart + news)
-    Alerts.jsx         # M2 placeholder
+    Alerts.jsx         # Trade Smart Bot page
   hooks/               # useAssetPrice, useAssetHistory, useLongHistory
   lib/                 # assets, defaults, scanner, news, newsSignificance, levels, …
 ```
@@ -188,7 +189,7 @@ Personal / educational scaffold — use at your own risk.
 This is **not** public internet hosting — only devices on your home network. Public deploy is on Vercel when linked; local LAN access still uses `npm run dev`.
 
 
-## Alerts — DOGE plan & ATR trailing stop
+## Trade Smart Bot — DOGE plan & ATR trailing stop
 
 - **Math** (`src/lib/atr.js`, pure): Kraken `XDGUSD` 4h candles → true range → ATR(14) Wilder (EWM α = 1/14). Staged stop:
   - **Stage 1** (before breakout): effective stop = manual floor (0.079). ATR shown for reference only.
@@ -209,7 +210,7 @@ Auth + per-user storage run on Supabase (Postgres + Auth). Anyone can create a f
 | --- | --- | --- |
 | Signed out | — | Home only; other tabs redirect to `/login` and come back after sign-in |
 | Member (free) | Sign up | Research, Scanner, Short Kings |
-| Trade Smart Bot | Owner grants it in Admin → Users (`profiles.bot_access = true`); members can hit **Request access** on the Alerts tab | + Alerts: own DOGE plan, staged ATR stop, alerts, plan history (future Telegram/bot alerts) |
+| Trade Smart Bot | Owner grants it in Admin → Users (`profiles.bot_access = true`); members can hit **Request access** on the My Bot tab | + My Bot: own DOGE plan, staged ATR stop, alerts, plan history (future Telegram/bot alerts) |
 | Owner | Promoted with `scripts/make-owner.mjs` / SQL (`role = 'owner'`, always has bot access) | + Admin (Users, Beta, System); Kraken / bot account connection next |
 
 ### Environment variables
@@ -228,7 +229,7 @@ Local dev (Windows or Linux): `cp .env.example .env.local` (PowerShell: `Copy-It
 
 ### Bot access requests
 
-- On the locked Alerts screen a member clicks **Request access**, which calls the `request_bot_access()` SQL function (SECURITY DEFINER). It only stamps `profiles.bot_access_requested_at` for the caller; users still can't touch `role` or `bot_access`. The screen then shows **Request sent**.
+- On the locked My Bot screen a member clicks **Request access**, which calls the `request_bot_access()` SQL function (SECURITY DEFINER). It only stamps `profiles.bot_access_requested_at` for the caller; users still can't touch `role` or `bot_access`. The screen then shows **Request sent**.
 - The owner sees pending requests at the top of Admin → Users (badge + date), a count on the **Admin** nav item and on System. Granting access clears the request (DB trigger).
 
 ### Making the owner

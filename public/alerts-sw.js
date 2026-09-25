@@ -12,7 +12,7 @@ self.addEventListener('notificationclick', (event) => {
         for (const client of list) {
           if ('focus' in client) return client.focus();
         }
-        return self.clients.openWindow('/alerts');
+        return self.clients.openWindow('/bot');
       }),
   );
 });

@@ -10,7 +10,7 @@ const NAV = [
   { to: '/research', label: 'Research' },
   { to: '/scanner', label: 'Scanner' },
   { to: '/short-kings', label: 'Short Kings' },
-  { to: '/alerts', label: 'Alerts' },
+  { to: '/bot', label: 'My Bot' },
 ];
 const OWNER_NAV = [{ to: '/admin', label: 'Admin' }];
 

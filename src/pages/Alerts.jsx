@@ -54,8 +54,8 @@ export default function Alerts() {
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__kicker muted">Alerts</p>
-            <h1>DOGE plan &amp; trailing stop</h1>
+            <p className="scanner__kicker muted">My Bot</p>
+            <h1>Trade Smart Bot</h1>
             <p className="scanner__subtitle muted">
               Stage 1: the core sits on a fixed floor. Stage 2 (4h close above breakout): the floor
               steps up and an ATR trailing stop takes over, only ever moving up. The trading slice

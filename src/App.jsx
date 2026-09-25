@@ -27,6 +27,8 @@ export default function App() {
               <Route path="/home" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              {/* Legacy route: the bot now lives at /bot. */}
+              <Route path="/alerts" element={<Navigate to="/bot" replace />} />
               {/* Signed in (free members) */}
               <Route element={<RequireAuth />}>
                 <Route path="/research" element={<Research />} />
@@ -34,7 +36,7 @@ export default function App() {
                 <Route path="/short-kings" element={<ShortKings />} />
                 {/* Trade Smart Bot tier; others see the locked screen with Request access */}
                 <Route element={<RequireBot />}>
-                  <Route path="/alerts" element={<Alerts />} />
+                  <Route path="/bot" element={<Alerts />} />
                 </Route>
               </Route>
               {/* Owner only */}

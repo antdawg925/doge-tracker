@@ -40,7 +40,7 @@ export default function Signup() {
         <p className="auth-card__kicker muted">Trade Smart</p>
         <h1>Create account</h1>
         <p className="auth-card__lede muted">
-          Free account: Research, Scanner and Short Kings. Trade Smart Bot (Alerts) can be requested
+          Free account: Research, Scanner and Short Kings. Trade Smart Bot can be requested
           after you sign up.
         </p>
         <label className="field">

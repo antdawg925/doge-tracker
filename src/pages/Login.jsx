@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/authContext.js';
 export default function Login() {
   const { user, loading, configured, signIn } = useAuth();
   const location = useLocation();
-  const from = location.state?.from || '/research';
+  const from = location.state?.from === '/alerts' ? '/bot' : location.state?.from || '/research';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,7 +34,7 @@ export default function Login() {
         {location.state?.from ? (
           <p className="auth-card__lede muted">Sign in to open that page.</p>
         ) : (
-          <p className="auth-card__lede muted">Research, Scanner, Short Kings and Alerts need a free account.</p>
+          <p className="auth-card__lede muted">Research, Scanner, Short Kings and My Bot need a free account.</p>
         )}
 
         {!configured ? (
