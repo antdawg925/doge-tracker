@@ -1,11 +1,13 @@
 /**
- * DOGE plan persistence — the ONLY module that touches storage for the Alerts page.
+ * DOGE plan persistence — the ONLY module the Alerts page uses for storage.
  *
- * Today: browser localStorage. Next phase: swap `backend` for a fetch()-based
- * adapter against a logged-in server API (Vercel + cron/Telegram alerts) — the
- * async function signatures and the record shapes below stay the same.
+ * All ratchet / history / alert-log rules live here and work on one document
+ * through a swappable `backend` ({ read(): doc|null, write(doc) }):
+ *   - signed in: Supabase (`planStoreSupabase.js`, per-user tables under RLS),
+ *     selected by DogePlanProvider via setPlanBackend();
+ *   - default / scripts: browser localStorage (key below).
  *
- * Stored document (key `trade-smart-doge-plan-v1`):
+ * Document shape (key `trade-smart-doge-plan-v1` in localStorage):
  * {
  *   version: 2,
  *   plan: Plan,                  // current editable plan
@@ -36,8 +38,8 @@
 export const PLAN_STORAGE_KEY = 'trade-smart-doge-plan-v1';
 /** Bump whenever stop rules change so stale ratchet memory is recomputed, not trusted. */
 export const STOP_RULES_VERSION = 2;
-const HISTORY_LIMIT = 200;
-const LOG_LIMIT = 100;
+export const HISTORY_LIMIT = 200;
+export const LOG_LIMIT = 100;
 
 export const DEFAULT_PLAN = Object.freeze({
   symbol: 'DOGE',
@@ -61,7 +63,7 @@ export const DEFAULT_PLAN = Object.freeze({
   updatedAt: null,
 });
 
-/* ---------- backend adapter (swap this for the server phase) ---------- */
+/* ---------- backend adapter (localStorage default; Supabase when signed in) ---------- */
 
 const localBackend = {
   async read() {

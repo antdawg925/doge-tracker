@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../hooks/authContext.js';
 
 const CAPABILITIES = [
   {
@@ -32,6 +33,7 @@ const CAPABILITIES = [
 ];
 
 export default function Home() {
+  const { user, loading, displayName } = useAuth();
   return (
     <main className="landing">
       <section className="landing__hero">
@@ -41,6 +43,27 @@ export default function Home() {
           Liquid stocks &amp; crypto — charts, levels, scanners, and short-interest
           tools in one workspace.
         </p>
+        {!loading ? (
+          <div className="landing__auth">
+            {user ? (
+              <>
+                <span className="muted">Signed in as {displayName}</span>
+                <Link to="/research" className="btn btn--primary">
+                  Open Research
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="btn btn--primary">
+                  Sign in
+                </Link>
+                <Link to="/signup" className="btn">
+                  I have an invite
+                </Link>
+              </>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="landing__grid" aria-label="App capabilities">

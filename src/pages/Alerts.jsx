@@ -95,6 +95,12 @@ export default function Alerts() {
         </div>
       </div>
 
+      {ctx.storeError ? (
+        <p className="auth-card__error" role="alert">
+          {ctx.storeError}
+        </p>
+      ) : null}
+
       {!plan ? (
         <div className="card">
           <p className="muted">Loading plan…</p>

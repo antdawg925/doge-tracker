@@ -11,6 +11,7 @@ import {
   saveAlertState,
   savePlan,
   saveStopState,
+  setPlanBackend,
 } from '../lib/planStore.js';
 import {
   notificationPermission,
@@ -41,11 +42,13 @@ function snapshotFor(doc, bars, livePrice) {
 }
 
 /**
- * App-wide DOGE plan state + polling. Mounted in AppLayout so price alerts keep
- * checking while any Trade Smart tab is open (browser-only; no server yet).
+ * App-wide DOGE plan state + polling. Mounted in AppLayout for signed-in users so
+ * price alerts keep checking while any Trade Smart tab is open.
+ * `backend` is the planStore storage adapter (Supabase for the signed-in user).
  */
-export default function DogePlanProvider({ children }) {
+export default function DogePlanProvider({ backend, children }) {
   const [doc, setDoc] = useState(null);
+  const [storeError, setStoreError] = useState(null);
   const [market, setMarket] = useState({
     bars: null,
     livePrice: null,
@@ -122,14 +125,28 @@ export default function DogePlanProvider({ children }) {
     }
   }, [processTick]);
 
-  // Load stored plan, then start polling.
+  // Point planStore at this user's storage, load the plan, then start polling.
   useEffect(() => {
     let alive = true;
-    loadPlanDoc().then((d) => {
-      if (!alive) return;
-      commitDoc(d);
-      refresh();
+    setPlanBackend(backend);
+    const unsubscribe = backend?.onSyncError?.((err) => {
+      if (alive) setStoreError(err ? `Couldn't save to your account: ${err.message}` : null);
     });
+    let retry = null;
+    const load = () =>
+      loadPlanDoc()
+        .then((d) => {
+          if (!alive) return;
+          setStoreError(null);
+          commitDoc(d);
+          refresh();
+        })
+        .catch((err) => {
+          if (!alive) return;
+          setStoreError(`Couldn't load your plan: ${err?.message || err}. Retrying…`);
+          retry = setTimeout(load, 15000);
+        });
+    load();
     if (notificationPermission() === 'granted') registerAlertsWorker();
     const id = setInterval(() => {
       if (docRef.current) refresh();
@@ -144,9 +161,12 @@ export default function DogePlanProvider({ children }) {
     return () => {
       alive = false;
       clearInterval(id);
+      clearTimeout(retry);
       document.removeEventListener('visibilitychange', onVisible);
+      unsubscribe?.();
+      setPlanBackend(null);
     };
-  }, [commitDoc, refresh]);
+  }, [backend, commitDoc, refresh]);
 
   const snapshot = useMemo(
     () => snapshotFor(doc, market.bars, market.livePrice),
@@ -190,8 +210,8 @@ export default function DogePlanProvider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ doc, market, snapshot, permission, pollMs: POLL_MS, ...actions }),
-    [doc, market, snapshot, permission, actions],
+    () => ({ doc, market, snapshot, permission, storeError, pollMs: POLL_MS, ...actions }),
+    [doc, market, snapshot, permission, storeError, actions],
   );
 
   return <DogePlanContext.Provider value={value}>{children}</DogePlanContext.Provider>;
