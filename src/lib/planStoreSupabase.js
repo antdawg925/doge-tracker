@@ -15,7 +15,13 @@
  * log are imported once (flagged in localStorage so another account on the same
  * browser doesn't import it too). The localStorage copy is left untouched.
  */
-import { HISTORY_LIMIT, LOG_LIMIT, PLAN_STORAGE_KEY, normalizeDoc } from './planStore.js';
+import {
+  HISTORY_LIMIT,
+  LOG_LIMIT,
+  PLAN_STORAGE_KEY,
+  normalizeDoc,
+  normalizePlan,
+} from './planStore.js';
 
 export const IMPORT_FLAG_KEY = 'trade-smart-doge-plan-imported';
 
@@ -195,6 +201,14 @@ export function createSupabasePlanBackend(supabase, userId) {
       const local = readLocalDoc();
       if (local) {
         doc = normalizeDoc(local);
+        // Older local history entries may predate some plan fields; fill them so
+        // the history view can render every imported entry.
+        doc = {
+          ...doc,
+          history: doc.history
+            .filter((h) => h && h.id != null && h.savedAt)
+            .map((h) => ({ ...h, plan: normalizePlan(h.plan) })),
+        };
         await persist(EMPTY, doc);
         synced = doc;
         try {
