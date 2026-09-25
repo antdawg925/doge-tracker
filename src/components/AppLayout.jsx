@@ -18,9 +18,9 @@ function AccountMenu() {
   const { user, displayName, isOwner, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  if (loading) return <div className="desk-nav__account" />;
+  if (loading) return null;
   if (!user) {
-    if (pathname === '/login') return <div className="desk-nav__account" />;
+    if (pathname === '/login') return null;
     return (
       <div className="desk-nav__account">
         <Link to="/login" className="btn btn--primary desk-nav__signin">
