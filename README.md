@@ -29,7 +29,7 @@ npm run preview   # optional local preview of dist/
 | `/research` | **Research** — watchlist + analysis workstation |
 | `/scanner` | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | **Short Kings** — My Shorts + Hunt (float / short interest) |
-| `/alerts` | Placeholder (Milestone 2 — price / stage / RVOL alerts) |
+| `/alerts` | **Alerts** — DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts |
 
 Shared chrome: `AppLayout` (brand **Trade Desk** + nav). Research workspace: left **Watchlist** (persisted), center analysis widgets, right position summary/editor.
 
@@ -180,3 +180,12 @@ Personal / educational scaffold — use at your own risk.
 
 This is **not** public internet hosting — only devices on your home network. Public deploy is on Vercel when linked; local LAN access still uses `npm run dev`.
 
+
+## Alerts — DOGE plan & ATR trailing stop
+
+- **Math** (`src/lib/atr.js`, pure): Kraken `XDGUSD` 4h candles → true range → ATR(14) Wilder (EWM α = 1/14).
+  Trail = highest high since the plan anchor − 2.5×ATR (1.75×ATR once price > tighten reference × (1 + 15%); reference defaults to average cost).
+  Effective stop = max(manual floor, ATR trail, every earlier trail since anchor, stored stop) — it never moves down.
+- **Alerts** (`src/lib/alertRules.js`): sell, breakout, high/low zone, buy-back and effective-stop crossings. Fire once per crossing, re-arm after price pulls back 0.5% past the level. Polling every 90s runs app-wide (`DogePlanProvider` in `AppLayout`) while Trade Smart is open; system notifications via the Notification API (+ `public/alerts-sw.js` for Android Chrome).
+- **Storage** (`src/lib/planStore.js`): async API over localStorage key `trade-smart-doge-plan-v1` (`plan`, `history`, `stop`, `alerts`). Swap the backend adapter for a server API in the login / cron / Telegram phase.
+- **Checks**: `npm run check:atr` (fixtures + live Kraken numbers) and `npm run check:alerts`.

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import DogePlanProvider from './DogePlanProvider.jsx';
 
 const NAV = [
   { to: '/home', label: 'Home', end: true, match: ['/', '/home'] },
@@ -41,7 +42,10 @@ export default function AppLayout() {
           ))}
         </nav>
       </header>
-      <Outlet />
+      {/* DOGE plan polling lives here so alerts keep checking on every tab */}
+      <DogePlanProvider>
+        <Outlet />
+      </DogePlanProvider>
     </div>
   );
 }

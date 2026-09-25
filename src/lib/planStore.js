@@ -1,0 +1,256 @@
+/**
+ * DOGE plan persistence — the ONLY module that touches storage for the Alerts page.
+ *
+ * Today: browser localStorage. Next phase: swap `backend` for a fetch()-based
+ * adapter against a logged-in server API (Vercel + cron/Telegram alerts) — the
+ * async function signatures and the record shapes below stay the same.
+ *
+ * Stored document (key `trade-smart-doge-plan-v1`):
+ * {
+ *   version: 1,
+ *   plan: Plan,                  // current editable plan
+ *   history: HistoryEntry[],     // newest first; one per Save
+ *   stop: StopState,             // ratchet memory (effective stop never moves down)
+ *   alerts: { rules: { [ruleId]: RuleState }, log: AlertLogEntry[] }
+ * }
+ *
+ * Plan = {
+ *   symbol: 'DOGE', pair: 'XDGUSD',
+ *   avgCost, corePct, slicePct,
+ *   sellLevel, buyBackLevel, stopFloor,
+ *   breakoutLevel, breakoutFloor,          // on break of breakoutLevel, raise floor to breakoutFloor
+ *   highZone: { low, high }, lowZone: { low, high },
+ *   atrMult, tightMult, tightenPct,
+ *   tightenRef: number|null,               // null → use avgCost
+ *   anchorAt: ISO string,                  // trail start; highest high measured from here
+ *   note: string, updatedAt: ISO string|null
+ * }
+ * HistoryEntry = { id, savedAt: ISO, plan: Plan, note, market: { price, atr, atrPct, effectiveStop } | null }
+ * StopState    = { effectiveStop: number|null, anchorAt: ISO|null, updatedAt: ISO|null }
+ * RuleState    = { armed: boolean, level: number }
+ * AlertLogEntry= { id, at: ISO, ruleId, title, body, price, level }
+ */
+
+export const PLAN_STORAGE_KEY = 'trade-smart-doge-plan-v1';
+const HISTORY_LIMIT = 200;
+const LOG_LIMIT = 100;
+
+export const DEFAULT_PLAN = Object.freeze({
+  symbol: 'DOGE',
+  pair: 'XDGUSD',
+  avgCost: 0.075,
+  corePct: 78,
+  slicePct: 22,
+  sellLevel: 0.1,
+  buyBackLevel: 0.087,
+  stopFloor: 0.079,
+  breakoutLevel: 0.104,
+  breakoutFloor: 0.09,
+  highZone: Object.freeze({ low: 0.11, high: 0.117 }),
+  lowZone: Object.freeze({ low: 0.085, high: 0.09 }),
+  atrMult: 2.5,
+  tightMult: 1.75,
+  tightenPct: 15,
+  tightenRef: null,
+  anchorAt: null,
+  note: '',
+  updatedAt: null,
+});
+
+/* ---------- backend adapter (swap this for the server phase) ---------- */
+
+const localBackend = {
+  async read() {
+    try {
+      const raw = globalThis.localStorage?.getItem(PLAN_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  async write(doc) {
+    try {
+      globalThis.localStorage?.setItem(PLAN_STORAGE_KEY, JSON.stringify(doc));
+    } catch {
+      /* quota / private mode — keep in-memory copy */
+    }
+  },
+};
+
+let backend = localBackend;
+/** Replace storage (e.g. server adapter with the same read/write contract). */
+export function setPlanBackend(next) {
+  backend = next || localBackend;
+}
+
+/* ---------- normalization ---------- */
+
+const num = (v, fallback) => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return Number.isFinite(n) ? n : fallback;
+};
+const numOrNull = (v) => {
+  if (v === '' || v == null) return null;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+function zone(z, d) {
+  const low = num(z?.low, d.low);
+  const high = num(z?.high, d.high);
+  return low <= high ? { low, high } : { low: high, high: low };
+}
+
+export function normalizePlan(p = {}) {
+  const d = DEFAULT_PLAN;
+  return {
+    symbol: 'DOGE',
+    pair: typeof p.pair === 'string' && p.pair ? p.pair : d.pair,
+    avgCost: num(p.avgCost, d.avgCost),
+    corePct: num(p.corePct, d.corePct),
+    slicePct: num(p.slicePct, d.slicePct),
+    sellLevel: num(p.sellLevel, d.sellLevel),
+    buyBackLevel: num(p.buyBackLevel, d.buyBackLevel),
+    stopFloor: num(p.stopFloor, d.stopFloor),
+    breakoutLevel: num(p.breakoutLevel, d.breakoutLevel),
+    breakoutFloor: num(p.breakoutFloor, d.breakoutFloor),
+    highZone: zone(p.highZone, d.highZone),
+    lowZone: zone(p.lowZone, d.lowZone),
+    atrMult: num(p.atrMult, d.atrMult),
+    tightMult: num(p.tightMult, d.tightMult),
+    tightenPct: num(p.tightenPct, d.tightenPct),
+    tightenRef: numOrNull(p.tightenRef),
+    anchorAt:
+      typeof p.anchorAt === 'string' && !Number.isNaN(Date.parse(p.anchorAt))
+        ? p.anchorAt
+        : new Date(Math.floor(Date.now() / 60000) * 60000).toISOString(),
+    note: typeof p.note === 'string' ? p.note.slice(0, 2000) : '',
+    updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : null,
+  };
+}
+
+function normalizeDoc(doc) {
+  const plan = normalizePlan(doc?.plan);
+  return {
+    version: 1,
+    plan,
+    history: Array.isArray(doc?.history) ? doc.history.slice(0, HISTORY_LIMIT) : [],
+    stop: {
+      effectiveStop: Number.isFinite(doc?.stop?.effectiveStop) ? doc.stop.effectiveStop : null,
+      anchorAt: doc?.stop?.anchorAt ?? plan.anchorAt,
+      updatedAt: doc?.stop?.updatedAt ?? null,
+    },
+    alerts: {
+      rules:
+        doc?.alerts?.rules && typeof doc.alerts.rules === 'object' ? doc.alerts.rules : {},
+      log: Array.isArray(doc?.alerts?.log) ? doc.alerts.log.slice(0, LOG_LIMIT) : [],
+    },
+  };
+}
+
+const uid = () =>
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/* ---------- public API (all async) ---------- */
+
+/** Load the whole document (creates defaults on first run and persists them). */
+export async function loadPlanDoc() {
+  const raw = await backend.read();
+  const doc = normalizeDoc(raw);
+  if (!raw) await backend.write(doc);
+  return doc;
+}
+
+/**
+ * Save the plan and append a dated history entry (newest first).
+ * `market` is an optional snapshot of live numbers at save time for later comparison.
+ */
+export async function savePlan(planInput, market = null) {
+  const doc = normalizeDoc(await backend.read());
+  const now = new Date().toISOString();
+  const plan = normalizePlan({ ...planInput, updatedAt: now });
+  const entry = {
+    id: uid(),
+    savedAt: now,
+    plan,
+    note: plan.note,
+    market: market
+      ? {
+          price: market.price ?? null,
+          atr: market.atr ?? null,
+          atrPct: market.atrPct ?? null,
+          effectiveStop: market.effectiveStop ?? null,
+        }
+      : null,
+  };
+  // Re-anchoring the trail resets ratchet memory; otherwise keep it.
+  const reanchored = doc.stop.anchorAt !== plan.anchorAt;
+  const next = {
+    ...doc,
+    plan,
+    history: [entry, ...doc.history].slice(0, HISTORY_LIMIT),
+    stop: reanchored
+      ? { effectiveStop: null, anchorAt: plan.anchorAt, updatedAt: now }
+      : doc.stop,
+  };
+  await backend.write(next);
+  return next;
+}
+
+/** Delete one history entry. */
+export async function deleteHistoryEntry(id) {
+  const doc = normalizeDoc(await backend.read());
+  const next = { ...doc, history: doc.history.filter((h) => h.id !== id) };
+  await backend.write(next);
+  return next;
+}
+
+/** Persist the ratchet (only ever raises the stored stop for the same anchor). */
+export async function saveStopState(effectiveStop, anchorAt) {
+  const doc = normalizeDoc(await backend.read());
+  if (!Number.isFinite(effectiveStop)) return doc;
+  const sameAnchor = doc.stop.anchorAt === anchorAt;
+  const prev = sameAnchor ? doc.stop.effectiveStop : null;
+  if (prev != null && effectiveStop <= prev) return doc;
+  const next = {
+    ...doc,
+    stop: { effectiveStop, anchorAt, updatedAt: new Date().toISOString() },
+  };
+  await backend.write(next);
+  return next;
+}
+
+/** Start a fresh trail from now (clears ratchet memory). Does not add a history entry. */
+export async function resetTrail(anchorAt = new Date().toISOString()) {
+  const doc = normalizeDoc(await backend.read());
+  const next = {
+    ...doc,
+    plan: { ...doc.plan, anchorAt },
+    stop: { effectiveStop: null, anchorAt, updatedAt: new Date().toISOString() },
+  };
+  await backend.write(next);
+  return next;
+}
+
+/** Persist alert rule arming state and prepend fired alerts to the log. */
+export async function saveAlertState(rules, fired = []) {
+  const doc = normalizeDoc(await backend.read());
+  const stamped = fired.map((f) => ({ id: uid(), at: new Date().toISOString(), ...f }));
+  const next = {
+    ...doc,
+    alerts: {
+      rules,
+      log: [...stamped, ...doc.alerts.log].slice(0, LOG_LIMIT),
+    },
+  };
+  await backend.write(next);
+  return next;
+}
+
+export async function clearAlertLog() {
+  const doc = normalizeDoc(await backend.read());
+  const next = { ...doc, alerts: { ...doc.alerts, log: [] } };
+  await backend.write(next);
+  return next;
+}
