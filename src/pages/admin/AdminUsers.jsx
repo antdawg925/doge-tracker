@@ -177,7 +177,7 @@ export default function AdminUsers() {
                         {self || owner ? (
                           <span className="muted small">Owner</span>
                         ) : (
-                          <>
+                          <div className="admin-table__btns">
                             <button
                               type="button"
                               className={`btn btn--ghost${u.botRequestedAt ? ' btn--ghost-go' : ''}`}
@@ -193,7 +193,7 @@ export default function AdminUsers() {
                             >
                               Delete
                             </button>
-                          </>
+                          </div>
                         )}
                       </td>
                     </tr>

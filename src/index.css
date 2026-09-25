@@ -3600,7 +3600,12 @@ p {
 
 
 .admin-table__actions {
-  display: flex;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.admin-table__btns {
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   justify-content: flex-end;
@@ -3626,6 +3631,7 @@ p {
 .bot-lock {
   flex: 1;
   display: flex;
+  align-items: flex-start;
   justify-content: center;
   padding: clamp(1.25rem, 6vh, 4rem) 1rem 3rem;
 }
