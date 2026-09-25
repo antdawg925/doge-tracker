@@ -8,16 +8,18 @@ import { supabase } from '../../lib/supabase.js';
 const SYMBOL = 'DOGE';
 const LATE_MS = 15 * 60 * 1000;
 
-const ptTime = (iso, withDay = true) =>
+// Times are Pacific (the header stat carries the PDT/PST label; list rows stay short).
+const ptTime = (iso, { day = true, zone = true } = {}) =>
   iso
     ? new Date(iso).toLocaleString('en-US', {
         timeZone: 'America/Los_Angeles',
-        ...(withDay ? { month: 'short', day: 'numeric' } : {}),
+        ...(day ? { month: 'short', day: 'numeric' } : {}),
         hour: 'numeric',
         minute: '2-digit',
-        timeZoneName: 'short',
+        ...(zone ? { timeZoneName: 'short' } : {}),
       })
     : '—';
+const rowTime = (iso) => ptTime(iso, { zone: false });
 
 const DECISION_COPY = {
   hold: 'Hold',
@@ -41,7 +43,7 @@ const RUN_COLS =
 function RunRow({ r }) {
   return (
     <li className="bot-log__item">
-      <span className="muted small mono">{ptTime(r.ran_at)}</span>
+      <span className="muted small mono">{rowTime(r.ran_at)}</span>
       <span className={`bot-log__decision ${DECISION_TONE[r.decision] || ''}`}>
         {DECISION_COPY[r.decision] || r.decision}
       </span>
@@ -128,7 +130,7 @@ export default function BotStatus({ refreshKey }) {
       <dl className="bot-status__stats">
         <div>
           <dt>Last run</dt>
-          <dd>{ptTime(last?.ran_at, false)}</dd>
+          <dd>{ptTime(last?.ran_at, { day: false })}</dd>
         </div>
         <div>
           <dt>Stage</dt>
@@ -206,7 +208,7 @@ export default function BotStatus({ refreshKey }) {
           <ul className="bot-log">
             {data.trades.map((t) => (
               <li key={t.id} className="bot-log__item">
-                <span className="muted small mono">{ptTime(t.at)}</span>
+                <span className="muted small mono">{rowTime(t.at)}</span>
                 <span className={`bot-log__decision ${t.side === 'buy' ? 'dp-buy' : 'pos'}`}>
                   {t.side === 'buy' ? 'Buy' : 'Sell'} {formatCoins(t.units)}
                 </span>

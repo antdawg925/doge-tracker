@@ -4357,7 +4357,7 @@ p {
 }
 .bot-log__item {
   display: grid;
-  grid-template-columns: 7.8rem 7.5rem 4.2rem minmax(0, 1fr);
+  grid-template-columns: 8.2rem 7.5rem 4.2rem minmax(0, 1fr);
   gap: 0 0.5rem;
   align-items: baseline;
   padding: 0.25rem 0.45rem;

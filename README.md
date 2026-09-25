@@ -34,7 +34,7 @@ npm run preview   # optional local preview of dist/
 | `/positions` | Signed in | **Positions** — your holdings (one row per symbol): live price, day %, value, gain/loss + totals; click a symbol to open it in Research |
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
-| `/bot` | Trade Smart Bot | **Trade Smart Bot** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
+| `/bot` | Trade Smart Bot | **Trade Smart Bot** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, server bot status + decision log + paper results (checked every 5 min on the server), plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
 | `/alerts` | Redirect | Legacy path that redirects to `/bot` |
 | `/admin/users` · `/admin/beta` · `/admin/system` | Owner | **Admin** — Users (requests, tier, activity, grant / revoke bot, delete), Beta feature flags, System status |
 
@@ -198,7 +198,25 @@ This is **not** public internet hosting — only devices on your home network. P
   - Effective stop = max(floor, every trail value since breakout, stored stop) — never moves down. Stored stop memory carries `rulesVersion`; stale versions are discarded and recomputed.
 - **Alerts** (`src/lib/alertRules.js`): sell, breakout, high/low zone, buy-back and effective-stop crossings. Fire once per crossing, re-arm after price pulls back 0.5% past the level. Polling every 90s runs app-wide (`DogePlanProvider` in `AppLayout`) while Trade Smart is open; system notifications via the Notification API (+ `public/alerts-sw.js` for Android Chrome).
 - **Storage** (`src/lib/planStore.js`): async API over one document (`plan`, `history`, `stop`, `alerts`) with a swappable backend. For Trade Smart Bot accounts, `DogePlanProvider` plugs in `src/lib/planStoreSupabase.js`, which splits it across per-user Supabase tables (`doge_plans`, `plan_history`, `stop_memory` with the rules version, `alert_state`, `alert_log`). The first time an account with no stored plan signs in, a pre-login localStorage plan (`trade-smart-doge-plan-v1`) + history + stop memory + alert log are imported once (flag `trade-smart-doge-plan-imported`). Plans load once per session and later writes only send what changed. localStorage stays the default backend for scripts.
-- **Checks**: `npm run check:atr` (fixtures + live Kraken numbers) and `npm run check:alerts`.
+- **Checks**: `npm run check:atr` (fixtures + live Kraken numbers), `npm run check:alerts`, and `npm run check:bot` (server run logic on fixture candles: stages, ratchet, decisions, paper trades).
+
+## Server bot (watch-only, every 5 minutes)
+
+DOGE is checked on the server every 5 minutes even with the app closed. **No orders are placed anywhere**; Kraken is only read (Balance + OpenOrders) with the owner's read-only key.
+
+- **Scheduler**: Supabase `pg_cron` job `trade-smart-bot-run` (`*/5 * * * *`) calls `pg_net` → `POST https://trade-smart-app.vercel.app/api/bot/run` with header `x-bot-secret`. The secret lives in Supabase Vault (`bot_cron_secret`, read by the job from `vault.decrypted_secrets`, never in the job text) and in Vercel env `BOT_CRON_SECRET` (sensitive). Vercel Cron isn't used (Hobby = daily only). The pings also keep the free Supabase project from pausing. Rotate: generate a new value, `vercel env rm/add BOT_CRON_SECRET` (stdin) + `select vault.update_secret(id, '<new>')`, redeploy.
+- **`/api/bot/run`** (`api/bot.js` → `api/_botRunner.js`): 401 without the right secret (or no auth), 403 for non-owner JWTs; the owner's JWT can trigger a manual run. Fetches Kraken 4h OHLC + ticker once, then for every user with bot access (or owner) **who has a saved `doge_plans` row**: computes the staged stop with the shared `shared/atr.js` (server is the source of truth for `stop_memory`; a DB trigger stops any writer from lowering it for the same rules version + anchor), evaluates `shared/alertRules.js` against `alert_state` (appends `alert_log`), steps the paper book, and writes one `bot_runs` row. Owner rows also carry the Kraken DOGE balance + open order count (errors are recorded, not fatal).
+- **Shared code**: pure logic lives in `shared/` (`atr.js`, `alertRules.js`, `plan.js`, `kraken.js`, `paper.js`, `botEngine.js`, `format.js`); `src/lib/*` re-exports it so browser and server run the same math. Symbols are configured in `BOT_SYMBOLS` (`shared/botEngine.js`); new bot tables are keyed by `(user_id, symbol)`; per-user Kraken keys plug into `krakenCredsFor()` (`api/_kraken.js`).
+- **Tables** (migration `20260925090000_server_bot.sql`, RLS: users read their own rows, owner reads all, only the server writes): `bot_runs` (price, ATR, stage, stop, trail, floor, highest high, `decision` = `hold` / `would_sell_slice` / `would_buy_back` / `would_exit_core` / `stop_raised` / `error`, reason, owner Kraken balance + open orders, duration), `bot_heartbeat` (last run per symbol → Admin → System), `paper_state`, `paper_trades`. Retention: daily `trade-smart-bot-retention` job deletes `hold`/`error` rows older than 90 days; every real decision row is kept forever.
+- **Paper test**: notional = your Positions DOGE shares, else (owner) Kraken DOGE balance, else 10,000 DOGE; split by the plan's core % / slice %. Slice sells at the sell level (once per cycle) and buys back at the buy-back level with its cash; core exits entirely at the effective stop and then stays in cash ("core stopped out"). Fills assume the level price. My Bot shows paper value vs buy-and-hold and a **Restart paper test** button (`POST /api/bot/paper/restart`).
+- **Browser**: My Bot re-reads the server's stop memory / alert state / alert log on every 90s tick (so the numbers match the server) and only evaluates crossings in memory for browser notifications while the app is open.
+
+### Telegram alerts (optional)
+
+`api/_telegram.js` sends one message per run for alert firings and non-hold decisions — only when **both** exist; otherwise it silently skips:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and add its token as a **sensitive** Vercel env var: `printf '%s' '<token>' | vercel env add TELEGRAM_BOT_TOKEN production --sensitive --scope ant-dawg`, then redeploy.
+2. Set the user's chat id in `profiles.telegram_chat_id` (server/SQL only for now — users can't write it, just like `role` / `bot_access`). A self-serve linking flow (e.g. `/start <code>` webhook) is a later step.
 
 
 ## Accounts & login (Supabase)
@@ -224,7 +242,9 @@ Auth + per-user storage run on Supabase (Postgres + Auth). Anyone can create a f
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Prod + Preview), **sensitive** | **Yes** | Secret key used by `/api/admin/*` and `scripts/make-owner.mjs` (bypasses RLS). Never `VITE_`-prefix it and never ship it to the client |
 | `SUPABASE_REGION` | Vercel (Prod + Preview) | No | Shown on Admin → System |
 | `BUILD_COMMIT` | `vercel --build-env` at deploy | No | Commit shown on Admin → System (falls back to `git rev-parse`) |
-| `KRAKEN_API_KEY` / `KRAKEN_API_SECRET` | Vercel, sensitive | **Yes** | Read-only Kraken keys for the upcoming owner-only route |
+| `KRAKEN_API_KEY` / `KRAKEN_API_SECRET` | Vercel, sensitive | **Yes** | Owner's read-only Kraken key (query funds + orders); used by the server bot for balance / open orders |
+| `BOT_CRON_SECRET` | Vercel (Prod), sensitive + Supabase Vault `bot_cron_secret` | **Yes** | Shared secret the pg_cron job sends as `x-bot-secret` to `/api/bot/run` |
+| `TELEGRAM_BOT_TOKEN` | Vercel, sensitive (optional) | **Yes** | Enables Telegram alerts for users with `profiles.telegram_chat_id` |
 
 Local dev (Windows or Linux): `cp .env.example .env.local` (PowerShell: `Copy-Item .env.example .env.local`) and fill in the two `VITE_` values from Supabase → Project Settings → API. That's enough to sign up, sign in and use your plan locally (`http://localhost:5173` is an allowed redirect URL). To use Admin locally (and `npm run make-owner`), add `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to `.env.local`; the Vite dev server then serves `/api/admin/*` with the same handler as Vercel (use Node 22+, supabase-js needs a native WebSocket server-side). Restart `npm run dev` after editing env files. `.env.local` is gitignored; only `.env.example` (placeholders) is committed.
 
@@ -263,7 +283,7 @@ Schema lives in `supabase/migrations/` (applied to the hosted project; CLI-compa
 
 Signed-out (`anon`) requests have no table grants at all. Deleting an auth user cascades to all of their rows.
 
-### Owner-only / bot-tier API routes (next step)
+### Owner-only / bot-tier API routes
 
 `api/_supabase.js` exports `requireUser(req, res, { role, bot })`. A route such as a Kraken balance proxy does:
 
@@ -281,8 +301,9 @@ The browser calls it with `Authorization: Bearer ${session.access_token}` (from 
 
 ### Limitations
 
-- Supabase free-plan projects pause after about a week without activity; open the dashboard to restore.
+- Supabase free-plan projects pause after about a week without activity; the 5-minute bot pings keep it active (if it ever pauses, open the dashboard to restore).
 - No password reset / email change flow yet, and emails aren't verified (confirmation is off). Both need a custom SMTP sender in Supabase Auth. The owner can reset a password from the Supabase dashboard.
 - Open signup has only Supabase's built-in rate limits; add CAPTCHA (Supabase Auth → Bot protection) if spam signups show up.
 - Research watchlist / positions are still per-browser localStorage (`doge-tracker-state-v2`).
-- Plan data loads once per session; edits made on another device show up after a reload.
+- Plan edits load once per session (edits on another device show up after a reload); the server-owned stop memory / alert state / alert log refresh every 90s.
+- Server bot: watch-only; checks are every 5 minutes, so paper fills (at level prices) can differ from what a live order would have done between checks. Only DOGE and only the owner's Kraken key today; the older per-user plan tables (`doge_plans`, `stop_memory`, `alert_state`) are DOGE-only and would need a symbol column before a second symbol.
