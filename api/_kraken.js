@@ -40,6 +40,13 @@ export async function fetchMarket({ pair, intervalMin = 240, maxBars = 720 }) {
   }
 }
 
+/** Live ticker price only (used when a user re-authorizes TSB). */
+export async function fetchTickerPrice(pair) {
+  const tick = pickKrakenTicker(await getJson(`${BASE}/0/public/Ticker?pair=${encodeURIComponent(pair)}`))
+  if (!tick) throw new Error('Kraken ticker empty')
+  return tick.price
+}
+
 /** Which read-only Kraken key (if any) applies to this user. Owner → env key. */
 export function krakenCredsFor(profile) {
   if (profile?.role !== 'owner') return null

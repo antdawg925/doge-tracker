@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/authContext.js';
 import { authedFetch } from '../../lib/api.js';
 import { formatCoins, formatPct, formatPrice, formatUsd } from '../../lib/format.js';
-import { paperValues } from '../../../shared/paper.js';
+import { paperBookValue, paperValues } from '../../../shared/paper.js';
 import { supabase } from '../../lib/supabase.js';
 
 const SYMBOL = 'DOGE';
@@ -27,6 +27,10 @@ const DECISION_COPY = {
   would_buy_back: 'Would buy back',
   would_exit_core: 'Would exit core',
   stop_raised: 'Stop raised',
+  locked: 'Locked',
+  blocked_locked: 'Blocked (locked)',
+  blocked_paused: 'Blocked (paused)',
+  blocked_below_baseline: 'Blocked (below start)',
   error: 'Error',
 };
 const DECISION_TONE = {
@@ -34,8 +38,106 @@ const DECISION_TONE = {
   would_buy_back: 'dp-buy',
   would_exit_core: 'neg',
   stop_raised: 'pos',
+  locked: 'neg',
+  blocked_locked: 'dp-warn',
+  blocked_paused: 'dp-warn',
+  blocked_below_baseline: 'dp-warn',
   error: 'dp-warn',
 };
+
+const usd2 = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signedUsd = (n) => `${n < 0 ? '−' : '+'}${usd2(Math.abs(n))}`;
+
+/** TSB Profit lock line (armed / locked banner), max-loss input, Pause switch. */
+function ProfitLock({ guard, book, onAction, busy, notice }) {
+  const [maxLoss, setMaxLoss] = useState(guard?.max_loss_usd != null ? String(Number(guard.max_loss_usd)) : '1');
+  const baseline = guard?.baseline_value != null ? Number(guard.baseline_value) : null;
+  const diff = baseline != null && book != null ? book - baseline : null;
+  const savedLoss = guard?.max_loss_usd != null ? Number(guard.max_loss_usd) : 1;
+  const lossValid = maxLoss.trim() !== '' && Number(maxLoss) >= 0 && Number.isFinite(Number(maxLoss));
+
+  const saveLoss = () => {
+    if (!lossValid || Number(maxLoss) === savedLoss) return;
+    onAction('max-loss', { maxLossUsd: Number(maxLoss) });
+  };
+
+  if (guard?.locked) {
+    return (
+      <div className="tsb-locked" role="alert">
+        <div>
+          <strong>Locked</strong> <span className="small">{guard.lock_reason}</span>
+          <p className="small muted tsb-locked__help">
+            TSB keeps watching but won’t trade. Authorizing resets your starting amount to the current book
+            {book != null ? ` (${usd2(book)})` : ''}; it locks again if the book falls more than {usd2(savedLoss)} below that.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn--primary tsb-locked__btn"
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Authorize TSB to trade again?\n\nYour starting amount resets to the current book value${book != null ? ` (about ${usd2(book)})` : ''}. If the book later falls more than ${usd2(savedLoss)} below it, TSB locks again.`,
+              )
+            ) {
+              onAction('unlock', {});
+            }
+          }}
+        >
+          Authorize next trade
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="tsb-lock">
+      <span className="small">
+        <span className="muted">Profit lock:</span>{' '}
+        {guard?.paused ? <span className="dp-warn">paused (watching only)</span> : <span className="pos">armed</span>}
+        {baseline != null ? (
+          <>
+            <span className="muted"> · starting </span>
+            <span className="mono">{usd2(baseline)}</span>
+            {book != null ? (
+              <>
+                <span className="muted"> · book </span>
+                <span className="mono">{usd2(book)}</span>{' '}
+                <span className={diff >= 0 ? 'pos' : 'neg'}>({signedUsd(diff)})</span>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <span className="muted"> · starts on the next server run</span>
+        )}
+      </span>
+      <label className="tsb-lock__loss small muted" title="Lock when the book falls this far below the starting amount">
+        Max loss $
+        <input
+          type="number"
+          min="0"
+          step="1"
+          inputMode="decimal"
+          value={maxLoss}
+          aria-invalid={!lossValid}
+          onChange={(e) => setMaxLoss(e.target.value)}
+          onBlur={saveLoss}
+          onKeyDown={(e) => e.key === 'Enter' && saveLoss()}
+        />
+      </label>
+      <button
+        type="button"
+        className="btn btn--ghost tsb-lock__pause"
+        disabled={busy}
+        onClick={() => onAction('pause', { paused: !guard?.paused })}
+      >
+        {guard?.paused ? 'Resume bot' : 'Pause bot'}
+      </button>
+      {notice ? <p className="small pos tsb-lock__notice">{notice}</p> : null}
+    </div>
+  );
+}
 
 const RUN_COLS =
   'id, ran_at, source, price, atr, atr_pct, stage, effective_stop, trail_level, decision, reason, kraken_balance, open_orders, error';
@@ -55,7 +157,7 @@ function RunRow({ r }) {
 
 async function fetchBotData(userId) {
   const mine = (q) => q.eq('user_id', userId).eq('symbol', SYMBOL);
-  const [runs, decisions, paper, trades] = await Promise.all([
+  const [runs, decisions, paper, trades, guard] = await Promise.all([
     mine(supabase.from('bot_runs').select(RUN_COLS)).order('ran_at', { ascending: false }).limit(10),
     mine(supabase.from('bot_runs').select(RUN_COLS))
       .not('decision', 'in', '(hold,error)')
@@ -65,10 +167,18 @@ async function fetchBotData(userId) {
     mine(supabase.from('paper_trades').select('id, at, side, units, price, reason'))
       .order('at', { ascending: false })
       .limit(50),
+    mine(supabase.from('bot_guard').select('*')).maybeSingle(),
   ]);
-  const err = [runs, decisions, paper, trades].find((r) => r.error)?.error;
+  const err = [runs, decisions, paper, trades, guard].find((r) => r.error)?.error;
   if (err) throw new Error(err.message);
-  return { runs: runs.data, decisions: decisions.data, paper: paper.data, trades: trades.data, checkedAt: Date.now() };
+  return {
+    runs: runs.data,
+    decisions: decisions.data,
+    paper: paper.data,
+    trades: trades.data,
+    guard: guard.data,
+    checkedAt: Date.now(),
+  };
 }
 
 /** Compact server-bot card: status, decision log, recent runs, paper results. */
@@ -77,6 +187,8 @@ export default function BotStatus({ refreshKey }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [restarting, setRestarting] = useState(false);
+  const [guardBusy, setGuardBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(() => {
     if (!supabase || !user) return Promise.resolve();
@@ -102,6 +214,27 @@ export default function BotStatus({ refreshKey }) {
       setError(e.message);
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const guardAction = async (action, body) => {
+    setGuardBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const r = await authedFetch(`/api/bot/guard/${action}`, { method: 'POST', body });
+      if (action === 'unlock') {
+        setNotice(
+          `Unlocked. New starting amount ${usd2(r.baselineValue)}; TSB locks again if the book falls more than ${usd2(r.maxLossUsd)} below it.`,
+        );
+      } else if (action === 'max-loss') {
+        setNotice(`Max loss saved: ${usd2(r.maxLossUsd)}.`);
+      }
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGuardBusy(false);
     }
   };
 
@@ -155,6 +288,17 @@ export default function BotStatus({ refreshKey }) {
       </dl>
       {isOwner && lastOk?.error ? <p className="dp-warn small bot-status__note">{lastOk.error}</p> : null}
 
+      {data ? (
+        <ProfitLock
+          key={`${data.guard?.max_loss_usd ?? 1}-${data.guard?.locked}`}
+          guard={data.guard}
+          book={paper && lastOk ? paperBookValue(paper, lastOk.price) : null}
+          onAction={guardAction}
+          busy={guardBusy}
+          notice={notice}
+        />
+      ) : null}
+
       <div className="bot-paper">
         <span className="muted small">Paper</span>
         {pv ? (
@@ -201,7 +345,7 @@ export default function BotStatus({ refreshKey }) {
         {paper ? (
           <p className="muted small">
             {formatCoins(paper.data?.notional_units)} DOGE notional ({paper.data?.units_source}) from{' '}
-            {formatPrice(paper.start_price)}. Fills assume the level price (sell, buy-back, stop).
+            {formatPrice(paper.start_price)}. Slice fills assume the level price; a stop fills at the price the 5-min check saw.
           </p>
         ) : null}
         {data?.trades?.length ? (

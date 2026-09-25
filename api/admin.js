@@ -1,6 +1,9 @@
 /**
  * Owner-only admin API (one function, routed by vercel.json):
  *   GET    /api/admin/users              all accounts + profile / tier (pending bot requests first)
+ *                                        + read-only TSB status per bot user (Live / Paused / Locked /
+ *                                        No plan, book vs baseline, max loss, last run). The owner
+ *                                        can't unlock / pause / edit anyone else's bot here.
  *   PATCH  /api/admin/users/:id          { bot_access: boolean }
  *   DELETE /api/admin/users/:id          { confirmEmail }  deletes the auth user (rows cascade)
  *   GET    /api/admin/system             counts, project, deploy, Kraken keys present (yes/no), bot heartbeat
@@ -12,6 +15,7 @@
  * (Supabase Auth stores only bcrypt hashes).
  */
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
+import { paperBookValue } from '../shared/paper.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -34,6 +38,46 @@ async function listAllAuthUsers(sb) {
   return users
 }
 
+/** Read-only TSB status for every bot user: badge + book vs baseline + max loss + last run. */
+async function botStatusByUser(sb, ids) {
+  if (!ids.length) return new Map()
+  const [plans, guards, papers, runs] = await Promise.all([
+    sb.from('doge_plans').select('user_id').in('user_id', ids),
+    sb.from('bot_guard').select('user_id, locked, lock_reason, locked_at, paused, baseline_value, max_loss_usd').eq('symbol', 'DOGE').in('user_id', ids),
+    sb.from('paper_state').select('user_id, cash, core_units, slice_units').eq('symbol', 'DOGE').in('user_id', ids),
+    Promise.all(
+      ids.map((id) =>
+        sb.from('bot_runs').select('user_id, ran_at, price').eq('user_id', id).eq('symbol', 'DOGE').neq('decision', 'error')
+          .order('ran_at', { ascending: false }).limit(1).maybeSingle(),
+      ),
+    ),
+  ])
+  const hasPlan = new Set((plans.data || []).map((r) => r.user_id))
+  const guardBy = new Map((guards.data || []).map((r) => [r.user_id, r]))
+  const paperBy = new Map((papers.data || []).map((r) => [r.user_id, r]))
+  const runBy = new Map(runs.map((r) => r.data).filter(Boolean).map((r) => [r.user_id, r]))
+  const out = new Map()
+  for (const id of ids) {
+    const g = guardBy.get(id)
+    const run = runBy.get(id)
+    const book = paperBookValue(paperBy.get(id), run?.price)
+    const baseline = g?.baseline_value != null ? Number(g.baseline_value) : null
+    const earnings = book != null && baseline != null ? book - baseline : null
+    out.set(id, {
+      status: !hasPlan.has(id) ? 'no_plan' : g?.locked ? 'locked' : g?.paused ? 'paused' : 'live',
+      lockReason: g?.locked ? g.lock_reason : null,
+      lockedAt: g?.locked ? g.locked_at : null,
+      book,
+      baseline,
+      earnings,
+      earningsPct: earnings != null && baseline > 0 ? (earnings / baseline) * 100 : null,
+      maxLossUsd: g ? Number(g.max_loss_usd) : 1,
+      lastRunAt: run?.ran_at ?? null,
+    })
+  }
+  return out
+}
+
 async function listUsers(sb, res) {
   const [authUsers, profiles] = await Promise.all([
     listAllAuthUsers(sb),
@@ -41,6 +85,8 @@ async function listUsers(sb, res) {
   ])
   if (profiles.error) throw profiles.error
   const byId = new Map(profiles.data.map((p) => [p.id, p]))
+  const botIds = profiles.data.filter((p) => p.bot_access || p.role === 'owner').map((p) => p.id)
+  const tsb = await botStatusByUser(sb, botIds).catch(() => new Map())
   const users = authUsers
     .map((u) => {
       const p = byId.get(u.id) || {}
@@ -55,6 +101,7 @@ async function listUsers(sb, res) {
         role,
         botAccess,
         botRequestedAt: botAccess ? null : p.bot_access_requested_at || null,
+        tsb: botAccess ? tsb.get(u.id) || { status: 'no_plan' } : null,
       }
     })
     // Pending requests first (oldest request on top), then newest accounts.
@@ -119,10 +166,12 @@ async function system(sb, res) {
     count(sb.from('feature_flags').select('key', { count: 'exact', head: true })),
   ])
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
-  const [heartbeat, errors24h, runs24h] = await Promise.all([
+  const [heartbeat, errors24h, runs24h, lockedUsers, pausedUsers] = await Promise.all([
     sb.from('bot_heartbeat').select('last_run_at, last_source, users_processed, errors, duration_ms').eq('symbol', 'DOGE').maybeSingle(),
     count(sb.from('bot_runs').select('id', { count: 'exact', head: true }).gte('ran_at', since).not('error', 'is', null)),
     count(sb.from('bot_runs').select('id', { count: 'exact', head: true }).gte('ran_at', since)),
+    count(sb.from('bot_guard').select('user_id', { count: 'exact', head: true }).eq('locked', true)),
+    count(sb.from('bot_guard').select('user_id', { count: 'exact', head: true }).eq('paused', true)),
   ])
   const hb = heartbeat.data
   let ref = null
@@ -151,6 +200,8 @@ async function system(sb, res) {
       durationMs: hb?.duration_ms ?? null,
       errors24h,
       runs24h,
+      lockedUsers,
+      pausedUsers,
       schedule: 'every 5 min (Supabase pg_cron)',
       telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     },

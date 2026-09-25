@@ -4384,3 +4384,78 @@ p {
     grid-column: 1 / -1;
   }
 }
+
+/* TSB Profit lock (My Bot) + Admin TSB status */
+.badge--danger {
+  color: var(--neg);
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.12);
+}
+.tsb-lock {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.7rem;
+  margin-bottom: 0.5rem;
+}
+.tsb-lock__loss {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: auto;
+}
+.tsb-lock__loss input {
+  width: 4.2rem;
+  padding: 0.2rem 0.35rem;
+  font: inherit;
+  font-size: 0.8rem;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.tsb-lock__loss input[aria-invalid='true'] {
+  border-color: var(--neg);
+}
+.tsb-lock__notice {
+  flex-basis: 100%;
+  margin: 0;
+}
+.tsb-locked {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid rgba(240, 113, 120, 0.5);
+  background: rgba(240, 113, 120, 0.1);
+  border-radius: 8px;
+}
+.tsb-locked strong {
+  color: var(--neg);
+}
+.tsb-locked__help {
+  margin: 0.2rem 0 0;
+}
+.tsb-locked__btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.admin-tsb {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  align-items: flex-start;
+}
+.admin-tsb__meta {
+  white-space: nowrap;
+}
+.admin-tsb__reason {
+  display: none;
+  max-width: 22rem;
+  white-space: normal;
+}
+.admin-tsb:hover .admin-tsb__reason,
+.admin-tsb:focus-within .admin-tsb__reason {
+  display: block;
+}

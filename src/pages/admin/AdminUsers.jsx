@@ -15,6 +15,53 @@ const fmt = (iso) =>
 
 const fetchUsers = () => authedFetch('/api/admin/users');
 
+const TSB_BADGE = {
+  live: ['Live', 'badge--ok'],
+  paused: ['Paused', 'badge--warn'],
+  locked: ['Locked', 'badge--danger'],
+  no_plan: ['No plan', 'badge--muted'],
+};
+const money = (n) =>
+  `${n < 0 ? '−' : '+'}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const ptShort = (iso) =>
+  iso
+    ? new Date(iso).toLocaleString('en-US', {
+        timeZone: 'America/Los_Angeles',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : '—';
+
+/** Read-only TSB status (the owner can't unlock / pause anyone else's bot). */
+function TsbCell({ tsb }) {
+  if (!tsb) return <span className="muted">—</span>;
+  const [label, cls] = TSB_BADGE[tsb.status] || TSB_BADGE.no_plan;
+  const title = tsb.status === 'locked' ? `Locked ${ptShort(tsb.lockedAt)} PT: ${tsb.lockReason || ''}` : undefined;
+  return (
+    <span className="admin-tsb">
+      <span className={`badge ${cls}`} title={title} tabIndex={title ? 0 : undefined}>
+        {label}
+      </span>
+      {tsb.status !== 'no_plan' ? (
+        <span className="admin-tsb__meta small">
+          {tsb.earnings != null ? (
+            <span className={tsb.earnings >= 0 ? 'pos' : 'neg'}>
+              {money(tsb.earnings)}
+              {tsb.earningsPct != null ? ` (${tsb.earningsPct >= 0 ? '+' : ''}${tsb.earningsPct.toFixed(1)}%)` : ''}
+            </span>
+          ) : (
+            <span className="muted">—</span>
+          )}
+          <span className="muted"> · line ${Number(tsb.maxLossUsd ?? 1).toFixed(2)} · {ptShort(tsb.lastRunAt)}</span>
+        </span>
+      ) : null}
+      {tsb.status === 'locked' && tsb.lockReason ? <span className="admin-tsb__reason small muted">{tsb.lockReason}</span> : null}
+    </span>
+  );
+}
+
 function DeleteDialog({ user, onCancel, onDeleted }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
@@ -142,6 +189,7 @@ export default function AdminUsers() {
                   <th>Last sign-in</th>
                   <th>Role</th>
                   <th>Bot</th>
+                  <th title="Trade Smart Bot: status, book vs starting amount, max-loss line, last run (PT)">TSB</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -172,6 +220,9 @@ export default function AdminUsers() {
                             {u.botAccess ? 'On' : 'Off'}
                           </span>
                         )}
+                      </td>
+                      <td>
+                        <TsbCell tsb={u.tsb} />
                       </td>
                       <td className="admin-table__actions">
                         {self || owner ? (

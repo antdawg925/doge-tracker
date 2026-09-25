@@ -9,7 +9,8 @@
 import { computeStopSnapshot } from './atr.js';
 import { buildRules, evaluateRules } from './alertRules.js';
 import { STOP_RULES_VERSION, normalizePlan } from './plan.js';
-import { initPaper, paperValues, stepPaper } from './paper.js';
+import { initPaper, paperBookValue, paperValues, stepPaper } from './paper.js';
+import { initGuard, sameGuard } from './guard.js';
 
 /** Symbols the bot watches. Add a row here (and a plan source) to watch more. */
 export const BOT_SYMBOLS = Object.freeze({
@@ -22,7 +23,17 @@ export const BOT_SYMBOLS = Object.freeze({
   }),
 });
 
-export const DECISION_PRIORITY = ['would_exit_core', 'would_sell_slice', 'would_buy_back', 'stop_raised', 'hold'];
+export const DECISION_PRIORITY = [
+  'locked',
+  'would_exit_core',
+  'would_sell_slice',
+  'would_buy_back',
+  'blocked_locked',
+  'blocked_paused',
+  'blocked_below_baseline',
+  'stop_raised',
+  'hold',
+];
 const EVENT_DECISION = { exit_core: 'would_exit_core', sell_slice: 'would_sell_slice', buy_back: 'would_buy_back' };
 
 const EPS = 1e-12;
@@ -47,8 +58,9 @@ export function priorStop(plan, stopRow) {
  * @param {number} p.nowMs
  * @param {number} [p.notionalUnits] paper notional (positions / Kraken / default)
  * @param {string} [p.unitsSource]
+ * @param {object|null} [p.guard]   bot_guard row (TSB Profit lock / Pause); null → create
  */
-export function evaluateUserRun({ planRaw, stopRow, alertState, paper, bars, price, nowMs, notionalUnits, unitsSource, symbol = 'DOGE' }) {
+export function evaluateUserRun({ planRaw, stopRow, alertState, paper, bars, price, nowMs, notionalUnits, unitsSource, guard = null, symbol = 'DOGE' }) {
   const nowIso = new Date(nowMs).toISOString();
   const plan = normalizePlan(planRaw || {});
   const prev = priorStop(plan, stopRow);
@@ -83,19 +95,36 @@ export function evaluateUserRun({ planRaw, stopRow, alertState, paper, bars, pri
   const { state: alertStateNext, fired } = evaluateRules(rules, snapshot.price, prevRules);
   const alertsChanged = JSON.stringify(sortKeys(alertStateNext)) !== JSON.stringify(sortKeys(alertState || {}));
 
-  // --- paper trading
+  // --- paper trading, every fill through the TSB guard (shared/guard.js)
   const paperInit = !paper;
   const book = paper || initPaper({ symbol, plan, price: snapshot.price, units: notionalUnits, unitsSource, nowIso });
-  const { paper: paperNext, trades: paperTrades, events } = stepPaper(book, {
+  // Baseline = paper shares × plan avg cost. A fresh paper book (first run / restart) or a
+  // guard without a baseline gets one; lock + pause flags always carry over.
+  const guardInit = !guard || guard.baseline_value == null || paperInit;
+  const guardIn = guardInit
+    ? initGuard({ shares: book.data?.notional_units ?? n(book.core_units) + n(book.slice_units), avgCost: plan.avgCost, nowIso, prev: guard })
+    : guard;
+  const step = stepPaper(book, {
     plan,
     price: snapshot.price,
     effectiveStop: eff,
     nowIso,
+    guard: guardIn,
   });
+  const { paper: paperNext, trades: paperTrades, events, blocked, lockedNow } = step;
   const values = paperValues(paperNext, snapshot.price);
+
+  // Blocked trades: log a blocked_* decision once per new blocked situation, not every 5 min.
+  const guardNext = { ...step.guard, data: { ...(step.guard?.data || {}) } };
+  const blockedKey = blocked.map((b) => `${b.decision}:${b.kind}`).join(',') || null;
+  const newBlock = blockedKey && blockedKey !== (guardIn.data?.last_blocked ?? null);
+  guardNext.data.last_blocked = blockedKey;
+  const guardChanged = guardInit || !sameGuard(guardNext, guard);
 
   // --- decision (highest priority wins; reason lists everything)
   const candidates = events.map((e) => EVENT_DECISION[e]);
+  if (lockedNow) candidates.push('locked');
+  if (newBlock) candidates.push(blocked[0].decision);
   if (stopRaised) candidates.push('stop_raised');
   const decision = DECISION_PRIORITY.find((d) => candidates.includes(d)) || 'hold';
 
@@ -103,6 +132,8 @@ export function evaluateUserRun({ planRaw, stopRow, alertState, paper, bars, pri
   if (events.includes('exit_core')) reasons.push(`price ${fmt(snapshot.price)} ≤ stop ${fmt(eff)}: core would exit`);
   if (events.includes('sell_slice')) reasons.push(`price ${fmt(snapshot.price)} ≥ sell ${fmt(plan.sellLevel)}: slice would sell`);
   if (events.includes('buy_back')) reasons.push(`price ${fmt(snapshot.price)} ≤ buy-back ${fmt(plan.buyBackLevel)}: slice would buy back`);
+  if (lockedNow) reasons.push(`LOCKED: ${lockedNow}`);
+  for (const b of blocked) reasons.push(newBlock ? b.reason : `still blocked: ${b.reason}`);
   if (stopRaised) reasons.push(`stop raised ${fmt(prev)} → ${fmt(eff)}`);
   if (!reasons.length) {
     if (paperNext.data?.core_stopped) reasons.push('core stopped out (paper) — in cash');
@@ -124,6 +155,12 @@ export function evaluateUserRun({ planRaw, stopRow, alertState, paper, bars, pri
     paperTrades,
     paperEvents: events,
     paperValues: values,
+    paperBook: paperBookValue(paperNext, snapshot.price),
+    guardInit,
+    guardNext,
+    guardChanged,
+    lockedNow,
+    blocked,
     decision,
     reason: reasons.join('; '),
   };
@@ -147,6 +184,9 @@ export function dogeFromKrakenBalance(result, assets = BOT_SYMBOLS.DOGE.krakenAs
   return { total: found ? total : 0, parts };
 }
 
+function n(v) {
+  return Number.isFinite(Number(v)) ? Number(v) : 0;
+}
 function sortKeys(o) {
   return Object.keys(o || {})
     .sort()

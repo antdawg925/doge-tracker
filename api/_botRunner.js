@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { BOT_SYMBOLS, dogeFromKrakenBalance, evaluateUserRun } from '../shared/botEngine.js'
 import { PAPER_DEFAULT_UNITS } from '../shared/paper.js'
+import { pickGuard } from '../shared/guard.js'
 import { fetchKrakenAccount, fetchMarket, krakenCredsFor } from './_kraken.js'
 import { botMessage, sendTelegram } from './_telegram.js'
 
@@ -114,12 +115,13 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
       must(await sb.from('paper_state').delete().eq('user_id', userId).eq('symbol', SYMBOL), 'paper_state reset')
     }
 
-    const [stopRow, alertRow, paperRow, posRow] = await Promise.all([
+    const [stopRow, alertRow, paperRow, posRow, guardRow] = await Promise.all([
       sb.from('stop_memory').select('version, data').eq('user_id', userId).maybeSingle(),
       sb.from('alert_state').select('data').eq('user_id', userId).maybeSingle(),
       sb.from('paper_state').select('*').eq('user_id', userId).eq('symbol', SYMBOL).maybeSingle(),
       sb.from('positions').select('shares').eq('user_id', userId).eq('symbol', SYMBOL).maybeSingle(),
-    ]).then((rs) => rs.map((r, i) => must(r, ['stop_memory', 'alert_state', 'paper_state', 'positions'][i])))
+      sb.from('bot_guard').select('*').eq('user_id', userId).eq('symbol', SYMBOL).maybeSingle(),
+    ]).then((rs) => rs.map((r, i) => must(r, ['stop_memory', 'alert_state', 'paper_state', 'positions', 'bot_guard'][i])))
 
     // Read-only Kraken snapshot (owner key today; per-user keys plug into krakenCredsFor).
     let kraken = null
@@ -154,6 +156,7 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
       nowMs,
       notionalUnits,
       unitsSource,
+      guard: guardRow,
       symbol: SYMBOL,
     })
     const nowIso = new Date(nowMs).toISOString()
@@ -186,9 +189,33 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
       )
     }
 
+    // TSB guard first (Profit lock / Pause). Guarded on updated_at: if the user unlocked or
+    // paused while this run was computing, their action wins and this run trades nothing.
+    let guardOk = true
+    if (result.guardChanged) {
+      const cols = { ...pickGuard(result.guardNext), updated_at: nowIso }
+      if (!guardRow) {
+        const ins = await sb.from('bot_guard').insert({ user_id: userId, symbol: SYMBOL, ...cols })
+        if (ins.error) guardOk = false
+      } else {
+        const up = must(
+          await sb
+            .from('bot_guard')
+            .update(cols)
+            .eq('user_id', userId)
+            .eq('symbol', SYMBOL)
+            .eq('updated_at', guardRow.updated_at)
+            .select('user_id'),
+          'bot_guard',
+        )
+        if (!up.length) guardOk = false
+      }
+      if (!guardOk) warnings.push('profit lock changed by a user action during this run; no paper trades this run')
+    }
+
     // Paper book: insert on first run; afterwards update only when a paper trade happens,
     // guarded on updated_at so two overlapping runs can't double-fill.
-    let paperWritten = true
+    let paperWritten = guardOk
     const p = result.paperNext
     const paperCols = {
       started_at: p.started_at,
@@ -200,7 +227,9 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
       data: p.data,
       updated_at: nowIso,
     }
-    if (result.paperInit) {
+    if (!guardOk) {
+      /* skip: re-evaluated on the next run with the user's new guard state */
+    } else if (result.paperInit) {
       const ins = await sb.from('paper_state').insert({ user_id: userId, symbol: SYMBOL, ...paperCols }).select('user_id')
       if (ins.error) {
         paperWritten = false
@@ -230,6 +259,22 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
         'paper_trades',
       )
     }
+
+    if (result.lockedNow && guardOk) {
+      must(
+        await sb.from('alert_log').insert({
+          user_id: userId,
+          fired_at: nowIso,
+          kind: 'locked',
+          level: num(Number(result.guardNext.baseline_value)),
+          price: num(s.price),
+          title: 'TSB locked: book below your starting amount',
+          message: `${result.lockedNow}. Trading is paused until you tap “Authorize next trade” on My Bot.`,
+        }),
+        'alert_log (locked)',
+      )
+    }
+    const g = result.guardNext
 
     Object.assign(row, {
       price: num(s.price),
@@ -263,6 +308,15 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
           diffPct: num(result.paperValues?.diffPct),
           unitsSource: p.data?.units_source,
         },
+        guard: {
+          locked: Boolean(g?.locked),
+          paused: Boolean(g?.paused),
+          baseline: num(Number(g?.baseline_value)),
+          book: num(result.paperBook),
+          realized: num(Number(g?.realized_pnl)),
+          blocked: result.blocked.map((b) => b.decision),
+          ...(result.lockedNow ? { lockReason: result.lockedNow } : {}),
+        },
         ...(kraken ? { kraken: { parts: dogeBal?.parts ?? null, dogeOpenOrders: kraken.dogeOpenOrders } } : {}),
       },
     })
@@ -275,7 +329,14 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
 
   // Optional Telegram (skips silently unless token + chat id exist).
   if (result && profile.telegram_chat_id) {
-    const text = botMessage({ symbol: SYMBOL, decision: result.decision, reason: result.reason, fired: result.fired, price: row.price })
+    const text = botMessage({
+      symbol: SYMBOL,
+      decision: result.decision,
+      reason: result.reason,
+      fired: result.fired,
+      price: row.price,
+      lockReason: result.lockedNow,
+    })
     if (text) await sendTelegram(profile.telegram_chat_id, text)
   }
 

@@ -25,8 +25,9 @@ export async function sendTelegram(chatId, text) {
 }
 
 /** One compact message per run for a user: alert firings + non-hold decision. */
-export function botMessage({ symbol, decision, reason, fired, price }) {
+export function botMessage({ symbol, decision, reason, fired, price, lockReason }) {
   const lines = []
+  if (lockReason) lines.push(`TSB LOCKED (${symbol}): ${lockReason}. Open My Bot and tap “Authorize next trade” to resume.`)
   if (decision && decision !== 'hold') lines.push(`Trade Smart Bot · ${symbol}: ${decision.replace(/_/g, ' ')} (watch-only)`)
   for (const f of fired || []) lines.push(`${f.title}. ${f.body}`)
   if (!lines.length) return null

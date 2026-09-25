@@ -108,6 +108,12 @@ export default function AdminSystem() {
             ) : null}
           </Row>
           <Row label="Runs (24h)">{info?.bot.runs24h}</Row>
+          <Row label="Locked users">
+            {info ? (
+              <span className={`badge ${info.bot.lockedUsers ? 'badge--danger' : 'badge--ok'}`}>{info.bot.lockedUsers ?? '—'}</span>
+            ) : null}
+            {info?.bot.pausedUsers ? <span className="muted small"> · {info.bot.pausedUsers} paused</span> : null}
+          </Row>
           <Row label="Schedule">{info?.bot.schedule}</Row>
         </div>
       </div>
