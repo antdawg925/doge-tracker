@@ -76,7 +76,7 @@ function DeleteDialog({ user, onCancel, onDeleted }) {
 
 /** All accounts: tier, sign-in activity, grant / revoke bot access, delete. */
 export default function AdminUsers() {
-  const { user: me } = useAuth();
+  const { user: me, refreshPending } = useAuth();
   const [users, setUsers] = useState(null);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
@@ -100,6 +100,7 @@ export default function AdminUsers() {
     try {
       await authedFetch(`/api/admin/users/${u.id}`, { method: 'PATCH', body: { bot_access } });
       load();
+      refreshPending?.();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -108,13 +109,17 @@ export default function AdminUsers() {
   };
 
   const botCount = users?.filter((u) => u.botAccess).length ?? 0;
+  const pending = users?.filter((u) => u.botRequestedAt).length ?? 0;
 
   return (
     <section className="admin-section">
       <div className="card admin-intro">
         <h2>Users</h2>
         <p className="muted">
-          {users ? `${users.length} accounts · ${botCount} with Trade Smart Bot. ` : 'Loading accounts… '}
+          {users
+            ? `${users.length} accounts · ${botCount} with Trade Smart Bot · ${pending} pending request${pending === 1 ? '' : 's'}. `
+            : 'Loading accounts… '}
+          Granting access clears the request. 
           Passwords are never visible here: Supabase stores only salted hashes.
         </p>
       </div>
@@ -127,8 +132,8 @@ export default function AdminUsers() {
         {!users ? (
           <p className="muted">Loading…</p>
         ) : (
-          <div className="keys-table-wrap">
-            <table className="keys-table admin-users">
+          <div className="admin-table-wrap">
+            <table className="admin-table admin-users">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -137,7 +142,6 @@ export default function AdminUsers() {
                   <th>Last sign-in</th>
                   <th>Role</th>
                   <th>Bot</th>
-                  <th>Key</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -146,7 +150,7 @@ export default function AdminUsers() {
                   const self = u.id === me?.id;
                   const owner = u.role === 'owner';
                   return (
-                    <tr key={u.id}>
+                    <tr key={u.id} className={u.botRequestedAt ? 'is-pending' : ''}>
                       <td>
                         {u.displayName || <span className="muted">—</span>}
                         {self ? <span className="badge admin-users__you">You</span> : null}
@@ -158,21 +162,25 @@ export default function AdminUsers() {
                         <span className={`badge${owner ? ' badge--owner' : ''}`}>{u.role}</span>
                       </td>
                       <td>
-                        <span className={`badge ${u.botAccess ? 'badge--ok' : 'badge--muted'}`}>
-                          {u.botAccess ? 'On' : 'Off'}
-                        </span>
+                        {u.botRequestedAt ? (
+                          <span className="admin-users__req">
+                            <span className="badge badge--warn">Requested</span>
+                            <span className="muted small">{fmt(u.botRequestedAt)}</span>
+                          </span>
+                        ) : (
+                          <span className={`badge ${u.botAccess ? 'badge--ok' : 'badge--muted'}`}>
+                            {u.botAccess ? 'On' : 'Off'}
+                          </span>
+                        )}
                       </td>
-                      <td className="mono admin-users__keys">
-                        {u.keys.length ? u.keys.join(', ') : <span className="muted">—</span>}
-                      </td>
-                      <td className="keys-table__actions">
+                      <td className="admin-table__actions">
                         {self || owner ? (
                           <span className="muted small">Owner</span>
                         ) : (
                           <>
                             <button
                               type="button"
-                              className="btn btn--ghost"
+                              className={`btn btn--ghost${u.botRequestedAt ? ' btn--ghost-go' : ''}`}
                               disabled={busyId === u.id}
                               onClick={() => setBot(u, !u.botAccess)}
                             >
@@ -203,6 +211,7 @@ export default function AdminUsers() {
           onDeleted={() => {
             setDeleting(null);
             load();
+            refreshPending?.();
           }}
         />
       ) : null}

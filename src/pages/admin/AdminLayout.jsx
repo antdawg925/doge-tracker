@@ -2,7 +2,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 const TABS = [
   { to: '/admin/users', label: 'Users' },
-  { to: '/admin/keys', label: 'Access keys' },
   { to: '/admin/beta', label: 'Beta' },
   { to: '/admin/system', label: 'System' },
 ];

@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "check:atr": "node scripts/check-atr.mjs",
-    "check:alerts": "node scripts/check-alerts.mjs"
+    "check:alerts": "node scripts/check-alerts.mjs",
+    "make-owner": "node --env-file=.env.local scripts/make-owner.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

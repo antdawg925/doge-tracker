@@ -12,7 +12,6 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminUsers from './pages/admin/AdminUsers';
-import AdminAccessKeys from './pages/admin/AdminAccessKeys';
 import AdminBeta from './pages/admin/AdminBeta';
 import AdminSystem from './pages/admin/AdminSystem';
 
@@ -33,7 +32,7 @@ export default function App() {
                 <Route path="/research" element={<Research />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/short-kings" element={<ShortKings />} />
-                {/* Trade Smart Bot tier; others see the locked screen with the key box */}
+                {/* Trade Smart Bot tier; others see the locked screen with Request access */}
                 <Route element={<RequireBot />}>
                   <Route path="/alerts" element={<Alerts />} />
                 </Route>
@@ -43,13 +42,10 @@ export default function App() {
                 <Route path="/admin" element={<AdminLayout />}>
                   <Route index element={<Navigate to="users" replace />} />
                   <Route path="users" element={<AdminUsers />} />
-                  <Route path="keys" element={<AdminAccessKeys />} />
                   <Route path="beta" element={<AdminBeta />} />
                   <Route path="system" element={<AdminSystem />} />
                 </Route>
               </Route>
-              <Route path="/access-keys" element={<Navigate to="/admin/keys" replace />} />
-              <Route path="/invites" element={<Navigate to="/admin/keys" replace />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -27,7 +27,7 @@ const CAPABILITIES = [
     to: '/alerts',
     kicker: 'Alerts · Trade Smart Bot',
     title: 'DOGE plan & staged stop',
-    body: 'Your own DOGE plan, ATR staged stop, crossing alerts and plan history. Unlock with an access key.',
+    body: 'Your own DOGE plan, ATR staged stop, crossing alerts and plan history. Request access from the Alerts tab.',
     tone: 'amber',
   },
 ];

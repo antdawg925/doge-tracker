@@ -69,10 +69,10 @@ function yahooApiPlugin() {
 }
 
 /**
- * Dev middleware: /api/redeem-key and /api/admin/* run the same handlers as the Vercel functions.
+ * Dev middleware: /api/admin/* runs the same handler as the Vercel function.
  * Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local (server-only, no
- * VITE_ prefix so they never reach the browser bundle). Without them redeeming
- * returns "not configured"; sign-up / sign-in work with just the VITE_ vars.
+ * VITE_ prefix so they never reach the browser bundle). Without them the admin
+ * API returns "not configured"; sign-up / sign-in work with just the VITE_ vars.
  * Node 22+ recommended (supabase-js needs a native WebSocket on the server side).
  */
 function supabaseApiPlugin() {
@@ -83,10 +83,6 @@ function supabaseApiPlugin() {
       for (const [k, v] of Object.entries(env)) {
         if (!process.env[k]) process.env[k] = v
       }
-      server.middlewares.use('/api/redeem-key', async (req, res) => {
-        const { default: handler } = await import('./api/redeem-key.js')
-        await handler(req, res)
-      })
       server.middlewares.use('/api/admin', async (req, res) => {
         const { default: handler } = await import('./api/admin.js')
         await handler(req, res)

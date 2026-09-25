@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/authContext.js';
 
 const FEATURES = [
@@ -9,23 +8,28 @@ const FEATURES = [
   ['Plan history', 'Every save stamped with price and stop so you can see how the plan evolved.'],
 ];
 
-/** Alerts tab for signed-in members without the bot tier: explain + redeem an access key. */
+const fmtDate = (iso) =>
+  new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+/** Alerts tab for signed-in members without the bot tier: explain + request access from the owner. */
 export default function BotLocked() {
-  const { redeemKey } = useAuth();
-  const [params] = useSearchParams();
-  const [code, setCode] = useState((params.get('key') || '').toUpperCase());
+  const { botRequestedAt, requestBotAccess } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const request = async () => {
     setError('');
     setBusy(true);
     try {
-      await redeemKey(code);
-      // Profile refresh flips hasBotAccess and the real Alerts page renders.
+      await requestBotAccess();
     } catch (err) {
-      setError(err.message || 'Could not redeem that key.');
+      setError(err.message || 'Could not send the request. Try again.');
+    } finally {
       setBusy(false);
     }
   };
@@ -46,7 +50,8 @@ export default function BotLocked() {
           </div>
         </div>
         <p className="bot-lock__lede muted">
-          Alerts is part of Trade Smart Bot. Enter an access key to unlock it for your account.
+          Alerts is part of Trade Smart Bot. Access is granted by the Trade Smart owner. Send a request
+          and it unlocks here once approved.
         </p>
 
         <ul className="bot-lock__features">
@@ -58,24 +63,20 @@ export default function BotLocked() {
           ))}
         </ul>
 
-        <form className="bot-lock__form" onSubmit={submit}>
-          <label className="field">
-            Enter access key
-            <input
-              className="mono"
-              placeholder="TS-XXXX-XXXX"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              aria-invalid={error ? 'true' : undefined}
-            />
-          </label>
-          <button type="submit" className="btn btn--primary" disabled={busy || !code.trim()}>
-            {busy ? 'Unlocking…' : 'Unlock'}
-          </button>
-        </form>
+        <div className="bot-lock__cta">
+          {botRequestedAt ? (
+            <>
+              <span className="badge badge--ok bot-lock__sent">Request sent</span>
+              <span className="muted small">
+                Requested {fmtDate(botRequestedAt)}. Reload after you hear back.
+              </span>
+            </>
+          ) : (
+            <button type="button" className="btn btn--primary" onClick={request} disabled={busy}>
+              {busy ? 'Sending…' : 'Request access'}
+            </button>
+          )}
+        </div>
         {error ? (
           <p className="auth-card__error" role="alert">
             {error}

@@ -1,9 +1,11 @@
 /**
  * Owner-only admin API (one function, routed by vercel.json):
- *   GET    /api/admin/users              all accounts + profile / tier / redeemed key
+ *   GET    /api/admin/users              all accounts + profile / tier (pending bot requests first)
  *   PATCH  /api/admin/users/:id          { bot_access: boolean }
  *   DELETE /api/admin/users/:id          { confirmEmail }  deletes the auth user (rows cascade)
  *   GET    /api/admin/system             counts, project, deploy, Kraken keys present (yes/no)
+ *
+ * Granting bot access clears the user's request (DB trigger).
  *
  * Every request verifies the caller's Supabase JWT and profiles.role = 'owner'
  * before the service key is used. Passwords are never read or returned
@@ -33,21 +35,17 @@ async function listAllAuthUsers(sb) {
 }
 
 async function listUsers(sb, res) {
-  const [authUsers, profiles, redemptions] = await Promise.all([
+  const [authUsers, profiles] = await Promise.all([
     listAllAuthUsers(sb),
-    sb.from('profiles').select('id, email, display_name, role, bot_access'),
-    sb.from('access_key_redemptions').select('code, user_id, redeemed_at').order('redeemed_at'),
+    sb.from('profiles').select('id, email, display_name, role, bot_access, bot_access_requested_at'),
   ])
-  if (profiles.error || redemptions.error) throw profiles.error || redemptions.error
+  if (profiles.error) throw profiles.error
   const byId = new Map(profiles.data.map((p) => [p.id, p]))
-  const keysBy = new Map()
-  for (const r of redemptions.data) {
-    keysBy.set(r.user_id, [...(keysBy.get(r.user_id) || []), r.code])
-  }
   const users = authUsers
     .map((u) => {
       const p = byId.get(u.id) || {}
       const role = p.role || 'member'
+      const botAccess = role === 'owner' || Boolean(p.bot_access)
       return {
         id: u.id,
         email: u.email,
@@ -55,11 +53,18 @@ async function listUsers(sb, res) {
         createdAt: u.created_at,
         lastSignInAt: u.last_sign_in_at || null,
         role,
-        botAccess: role === 'owner' || Boolean(p.bot_access),
-        keys: keysBy.get(u.id) || [],
+        botAccess,
+        botRequestedAt: botAccess ? null : p.bot_access_requested_at || null,
       }
     })
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    // Pending requests first (oldest request on top), then newest accounts.
+    .sort((a, b) => {
+      if (a.botRequestedAt && b.botRequestedAt) {
+        return Date.parse(a.botRequestedAt) - Date.parse(b.botRequestedAt)
+      }
+      if (a.botRequestedAt || b.botRequestedAt) return a.botRequestedAt ? -1 : 1
+      return Date.parse(b.createdAt) - Date.parse(a.createdAt)
+    })
   return sendJson(res, 200, { users })
 }
 
@@ -100,11 +105,17 @@ async function deleteUser(sb, res, who, id, req) {
 
 async function system(sb, res) {
   const count = (q) => q.then(({ count: c, error }) => (error ? null : c))
-  const [users, botUsers, owners, activeKeys, flags] = await Promise.all([
+  const [users, botUsers, owners, pendingRequests, flags] = await Promise.all([
     count(sb.from('profiles').select('id', { count: 'exact', head: true })),
     count(sb.from('profiles').select('id', { count: 'exact', head: true }).or('bot_access.eq.true,role.eq.owner')),
     count(sb.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'owner')),
-    count(sb.from('access_keys').select('code', { count: 'exact', head: true }).eq('active', true)),
+    count(
+      sb
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .not('bot_access_requested_at', 'is', null)
+        .eq('bot_access', false),
+    ),
     count(sb.from('feature_flags').select('key', { count: 'exact', head: true })),
   ])
   let ref = null
@@ -114,7 +125,7 @@ async function system(sb, res) {
     /* unset */
   }
   return sendJson(res, 200, {
-    counts: { users, botUsers, owners, activeKeys, flags },
+    counts: { users, botUsers, owners, pendingRequests, flags },
     supabase: { ref, region: process.env.SUPABASE_REGION || null },
     server: {
       env: process.env.VERCEL_ENV || 'local',

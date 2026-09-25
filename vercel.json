@@ -13,10 +13,6 @@
       "destination": "/api/admin?route=:route*"
     },
     {
-      "source": "/api/redeem-key",
-      "destination": "/api/redeem-key"
-    },
-    {
       "source": "/api/:path*",
       "destination": "/api/[...slug]"
     },

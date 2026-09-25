@@ -19,7 +19,7 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-/** Owner only (Admin: users, access keys, beta flags, system; Kraken / bot later); members land on Home. */
+/** Owner only (Admin: users, beta flags, system; Kraken / bot later); members land on Home. */
 export function RequireOwner() {
   const { user, isOwner, loading } = useAuth();
   const location = useLocation();

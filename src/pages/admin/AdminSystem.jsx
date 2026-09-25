@@ -49,7 +49,7 @@ export default function AdminSystem() {
         {[
           ['Users', c?.users],
           ['Bot access', c?.botUsers],
-          ['Active keys', c?.activeKeys],
+          ['Pending requests', c?.pendingRequests],
           ['Feature flags', c?.flags],
         ].map(([label, n]) => (
           <div key={label} className="card admin-stat">

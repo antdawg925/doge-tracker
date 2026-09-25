@@ -51,7 +51,7 @@ function AccountMenu() {
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const { user, isOwner, hasBotAccess } = useAuth();
+  const { user, isOwner, hasBotAccess, pendingRequests } = useAuth();
   // DOGE plan storage + polling only for the Trade Smart Bot tier.
   const botUserId = hasBotAccess ? (user?.id ?? null) : null;
   const planBackend = useMemo(
@@ -86,6 +86,11 @@ export default function AppLayout() {
               }}
             >
               {label}
+              {to === '/admin' && pendingRequests > 0 ? (
+                <span className="desk-nav__count" title={`${pendingRequests} bot access request(s)`}>
+                  {pendingRequests}
+                </span>
+              ) : null}
             </NavLink>
           ))}
         </nav>
