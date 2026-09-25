@@ -7,13 +7,6 @@ import DogeStopBox from '../components/alerts/DogeStopBox.jsx';
 import PlanHistory from '../components/alerts/PlanHistory.jsx';
 import AlertLog from '../components/alerts/AlertLog.jsx';
 
-const PERMISSION_COPY = {
-  granted: 'Notifications on',
-  denied: 'Notifications blocked in browser settings',
-  default: 'Enable notifications',
-  unsupported: 'Notifications not supported here',
-};
-
 export default function Alerts() {
   const ctx = useDogePlan();
   const { doc, market, snapshot, permission, pollMs } = ctx;
@@ -65,27 +58,13 @@ export default function Alerts() {
           </div>
           <div className="scanner__controls">
             <div className="dp-controls">
-              <button
-                type="button"
-                className={`btn${permission === 'default' ? ' btn--primary' : ''}`}
-                disabled={permission !== 'default'}
-                onClick={ctx.requestPermission}
-              >
-                {PERMISSION_COPY[permission] || 'Enable notifications'}
-              </button>
-              {permission === 'granted' ? (
-                <button type="button" className="btn btn--ghost" onClick={ctx.testNotification}>
-                  Test
+              {permission === 'default' ? (
+                <button type="button" className="btn btn--primary" onClick={ctx.requestPermission}>
+                  Enable notifications
                 </button>
+              ) : permission === 'denied' ? (
+                <span className="muted small">Notifications blocked in browser settings</span>
               ) : null}
-              <button
-                type="button"
-                className="btn"
-                disabled={market.loading}
-                onClick={ctx.refresh}
-              >
-                {market.loading ? 'Checking…' : 'Refresh'}
-              </button>
             </div>
             <p className="scanner__updated muted">
               Updated {formatTime(market.updatedAt)}

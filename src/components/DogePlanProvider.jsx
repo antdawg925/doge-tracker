@@ -175,7 +175,6 @@ export default function DogePlanProvider({ backend, children }) {
 
   const actions = useMemo(
     () => ({
-      refresh,
       async savePlan(plan) {
         const snap = snapshotFor(docRef.current, marketRef.current.bars, marketRef.current.livePrice);
         const d = await savePlan(plan, snap);
@@ -199,14 +198,8 @@ export default function DogePlanProvider({ backend, children }) {
         setPermission(p);
         return p;
       },
-      async testNotification() {
-        return showNotification('Trade Smart alerts are on', {
-          body: 'DOGE price alerts will show here while the app is open.',
-          tag: 'doge-test',
-        });
-      },
     }),
-    [commitDoc, processTick, refresh],
+    [commitDoc, processTick],
   );
 
   const value = useMemo(
