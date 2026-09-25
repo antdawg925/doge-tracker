@@ -31,6 +31,7 @@ npm run preview   # optional local preview of dist/
 | `/login` | Public | Email + password sign-in |
 | `/signup` | Public | Free account: name + email + password |
 | `/research` | Signed in | **Research** — watchlist + analysis workstation |
+| `/positions` | Signed in | **Positions** — your holdings (one row per symbol): live price, day %, value, gain/loss + totals; click a symbol to open it in Research |
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
 | `/bot` | Trade Smart Bot | **Trade Smart Bot** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
@@ -55,10 +56,10 @@ Type a ticker or name, then press **Enter** or click **Search**. Selecting a sym
 
 1. Loads `{ symbol, name, type: 'crypto'|'stock', id? }`
 2. Auto-adds it to the **Watchlist** (left rail) if missing
-3. Clears shares / avg cost / target when the asset key changes (fresh research form)
+3. Loads shares / avg cost for that symbol from your Positions (Supabase); target resets per symbol
 4. Refetches spot + history and recomputes S/R / stops
 
-Watchlist + positions persist in `localStorage` key `doge-tracker-state-v2` (`selected`, `positions`, `watchlist`).
+Selection, watchlist and per-symbol **target price** persist in `localStorage` key `doge-tracker-state-v2`. Holdings (shares + avg cost) live in the Supabase `positions` table (one row per user + symbol, RLS own rows only; migration `20260925080000_positions.sql`) and are shared by Research's rail and the Positions tab. On first load after sign-in, any holdings saved in this browser's localStorage are imported once (flag `trade-smart-positions-imported-v1`; untouched demo DOGE numbers are skipped, existing DB rows win), then localStorage is no longer used for holdings.
 
 ### How symbol resolution works
 
@@ -91,7 +92,7 @@ Right-side editor:
 - **Suggested stops** aligned with top supports
 - **Support** / **Resistance** — Top 5 with why-notes
 - Watchlist (add / remove / click to load), persisted
-- Position editor clears on symbol change
+- Position editor prefills from your Positions and saves edits back (debounced)
 
 ## Project layout
 

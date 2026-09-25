@@ -5,6 +5,7 @@ import FeatureFlagsProvider from './components/FeatureFlagsProvider.jsx';
 import { RequireAuth, RequireBot, RequireOwner } from './components/auth/RequireAuth.jsx';
 import Home from './pages/Home';
 import Research from './pages/Research';
+import Positions from './pages/Positions';
 import Scanner from './pages/Scanner';
 import ShortKings from './pages/ShortKings';
 import Alerts from './pages/Alerts';
@@ -32,6 +33,7 @@ export default function App() {
               {/* Signed in (free members) */}
               <Route element={<RequireAuth />}>
                 <Route path="/research" element={<Research />} />
+                <Route path="/positions" element={<Positions />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/short-kings" element={<ShortKings />} />
                 {/* Trade Smart Bot tier; others see the locked screen with Request access */}

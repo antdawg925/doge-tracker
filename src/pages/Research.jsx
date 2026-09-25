@@ -16,12 +16,10 @@ import FundamentalsPanel from '../components/FundamentalsPanel';
 import { useAssetPrice } from '../hooks/useAssetPrice';
 import { useAssetHistory } from '../hooks/useAssetHistory';
 import { useLongHistory } from '../hooks/useLongHistory';
-import {
-  defaultPositionFor,
-  loadAppState,
-  positionFor,
-  saveAppState,
-} from '../lib/defaults';
+import { Link } from 'react-router-dom';
+import { loadAppState, positionFor, saveAppState } from '../lib/defaults';
+import { useAuth } from '../hooks/authContext.js';
+import { useDeskPosition } from '../hooks/useDeskPosition';
 import { assetKey, emptyPositionFor } from '../lib/assets';
 import { hasEnteredPosition } from '../lib/math';
 import { computeLevels } from '../lib/levels';
@@ -38,7 +36,18 @@ export default function Research() {
   const [appState, setAppState] = useState(() => loadAppState());
   const asset = appState.selected;
   const watchlist = appState.watchlist || [];
-  const position = positionFor(appState.positions, asset);
+  const { user } = useAuth();
+  // Shares + avg cost come from the user's Positions (Supabase); target stays per-browser.
+  const desk = useDeskPosition(user?.id ?? null, asset);
+  const localTarget = positionFor(appState.positions, asset).targetPrice;
+  const position = useMemo(
+    () => ({
+      coins: desk.holding.coins,
+      avgCost: desk.holding.avgCost,
+      targetPrice: localTarget,
+    }),
+    [desk.holding.coins, desk.holding.avgCost, localTarget],
+  );
 
   const {
     price,
@@ -71,33 +80,47 @@ export default function Research() {
     refresh: refreshLong,
   } = useLongHistory(asset);
 
+  // Selection, watchlist and targets persist per-browser. Holdings live in the DB, so once
+  // the one-time import has run (desk.loaded) shares/avg cost are never written locally.
+  const deskLoaded = desk.loaded;
   useEffect(() => {
-    saveAppState(appState);
-  }, [appState]);
+    if (!deskLoaded) return;
+    const positions = {};
+    for (const [k, v] of Object.entries(appState.positions || {})) {
+      positions[k] = { coins: 0, avgCost: 0, targetPrice: v?.targetPrice || 0 };
+    }
+    saveAppState({ ...appState, positions });
+  }, [appState, deskLoaded]);
 
-  const setPosition = useCallback((next) => {
-    setAppState((prev) => {
-      const key = assetKey(prev.selected);
-      const value =
-        typeof next === 'function'
-          ? next(positionFor(prev.positions, prev.selected))
-          : next;
-      return {
-        ...prev,
-        positions: {
-          ...prev.positions,
-          [key]: value,
-        },
-      };
-    });
-  }, []);
+  const { setHolding } = desk;
+  const setPosition = useCallback(
+    (next) => {
+      const value = typeof next === 'function' ? next(position) : next;
+      if (value.coins !== position.coins || value.avgCost !== position.avgCost) {
+        setHolding(asset, { coins: value.coins, avgCost: value.avgCost });
+      }
+      if (value.targetPrice !== position.targetPrice) {
+        setAppState((prev) => {
+          const key = assetKey(prev.selected);
+          return {
+            ...prev,
+            positions: {
+              ...prev.positions,
+              [key]: { coins: 0, avgCost: 0, targetPrice: value.targetPrice },
+            },
+          };
+        });
+      }
+    },
+    [asset, position, setHolding],
+  );
 
   const onSelectAsset = useCallback((nextAsset) => {
     setAppState((prev) => {
       const key = assetKey(nextAsset);
       const prevKey = assetKey(prev.selected);
       const positions = { ...prev.positions };
-      // New lookup → clear shares / avg cost / target for a fresh research form
+      // New lookup → fresh target; shares / avg cost come from Positions
       if (key !== prevKey) {
         positions[key] = emptyPositionFor(nextAsset);
       } else if (!positions[key]) {
@@ -126,10 +149,6 @@ export default function Research() {
       watchlist: (prev.watchlist || []).filter((a) => assetKey(a) !== key),
     }));
   }, []);
-
-  const onReset = useCallback(() => {
-    setPosition(defaultPositionFor(asset));
-  }, [asset, setPosition]);
 
   const onRefreshAll = useCallback(() => {
     refresh();
@@ -241,7 +260,14 @@ export default function Research() {
             spot={price}
             asset={asset}
             onChange={setPosition}
-            onReset={onReset}
+            loaded={desk.loaded}
+            status={desk.status}
+            error={desk.error}
+            headerAction={
+              <Link to="/positions" className="btn btn--ghost">
+                All positions
+              </Link>
+            }
           />
           {hasEnteredPosition(position.coins, position.avgCost) ? (
             <PositionSummary position={position} spot={price} asset={asset} />

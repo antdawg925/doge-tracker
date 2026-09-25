@@ -197,3 +197,14 @@ export function positionFor(positions, asset) {
   if (positions?.[key]) return positions[key];
   return defaultPositionFor(asset);
 }
+
+/** Select an asset on the Research desk (used when navigating from other tabs). */
+export function openAssetOnDesk(asset) {
+  const prev = loadAppState();
+  const key = assetKey(asset);
+  const positions = { ...(prev.positions || {}) };
+  if (!positions[key]) positions[key] = emptyPositionFor(asset);
+  const list = Array.isArray(prev.watchlist) ? prev.watchlist : [];
+  const watchlist = list.some((a) => assetKey(a) === key) ? list : [...list, { ...asset }];
+  saveAppState({ selected: { ...asset }, positions, watchlist });
+}

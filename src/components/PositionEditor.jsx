@@ -13,7 +13,10 @@ export default function PositionEditor({
   spot,
   asset,
   onChange,
-  onReset,
+  loaded = true,
+  status = 'idle',
+  error = null,
+  headerAction = null,
 }) {
   const handle = (key, raw) => {
     const n = parseFloat(raw);
@@ -40,12 +43,14 @@ export default function PositionEditor({
       label: holdingFieldLabel(asset),
       hint: `How many ${units} of ${sym} you own`,
       step: asset?.type === 'stock' ? 0.01 : 1,
+      synced: true,
     },
     {
       key: 'avgCost',
       label: 'Average cost',
       hint: avgCostHint(asset),
       step: 'any',
+      synced: true,
     },
     {
       key: 'targetPrice',
@@ -59,18 +64,30 @@ export default function PositionEditor({
     <section className="card">
       <div className="card__head">
         <h2>Your {sym} position</h2>
-        <button type="button" className="btn btn--ghost" onClick={onReset}>
-          Reset
-        </button>
+        {headerAction}
       </div>
 
       <p className="hint">
-        Three numbers tell the story: what you hold, what you paid, and where
-        you’d take profit. Saved per symbol in this browser.
+        What you hold, what you paid, and where you’d take profit. Holding and
+        cost sync with your Positions tab.
+        <span
+          className={`position-sync${status === 'error' ? ' neg' : ''}`}
+          role="status"
+        >
+          {!loaded
+            ? ' Loading…'
+            : status === 'error'
+              ? ` Not saved: ${error || 'error'}`
+              : status === 'saving' || status === 'pending'
+                ? ' Saving…'
+                : status === 'saved'
+                  ? ' Saved.'
+                  : ''}
+        </span>
       </p>
 
       <div className="form-grid form-grid--simple">
-        {fields.map(({ key, label, hint, step }) => (
+        {fields.map(({ key, label, hint, step, synced }) => (
           <label key={key} className="field">
             <span>{label}</span>
             <input
@@ -78,6 +95,7 @@ export default function PositionEditor({
               step={step}
               min="0"
               value={position[key]}
+              disabled={synced && !loaded}
               onChange={(e) => handle(key, e.target.value)}
             />
             <span className="field__hint">{hint}</span>
