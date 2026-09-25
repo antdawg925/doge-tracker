@@ -32,7 +32,7 @@ function dash(v) {
 }
 
 /**
- * Desk fundamentals card. Stocks only — crypto shows a short note.
+ * Desk fundamentals card. Stocks only — non-stock assets render nothing.
  */
 export default function FundamentalsPanel({ asset, compact = false }) {
   const { data, loading, warning, isStock } = useStockFundamentals(asset);
@@ -42,20 +42,7 @@ export default function FundamentalsPanel({ asset, compact = false }) {
     return null;
   }
 
-  if (!isStock) {
-    return (
-      <section className="card fundamentals-panel fundamentals-panel--crypto" aria-label="Fundamentals">
-        <div className="card__head">
-          <h2>Fundamentals</h2>
-          <span className="badge">Stocks</span>
-        </div>
-        <p className="muted fundamentals-panel__note">
-          Fundamentals (sector, cash/debt, short %, valuation) are for stocks.
-          Crypto has no comparable Yahoo quoteSummary profile.
-        </p>
-      </section>
-    );
-  }
+  if (!isStock) return null;
 
   const net = data?.netCash;
   const netLabel =

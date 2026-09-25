@@ -228,7 +228,7 @@ export default function Research() {
             tfSets={tfSets}
           />
           <NewsPanel asset={asset} />
-          <FundamentalsPanel asset={asset} />
+          {asset?.type === 'stock' ? <FundamentalsPanel asset={asset} /> : null}
           <SuggestedStops
             levels={levels}
             spot={price}
