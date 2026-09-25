@@ -7,7 +7,8 @@ const REPO = 'https://github.com/antdawg925/doge-tracker';
 
 const fmt = (iso) =>
   iso
-    ? new Date(iso).toLocaleString(undefined, {
+    ? new Date(iso).toLocaleString('en-US', {
+        timeZone: 'America/Los_Angeles',
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -97,7 +98,17 @@ export default function AdminSystem() {
         </div>
         <div className="card admin-kv">
           <h2>Bot</h2>
-          <Row label="Bot last run">{info?.bot.lastRun ? fmt(info.bot.lastRun) : 'not running yet'}</Row>
+          <Row label="Last run">{info ? (info.bot.lastRun ? fmt(info.bot.lastRun) : 'no runs yet') : null}</Row>
+          <Row label="Users processed">{info?.bot.usersProcessed}</Row>
+          <Row label="Errors (24h)">
+            {info ? (
+              <span className={`badge ${info.bot.errors24h ? 'badge--warn' : 'badge--ok'}`}>
+                {info.bot.errors24h ?? '—'}
+              </span>
+            ) : null}
+          </Row>
+          <Row label="Runs (24h)">{info?.bot.runs24h}</Row>
+          <Row label="Schedule">{info?.bot.schedule}</Row>
         </div>
       </div>
     </section>

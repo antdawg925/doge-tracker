@@ -5,8 +5,9 @@
  *   doge_plans (plan) · plan_history · stop_memory (version = rulesVersion) ·
  *   alert_state (rule arming) · alert_log
  *
- * read() loads once per session and then serves the in-memory copy, so the 90s
- * poll doesn't re-query five tables. write() diffs against the last state known
+ * read() loads once per session and then serves the in-memory copy; each 90s
+ * poll calls pullServerState() to refresh only the server-owned tables
+ * (stop_memory, alert_state, alert_log — written by the 5-minute server bot). write() diffs against the last state known
  * to be in the database and only touches what changed; a failed write keeps the
  * diff pending so the next write retries it.
  *
@@ -153,17 +154,19 @@ export function createSupabasePlanBackend(supabase, userId) {
         supabase.from('doge_plans').upsert({ user_id: userId, plan: next.plan, updated_at: now }),
       );
     }
-    if (next.stop && !same(prev.stop, next.stop)) {
+    // stop_memory + alert_state are owned by the server bot (/api/bot/run every 5 min).
+    // The browser only writes stop memory when the plan is re-anchored (save with a
+    // new start / Restart), and never writes alert arming state.
+    const reanchored =
+      next.stop &&
+      (prev.stop?.anchorAt !== next.stop.anchorAt || prev.stop?.rulesVersion !== next.stop.rulesVersion);
+    if (next.stop && reanchored && !same(prev.stop, next.stop)) {
       const { rulesVersion, ...data } = next.stop;
       ops.push(
         supabase
           .from('stop_memory')
           .upsert({ user_id: userId, version: rulesVersion, data, updated_at: now }),
       );
-    }
-    const rules = next.alerts?.rules ?? {};
-    if (!same(prev.alerts?.rules, rules)) {
-      ops.push(supabase.from('alert_state').upsert({ user_id: userId, data: rules, updated_at: now }));
     }
 
     const prevHist = new Set(prev.history.map((h) => String(h.id)));
@@ -178,16 +181,13 @@ export function createSupabasePlanBackend(supabase, userId) {
     }
 
     const prevLog = new Set(prev.alerts.log.map((e) => String(e.id)));
-    const nextLog = new Set(next.alerts.log.map((e) => String(e.id)));
     const addLog = next.alerts.log.filter((e) => !prevLog.has(String(e.id)));
-    const dropLog = [...prevLog].filter((id) => !nextLog.has(id));
     if (addLog.length) {
       ops.push(supabase.from('alert_log').upsert(addLog.map((e) => logToRow(e, userId))));
     }
+    // Only an explicit "Clear log" deletes server-written alert rows.
     if (!next.alerts.log.length && prevLog.size) {
       ops.push(supabase.from('alert_log').delete().eq('user_id', userId));
-    } else if (dropLog.length) {
-      ops.push(supabase.from('alert_log').delete().eq('user_id', userId).in('id', dropLog));
     }
 
     (await Promise.all(ops)).forEach(must);
@@ -241,6 +241,34 @@ export function createSupabasePlanBackend(supabase, userId) {
         });
       }
       await loading;
+      return cache;
+    },
+    /**
+     * Re-read the server-owned parts (stop memory, alert arming, alert log) so the
+     * page shows exactly what the 5-minute server bot computed. Updates both the
+     * cached doc and the "known in the database" copy, so no write-back happens.
+     */
+    async pullServerState() {
+      await this.read();
+      await queue;
+      const [stop, alertState, log] = await Promise.all([
+        supabase.from('stop_memory').select('version, data').eq('user_id', userId).maybeSingle(),
+        supabase.from('alert_state').select('data').eq('user_id', userId).maybeSingle(),
+        supabase
+          .from('alert_log')
+          .select('id, fired_at, kind, level, price, title, message')
+          .eq('user_id', userId)
+          .order('fired_at', { ascending: false })
+          .limit(LOG_LIMIT),
+      ]).then((results) => results.map(must));
+      const patch = (base) =>
+        base && {
+          ...base,
+          stop: stop ? { ...stop.data, rulesVersion: stop.version } : base.stop,
+          alerts: { rules: alertState?.data ?? base.alerts?.rules ?? {}, log: log.map(rowToLog) },
+        };
+      synced = patch(synced) ?? synced;
+      cache = patch(cache);
       return cache;
     },
     write(doc) {

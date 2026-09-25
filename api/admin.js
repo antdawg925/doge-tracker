@@ -3,7 +3,7 @@
  *   GET    /api/admin/users              all accounts + profile / tier (pending bot requests first)
  *   PATCH  /api/admin/users/:id          { bot_access: boolean }
  *   DELETE /api/admin/users/:id          { confirmEmail }  deletes the auth user (rows cascade)
- *   GET    /api/admin/system             counts, project, deploy, Kraken keys present (yes/no)
+ *   GET    /api/admin/system             counts, project, deploy, Kraken keys present (yes/no), bot heartbeat
  *
  * Granting bot access clears the user's request (DB trigger).
  *
@@ -118,6 +118,13 @@ async function system(sb, res) {
     ),
     count(sb.from('feature_flags').select('key', { count: 'exact', head: true })),
   ])
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  const [heartbeat, errors24h, runs24h] = await Promise.all([
+    sb.from('bot_heartbeat').select('last_run_at, last_source, users_processed, errors, duration_ms').eq('symbol', 'DOGE').maybeSingle(),
+    count(sb.from('bot_runs').select('id', { count: 'exact', head: true }).gte('ran_at', since).not('error', 'is', null)),
+    count(sb.from('bot_runs').select('id', { count: 'exact', head: true }).gte('ran_at', since)),
+  ])
+  const hb = heartbeat.data
   let ref = null
   try {
     ref = new URL(process.env.SUPABASE_URL).hostname.split('.')[0]
@@ -136,7 +143,17 @@ async function system(sb, res) {
     kraken: {
       keysConfigured: Boolean(process.env.KRAKEN_API_KEY && process.env.KRAKEN_API_SECRET),
     },
-    bot: { lastRun: null, status: 'not running yet' },
+    bot: {
+      lastRun: hb?.last_run_at ?? null,
+      lastSource: hb?.last_source ?? null,
+      usersProcessed: hb?.users_processed ?? null,
+      lastRunErrors: hb?.errors ?? null,
+      durationMs: hb?.duration_ms ?? null,
+      errors24h,
+      runs24h,
+      schedule: 'every 5 min (Supabase pg_cron)',
+      telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    },
   })
 }
 

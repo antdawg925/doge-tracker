@@ -7,10 +7,9 @@ import {
   clearAlertLog,
   deleteHistoryEntry,
   loadPlanDoc,
+  reloadServerState,
   resetTrail,
-  saveAlertState,
   savePlan,
-  saveStopState,
   setPlanBackend,
 } from '../lib/planStore.js';
 import {
@@ -21,6 +20,8 @@ import {
 } from '../lib/notify.js';
 
 export const POLL_MS = 90 * 1000;
+/** A crossing notified in the browser isn't re-notified when the server logs it. */
+const RENOTIFY_MS = 15 * 60 * 1000;
 const HISTORY_DAYS = 120; // Kraken returns up to 720 × 4h bars
 
 function snapshotFor(doc, bars, livePrice) {
@@ -67,27 +68,50 @@ export default function DogePlanProvider({ backend, children }) {
     setDoc(next);
   }, []);
 
-  /** Persist ratchet + evaluate crossings for the latest doc/market. */
+  const localRulesRef = useRef(null); // in-memory arming for faster browser notifications
+  const seenLogRef = useRef(null); // server alert_log ids already seen
+  const notifiedRef = useRef(new Map()); // ruleId → last browser notification (ms)
+
+  const notify = useCallback((ruleId, title, body) => {
+    const last = notifiedRef.current.get(ruleId) || 0;
+    if (Date.now() - last < RENOTIFY_MS) return;
+    notifiedRef.current.set(ruleId, Date.now());
+    showNotification(title, { body, tag: `doge-${ruleId}` });
+  }, []);
+
+  /**
+   * The server bot (every 5 min) owns stop memory, alert state and the alert log.
+   * Each tick re-reads them so the page matches the server, then evaluates
+   * crossings in memory only to show browser notifications while the app is open.
+   */
   const processTick = useCallback(
     async (m) => {
       let d = docRef.current;
-      if (!d || !m?.bars?.length) return;
+      if (!d) return;
+      try {
+        d = await reloadServerState();
+        commitDoc(d);
+      } catch {
+        /* keep the last copy; next tick retries */
+      }
+      // Alerts the server logged since the last tick.
+      const log = d.alerts.log || [];
+      if (seenLogRef.current) {
+        for (const e of log) {
+          if (!seenLogRef.current.has(String(e.id))) notify(e.ruleId, e.title, e.body);
+        }
+      }
+      seenLogRef.current = new Set(log.map((e) => String(e.id)));
+
+      if (!m?.bars?.length) return;
       const snap = snapshotFor(d, m.bars, m.livePrice);
       if (!snap) return;
-      if (snap.effectiveStop != null) {
-        d = await saveStopState(snap.effectiveStop, d.plan.anchorAt);
-      }
       const rules = buildRules(d.plan, snap);
-      const { state, fired } = evaluateRules(rules, snap.price, d.alerts.rules);
-      if (fired.length || JSON.stringify(state) !== JSON.stringify(d.alerts.rules)) {
-        d = await saveAlertState(state, fired);
-      }
-      commitDoc(d);
-      for (const f of fired) {
-        showNotification(f.title, { body: f.body, tag: `doge-${f.ruleId}` });
-      }
+      const { state, fired } = evaluateRules(rules, snap.price, localRulesRef.current ?? d.alerts.rules);
+      localRulesRef.current = state;
+      for (const f of fired) notify(f.ruleId, f.title, f.body);
     },
-    [commitDoc],
+    [commitDoc, notify],
   );
 
   const refresh = useCallback(async () => {
@@ -184,6 +208,7 @@ export default function DogePlanProvider({ backend, children }) {
       },
       async resetTrail() {
         const d = await resetTrail();
+        localRulesRef.current = null;
         commitDoc(d);
         await processTick(marketRef.current);
       },

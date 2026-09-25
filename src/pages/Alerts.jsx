@@ -6,10 +6,11 @@ import DogePlanForm from '../components/alerts/DogePlanForm.jsx';
 import DogeStopBox from '../components/alerts/DogeStopBox.jsx';
 import PlanHistory from '../components/alerts/PlanHistory.jsx';
 import AlertLog from '../components/alerts/AlertLog.jsx';
+import BotStatus from '../components/alerts/BotStatus.jsx';
 
 export default function Alerts() {
   const ctx = useDogePlan();
-  const { doc, market, snapshot, permission, pollMs } = ctx;
+  const { doc, market, snapshot, permission } = ctx;
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
@@ -52,8 +53,9 @@ export default function Alerts() {
             <p className="scanner__subtitle muted">
               Stage 1: the core sits on a fixed floor. Stage 2 (4h close above breakout): the floor
               steps up and an ATR trailing stop takes over, only ever moving up. The trading slice
-              sells into strength and buys back lower. Price checks run every {Math.round(pollMs / 1000)}s
-              while Trade Smart is open.
+              sells into strength and buys back lower. The server checks DOGE every 5 minutes, even
+              with Trade Smart closed (watch-only, no orders). Browser alerts also fire while the app
+              is open.
             </p>
           </div>
           <div className="scanner__controls">
@@ -87,6 +89,7 @@ export default function Alerts() {
       ) : (
         <div className="dp-grid">
           <div className="dp-col">
+            <BotStatus refreshKey={market.updatedAt} />
             <DogeStopBox
               plan={plan}
               snapshot={snapshot}

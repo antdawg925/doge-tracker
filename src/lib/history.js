@@ -6,6 +6,7 @@ import {
   normalizeOhlc,
 } from './coingecko.js';
 import { daysToYahooRange, fetchYahooChart } from './yahoo.js';
+import { normalizeKrakenOhlc, pickKrakenPairRows } from '../../shared/kraken.js';
 
 const KRAKEN_PROXY = '/api/kraken';
 const KRAKEN_DIRECT = 'https://api.kraken.com';
@@ -54,46 +55,7 @@ function krakenCandidateUrls(pair, endpoint = 'OHLC', intervalMin = 1440) {
   return [`${KRAKEN_PROXY}${path}`, `${KRAKEN_DIRECT}${path}`];
 }
 
-/**
- * Normalize Kraken OHLC rows:
- * `[time, open, high, low, close, vwap, volume, count]`
- * where `time` is unix **seconds** into chart bars (`t` in ms).
- */
-export function normalizeKrakenOhlc(rows) {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      if (!Array.isArray(row) || row.length < 5) return null;
-      const [timeSec, openRaw, highRaw, lowRaw, closeRaw, , volumeRaw] = row;
-      const close = Number(closeRaw);
-      const open = Number(openRaw);
-      const high = Number(highRaw);
-      const low = Number(lowRaw);
-      const volume = Number(volumeRaw);
-      if (!Number.isFinite(close) || !Number.isFinite(timeSec)) return null;
-      const t = Number(timeSec) * 1000;
-      return {
-        t,
-        date: new Date(t).toISOString().slice(0, 10),
-        open: Number.isFinite(open) ? open : close,
-        high: Number.isFinite(high) ? high : close,
-        low: Number.isFinite(low) ? low : close,
-        close,
-        volume: Number.isFinite(volume) && volume >= 0 ? volume : null,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.t - b.t);
-}
-
-function pickKrakenPairRows(result) {
-  if (!result || typeof result !== 'object') return null;
-  for (const [key, value] of Object.entries(result)) {
-    if (key === 'last') continue;
-    if (Array.isArray(value)) return value;
-  }
-  return null;
-}
+export { normalizeKrakenOhlc };
 
 export async function fetchKrakenDailyBars(pair, days, signal, intervalMin = 1440) {
   const urls = krakenCandidateUrls(pair, 'OHLC', intervalMin);
