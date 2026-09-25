@@ -34,7 +34,7 @@ npm run preview   # optional local preview of dist/
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
 | `/alerts` | Trade Smart Bot | **Alerts** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked screen with an access-key box (`/alerts?key=TS-XXXX-XXXX` prefills it) |
-| `/access-keys` | Owner | **Access keys** — create / copy / deactivate keys, see uses and who redeemed |
+| `/admin/users` · `/admin/keys` · `/admin/beta` · `/admin/system` | Owner | **Admin** — Users (tier, activity, grant / revoke bot, delete), Access keys, Beta feature flags, System status |
 
 Signed-out visits to protected paths redirect to `/login` and return to the page after sign-in.
 
@@ -210,7 +210,7 @@ Auth + per-user storage run on Supabase (Postgres + Auth). Anyone can create a f
 | Signed out | — | Home only; other tabs redirect to `/login` and come back after sign-in |
 | Member (free) | Sign up | Research, Scanner, Short Kings |
 | Trade Smart Bot | Redeem an access key (`profiles.bot_access = true`) | + Alerts: own DOGE plan, staged ATR stop, alerts, plan history (future Telegram/bot alerts) |
-| Owner | Redeem an owner key (`role = 'owner'`, always has bot access) | + Access keys page; Kraken / bot account connection next |
+| Owner | Redeem an owner key (`role = 'owner'`, always has bot access) | + Admin (Users, Access keys, Beta, System); Kraken / bot account connection next |
 
 ### Environment variables
 
@@ -219,15 +219,25 @@ Auth + per-user storage run on Supabase (Postgres + Auth). Anyone can create a f
 | `VITE_SUPABASE_URL` | Vercel (Prod + Preview), `.env.local` | No (public) | Project URL for the browser client |
 | `VITE_SUPABASE_ANON_KEY` | Vercel (Prod + Preview), `.env.local` | No (public) | Publishable / anon key; data is protected by RLS |
 | `SUPABASE_URL` | Vercel (Prod + Preview) | Server only | Project URL for `/api` functions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Prod + Preview), **sensitive** | **Yes** | Secret key used by `/api/redeem-key` (bypasses RLS). Never `VITE_`-prefix it and never ship it to the client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Prod + Preview), **sensitive** | **Yes** | Secret key used by `/api/redeem-key` and `/api/admin/*` (bypasses RLS). Never `VITE_`-prefix it and never ship it to the client |
+| `SUPABASE_REGION` | Vercel (Prod + Preview) | No | Shown on Admin → System |
+| `BUILD_COMMIT` | `vercel --build-env` at deploy | No | Commit shown on Admin → System (falls back to `git rev-parse`) |
 | `KRAKEN_API_KEY` / `KRAKEN_API_SECRET` | Vercel, sensitive | **Yes** | Read-only Kraken keys for the upcoming owner-only route |
 
 Local dev (Windows or Linux): `cp .env.example .env.local` (PowerShell: `Copy-Item .env.example .env.local`) and fill in the two `VITE_` values from Supabase → Project Settings → API. That's enough to sign up, sign in and use your plan locally (`http://localhost:5173` is an allowed redirect URL). To test key redemption locally too, add `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to `.env.local`; the Vite dev server then serves `/api/redeem-key` with the same handler as Vercel (use Node 22+, supabase-js needs a native WebSocket server-side). Restart `npm run dev` after editing env files. `.env.local` is gitignored; only `.env.example` (placeholders) is committed.
 
 ### Access keys
 
-- Format `TS-XXXX-XXXX` (no 0/O/1/I/L). The owner creates **member** keys on `/access-keys` (label + max uses), copies the key or a prefilled `/alerts?key=` link, sees uses and who redeemed, and can deactivate / reactivate. Owner keys can only be minted with SQL.
+- Format `TS-XXXX-XXXX` (no 0/O/1/I/L). The owner creates **member** keys on Admin → Access keys (label + max uses), copies the key or a prefilled `/alerts?key=` link, sees uses and who redeemed, and can deactivate / reactivate. Owner keys can only be minted with SQL.
 - `POST /api/redeem-key` (`api/redeem-key.js`) verifies the caller's Supabase JWT, checks the key with the service key, and calls `redeem_access_key()`, which takes one use (never past `max_uses`, even with concurrent redemptions), sets `bot_access` (and `role = 'owner'` for owner keys) and logs the redemption in one transaction. Already-unlocked accounts don't burn a use. Clear errors for unknown / deactivated / used-up keys; best-effort rate limit (10 tries / 10 min / user).
+
+### Admin (owner only)
+
+- **Users**: every account with name, email, signed-up / last sign-in time, role, bot access and redeemed key. Grant / revoke bot access; delete an account after typing its email (deletes the auth user; all their rows cascade). Owner accounts (including your own) can't be demoted or deleted here. Passwords are never shown or stored by the app; Supabase Auth keeps only bcrypt hashes.
+- **Access keys**: see above.
+- **Beta**: `feature_flags` (`key`, `description`, `enabled_for` = `owner` / `bot` / `everyone`). Pick each flag's audience; in code use `useFeature('kraken_panel')` (`src/hooks/featureFlags.js`). The owner always sees every flag. Add new flags with a migration.
+- **System**: user / bot / active-key counts, Supabase project ref + region, deploy commit + build time + deployment, Kraken "keys configured on server: yes/no" (presence check only, no Kraken calls, no values), bot last run placeholder.
+- API: `api/admin.js` serves `GET /api/admin/users`, `PATCH|DELETE /api/admin/users/:id`, `GET /api/admin/system`. Each request verifies the Supabase JWT **and** `profiles.role = 'owner'` before touching the service key; everyone else gets 401 / 403.
 
 ### Database
 
@@ -237,6 +247,7 @@ Schema lives in `supabase/migrations/` (applied to the hosted project; CLI-compa
 | --- | --- |
 | `profiles` | Read own row (owner reads all). Users can update only `display_name` (column grant); `role` / `bot_access` change only via `redeem_access_key()` |
 | `access_keys`, `access_key_redemptions` | Owner only (select; insert member keys; update). Redeemed server-side |
+| `feature_flags` | Signed-in users read all; signed-out read only `everyone` flags; only the owner can change `enabled_for` |
 | `doge_plans`, `plan_history`, `stop_memory`, `alert_state`, `alert_log` | Read own rows; insert / update / delete own rows only with bot access (`has_bot_access()`) |
 
 Signed-out (`anon`) requests have no table grants at all. Deleting an auth user cascades to all of their rows.

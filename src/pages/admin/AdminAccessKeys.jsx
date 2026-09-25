@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAuth } from '../hooks/authContext.js';
-import { supabase } from '../lib/supabase.js';
-import { generateAccessKey, redeemLink } from '../lib/accessKeys.js';
+import { useAuth } from '../../hooks/authContext.js';
+import { supabase } from '../../lib/supabase.js';
+import { generateAccessKey, redeemLink } from '../../lib/accessKeys.js';
 
 const fmtDate = (iso) =>
   iso
@@ -42,7 +42,7 @@ function status(inv) {
 }
 
 /** Owner-only: mint Trade Smart Bot access keys, copy them, watch uses, switch them off. */
-export default function AccessKeys() {
+export default function AdminAccessKeys() {
   const { user } = useAuth();
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,11 +112,10 @@ export default function AccessKeys() {
   };
 
   return (
-    <main className="scanner keys-page">
-      <div className="scanner__header card">
-        <p className="scanner__kicker muted">Owner</p>
-        <h1>Access keys</h1>
-        <p className="scanner__subtitle muted">
+    <section className="admin-section">
+      <div className="card admin-intro">
+        <h2>Access keys</h2>
+        <p className="muted">
           Anyone can create a free account (Research, Scanner, Short Kings). An access key unlocks
           Trade Smart Bot for that account: the Alerts tab with their own DOGE plan, staged stop,
           alerts and plan history. Each key works until it hits its max uses or you switch it off.
@@ -223,6 +222,6 @@ export default function AccessKeys() {
           </div>
         )}
       </div>
-    </main>
+    </section>
   );
 }

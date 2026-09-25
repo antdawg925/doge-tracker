@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthContext } from '../../hooks/authContext.js';
 import { supabase, supabaseConfigured } from '../../lib/supabase.js';
+import { authedFetch } from '../../lib/api.js';
 
 async function fetchProfile(userId) {
   const { data } = await supabase
@@ -100,16 +101,7 @@ export default function AuthProvider({ children }) {
   /** Unlock the Trade Smart Bot tier with an access key (server-side check). */
   const redeemKey = useCallback(
     async (code) => {
-      const { data } = await supabase.auth.getSession();
-      const token = data?.session?.access_token;
-      if (!token) throw new Error('Sign in first.');
-      const res = await fetch('/api/redeem-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ code }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.ok) throw new Error(body.error || `Couldn't redeem (HTTP ${res.status}).`);
+      const body = await authedFetch('/api/redeem-key', { method: 'POST', body: { code } });
       await refreshProfile();
       return body;
     },

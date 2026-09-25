@@ -12,7 +12,7 @@ const NAV = [
   { to: '/short-kings', label: 'Short Kings' },
   { to: '/alerts', label: 'Alerts' },
 ];
-const OWNER_NAV = [{ to: '/access-keys', label: 'Access keys' }];
+const OWNER_NAV = [{ to: '/admin', label: 'Admin' }];
 
 function AccountMenu() {
   const { user, displayName, isOwner, loading, signOut } = useAuth();

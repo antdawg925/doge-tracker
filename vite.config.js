@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 import { fetchYahooUpstream, YAHOO_UA } from './api/_yahooUpstream.js'
@@ -68,7 +69,7 @@ function yahooApiPlugin() {
 }
 
 /**
- * Dev middleware: POST /api/redeem-key runs the same handler as the Vercel function.
+ * Dev middleware: /api/redeem-key and /api/admin/* run the same handlers as the Vercel functions.
  * Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local (server-only, no
  * VITE_ prefix so they never reach the browser bundle). Without them redeeming
  * returns "not configured"; sign-up / sign-in work with just the VITE_ vars.
@@ -86,9 +87,27 @@ function supabaseApiPlugin() {
         const { default: handler } = await import('./api/redeem-key.js')
         await handler(req, res)
       })
+      server.middlewares.use('/api/admin', async (req, res) => {
+        const { default: handler } = await import('./api/admin.js')
+        await handler(req, res)
+      })
     },
   }
 }
+
+/** Commit + build time shown on Admin → System. Deploys pass BUILD_COMMIT via --build-env. */
+function buildInfo() {
+  let commit = process.env.BUILD_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || ''
+  if (!commit) {
+    try {
+      commit = execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    } catch {
+      commit = ''
+    }
+  }
+  return { commit: commit.slice(0, 7) || 'unknown', builtAt: new Date().toISOString() }
+}
+const BUILD = buildInfo()
 
 // CoinGecko: /api/coingecko/* -> https://api.coingecko.com/api/v3/*
 // Kraken:    /api/kraken/*    -> https://api.kraken.com/*
@@ -96,6 +115,10 @@ function supabaseApiPlugin() {
 //            /api/yahoo-search/* -> https://query2.finance.yahoo.com/*
 export default defineConfig({
   plugins: [react(), yahooApiPlugin(), supabaseApiPlugin()],
+  define: {
+    'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(BUILD.commit),
+    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(BUILD.builtAt),
+  },
   // SPA client-side routing: Vite's dev server already falls back to index.html
   // for unknown paths (historyApiFallback equivalent). Production hosts need the
   // same rewrite when deploying dist/ — see README.

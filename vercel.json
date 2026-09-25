@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/admin",
+      "destination": "/api/admin"
+    },
+    {
+      "source": "/api/admin/:route*",
+      "destination": "/api/admin?route=:route*"
+    },
+    {
       "source": "/api/redeem-key",
       "destination": "/api/redeem-key"
     },
