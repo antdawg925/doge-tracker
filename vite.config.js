@@ -68,21 +68,22 @@ function yahooApiPlugin() {
 }
 
 /**
- * Dev middleware: POST /api/signup runs the same handler as the Vercel function.
+ * Dev middleware: POST /api/redeem-key runs the same handler as the Vercel function.
  * Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local (server-only, no
- * VITE_ prefix so they never reach the browser bundle). Without them signup
- * returns "not configured"; sign-in still works with just the VITE_ vars.
+ * VITE_ prefix so they never reach the browser bundle). Without them redeeming
+ * returns "not configured"; sign-up / sign-in work with just the VITE_ vars.
+ * Node 22+ recommended (supabase-js needs a native WebSocket on the server side).
  */
-function signupApiPlugin() {
+function supabaseApiPlugin() {
   return {
-    name: 'signup-api',
+    name: 'supabase-api',
     configureServer(server) {
       const env = loadEnv(server.config.mode, server.config.root, 'SUPABASE_')
       for (const [k, v] of Object.entries(env)) {
         if (!process.env[k]) process.env[k] = v
       }
-      server.middlewares.use('/api/signup', async (req, res) => {
-        const { default: handler } = await import('./api/signup.js')
+      server.middlewares.use('/api/redeem-key', async (req, res) => {
+        const { default: handler } = await import('./api/redeem-key.js')
         await handler(req, res)
       })
     },
@@ -94,7 +95,7 @@ function signupApiPlugin() {
 // Yahoo:     /api/yahoo/*     -> crumb-aware middleware (see yahooApiPlugin)
 //            /api/yahoo-search/* -> https://query2.finance.yahoo.com/*
 export default defineConfig({
-  plugins: [react(), yahooApiPlugin(), signupApiPlugin()],
+  plugins: [react(), yahooApiPlugin(), supabaseApiPlugin()],
   // SPA client-side routing: Vite's dev server already falls back to index.html
   // for unknown paths (historyApiFallback equivalent). Production hosts need the
   // same rewrite when deploying dist/ — see README.

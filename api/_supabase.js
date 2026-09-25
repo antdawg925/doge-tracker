@@ -45,12 +45,11 @@ export async function readJsonBody(req) {
  * Resolve the signed-in caller from `Authorization: Bearer <access token>`.
  * Returns { user, profile } or sends 401/403 and returns null.
  *
- *   const who = await requireUser(req, res, { role: 'owner' })
+ *   const who = await requireUser(req, res, { role: 'owner' })  // owner-only (Kraken, bot admin)
+ *   const who = await requireUser(req, res, { bot: true })      // Trade Smart Bot tier
  *   if (!who) return
- *
- * Owner-only routes (e.g. a Kraken balance proxy) should call this with role 'owner'.
  */
-export async function requireUser(req, res, { role } = {}) {
+export async function requireUser(req, res, { role, bot } = {}) {
   const sb = getAdminClient()
   if (!sb) {
     sendJson(res, 500, { error: 'Auth is not configured on the server.' })
@@ -69,11 +68,15 @@ export async function requireUser(req, res, { role } = {}) {
   }
   const { data: profile } = await sb
     .from('profiles')
-    .select('id, email, display_name, role')
+    .select('id, email, display_name, role, bot_access')
     .eq('id', data.user.id)
     .maybeSingle()
   if (role && profile?.role !== role) {
     sendJson(res, 403, { error: 'Not allowed.' })
+    return null
+  }
+  if (bot && !(profile?.bot_access || profile?.role === 'owner')) {
+    sendJson(res, 403, { error: 'Trade Smart Bot access required.' })
     return null
   }
   return { user: data.user, profile }

@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/authContext.js';
 
 export default function Signup() {
   const { user, loading, configured, signUp } = useAuth();
-  const [params] = useSearchParams();
   const [form, setForm] = useState({
-    inviteCode: (params.get('code') || '').toUpperCase(),
     displayName: '',
     email: '',
     password: '',
@@ -14,13 +12,9 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  if (!loading && user) return <Navigate to="/alerts" replace />;
+  if (!loading && user) return <Navigate to="/research" replace />;
 
-  const set = (key) => (e) =>
-    setForm((f) => ({
-      ...f,
-      [key]: key === 'inviteCode' ? e.target.value.toUpperCase() : e.target.value,
-    }));
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const submit = async (e) => {
     e.preventDefault();
@@ -45,22 +39,10 @@ export default function Signup() {
       <form className="auth-card card" onSubmit={submit} noValidate>
         <p className="auth-card__kicker muted">Trade Smart</p>
         <h1>Create account</h1>
-        <p className="auth-card__lede muted">Accounts are invite-only. Enter the code you were given.</p>
-
-        <label className="field">
-          Invite code
-          <input
-            className="mono"
-            placeholder="TS-XXXX-XXXX"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            value={form.inviteCode}
-            onChange={set('inviteCode')}
-            aria-invalid={invalid('inviteCode')}
-            required
-          />
-        </label>
+        <p className="auth-card__lede muted">
+          Free account: Research, Scanner and Short Kings. Have an access key? Unlock Trade Smart Bot
+          after you sign up.
+        </p>
         <label className="field">
           Name
           <input
@@ -106,7 +88,7 @@ export default function Signup() {
           type="submit"
           className="btn btn--primary auth-card__submit"
           disabled={
-            busy || !configured || !form.inviteCode || !form.displayName || !form.email || !form.password
+            busy || !configured || !form.displayName || !form.email || !form.password
           }
         >
           {busy ? 'Creating account…' : 'Create account'}

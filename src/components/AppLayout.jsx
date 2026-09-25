@@ -12,7 +12,7 @@ const NAV = [
   { to: '/short-kings', label: 'Short Kings' },
   { to: '/alerts', label: 'Alerts' },
 ];
-const OWNER_NAV = [{ to: '/invites', label: 'Invites' }];
+const OWNER_NAV = [{ to: '/access-keys', label: 'Access keys' }];
 
 function AccountMenu() {
   const { user, displayName, isOwner, loading, signOut } = useAuth();
@@ -51,11 +51,12 @@ function AccountMenu() {
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const { user, isOwner } = useAuth();
-  const userId = user?.id ?? null;
+  const { user, isOwner, hasBotAccess } = useAuth();
+  // DOGE plan storage + polling only for the Trade Smart Bot tier.
+  const botUserId = hasBotAccess ? (user?.id ?? null) : null;
   const planBackend = useMemo(
-    () => (userId && supabase ? createSupabasePlanBackend(supabase, userId) : null),
-    [userId],
+    () => (botUserId && supabase ? createSupabasePlanBackend(supabase, botUserId) : null),
+    [botUserId],
   );
   const links = isOwner ? [...NAV, ...OWNER_NAV] : NAV;
 
@@ -91,8 +92,8 @@ export default function AppLayout() {
         <AccountMenu />
       </header>
       {planBackend ? (
-        // Signed in: the user's DOGE plan (Supabase) polls on every tab so alerts keep checking.
-        <DogePlanProvider key={userId} backend={planBackend}>
+        // Bot tier: the user's DOGE plan (Supabase) polls on every tab so alerts keep checking.
+        <DogePlanProvider key={botUserId} backend={planBackend}>
           <Outlet />
         </DogePlanProvider>
       ) : (

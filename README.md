@@ -29,12 +29,12 @@ npm run preview   # optional local preview of dist/
 | --- | --- | --- |
 | `/`, `/home` | Public | **Home** — landing / capability overview + Sign in |
 | `/login` | Public | Email + password sign-in |
-| `/signup` | Public | Invite-only account creation (`/signup?code=TS-XXXX-XXXX` prefills the code) |
+| `/signup` | Public | Free account: name + email + password |
 | `/research` | Signed in | **Research** — watchlist + analysis workstation |
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
-| `/alerts` | Signed in | **Alerts** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts |
-| `/invites` | Owner | **Invites** — create / copy / deactivate invite codes |
+| `/alerts` | Trade Smart Bot | **Alerts** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, plan history, in-browser crossing alerts. Members without bot access see a locked screen with an access-key box (`/alerts?key=TS-XXXX-XXXX` prefills it) |
+| `/access-keys` | Owner | **Access keys** — create / copy / deactivate keys, see uses and who redeemed |
 
 Signed-out visits to protected paths redirect to `/login` and return to the page after sign-in.
 
@@ -195,13 +195,22 @@ This is **not** public internet hosting — only devices on your home network. P
   - **Stage 2** (first *completed* 4h candle since the plan anchor that closes above the breakout level, 0.104): floor → floor after breakout (0.090) and trail = highest high since the breakout candle − 2.5×ATR (1.75× once price > tighten reference × 1.15; reference defaults to the breakout level → ~0.1196).
   - Effective stop = max(floor, every trail value since breakout, stored stop) — never moves down. Stored stop memory carries `rulesVersion`; stale versions are discarded and recomputed.
 - **Alerts** (`src/lib/alertRules.js`): sell, breakout, high/low zone, buy-back and effective-stop crossings. Fire once per crossing, re-arm after price pulls back 0.5% past the level. Polling every 90s runs app-wide (`DogePlanProvider` in `AppLayout`) while Trade Smart is open; system notifications via the Notification API (+ `public/alerts-sw.js` for Android Chrome).
-- **Storage** (`src/lib/planStore.js`): async API over one document (`plan`, `history`, `stop`, `alerts`) with a swappable backend. Signed in, `DogePlanProvider` plugs in `src/lib/planStoreSupabase.js`, which splits it across per-user Supabase tables (`doge_plans`, `plan_history`, `stop_memory` with the rules version, `alert_state`, `alert_log`). The first time an account with no stored plan signs in, a pre-login localStorage plan (`trade-smart-doge-plan-v1`) + history + stop memory + alert log are imported once (flag `trade-smart-doge-plan-imported`). Plans load once per session and later writes only send what changed. localStorage stays the default backend for scripts.
+- **Storage** (`src/lib/planStore.js`): async API over one document (`plan`, `history`, `stop`, `alerts`) with a swappable backend. For Trade Smart Bot accounts, `DogePlanProvider` plugs in `src/lib/planStoreSupabase.js`, which splits it across per-user Supabase tables (`doge_plans`, `plan_history`, `stop_memory` with the rules version, `alert_state`, `alert_log`). The first time an account with no stored plan signs in, a pre-login localStorage plan (`trade-smart-doge-plan-v1`) + history + stop memory + alert log are imported once (flag `trade-smart-doge-plan-imported`). Plans load once per session and later writes only send what changed. localStorage stays the default backend for scripts.
 - **Checks**: `npm run check:atr` (fixtures + live Kraken numbers) and `npm run check:alerts`.
 
 
 ## Accounts & login (Supabase)
 
-Auth + per-user storage run on Supabase (Postgres + Auth). Public signups are **disabled** in Supabase Auth, so the only way to create an account is an invite code redeemed through `POST /api/signup`.
+Auth + per-user storage run on Supabase (Postgres + Auth). Anyone can create a free account with email + password; email confirmation is off (Supabase's built-in mailer only delivers to project team members), so signup signs you straight in. A trigger on `auth.users` creates each profile as `member` without bot access.
+
+### Tiers
+
+| Tier | How | Gets |
+| --- | --- | --- |
+| Signed out | — | Home only; other tabs redirect to `/login` and come back after sign-in |
+| Member (free) | Sign up | Research, Scanner, Short Kings |
+| Trade Smart Bot | Redeem an access key (`profiles.bot_access = true`) | + Alerts: own DOGE plan, staged ATR stop, alerts, plan history (future Telegram/bot alerts) |
+| Owner | Redeem an owner key (`role = 'owner'`, always has bot access) | + Access keys page; Kraken / bot account connection next |
 
 ### Environment variables
 
@@ -210,16 +219,15 @@ Auth + per-user storage run on Supabase (Postgres + Auth). Public signups are **
 | `VITE_SUPABASE_URL` | Vercel (Prod + Preview), `.env.local` | No (public) | Project URL for the browser client |
 | `VITE_SUPABASE_ANON_KEY` | Vercel (Prod + Preview), `.env.local` | No (public) | Publishable / anon key; data is protected by RLS |
 | `SUPABASE_URL` | Vercel (Prod + Preview) | Server only | Project URL for `/api` functions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Prod + Preview), **sensitive** | **Yes** | Secret key used by `/api/signup` (bypasses RLS). Never `VITE_`-prefix it and never ship it to the client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Prod + Preview), **sensitive** | **Yes** | Secret key used by `/api/redeem-key` (bypasses RLS). Never `VITE_`-prefix it and never ship it to the client |
 | `KRAKEN_API_KEY` / `KRAKEN_API_SECRET` | Vercel, sensitive | **Yes** | Read-only Kraken keys for the upcoming owner-only route |
 
-Local dev (Windows or Linux): `cp .env.example .env.local` (PowerShell: `Copy-Item .env.example .env.local`) and fill in the two `VITE_` values from Supabase → Project Settings → API. That's enough to sign in and use your plan locally (`http://localhost:5173` is an allowed redirect URL). To test invite signup locally too, add `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to `.env.local`; the Vite dev server then serves `/api/signup` with the same handler as Vercel. Restart `npm run dev` after editing env files. `.env.local` is gitignored; only `.env.example` (placeholders) is committed.
+Local dev (Windows or Linux): `cp .env.example .env.local` (PowerShell: `Copy-Item .env.example .env.local`) and fill in the two `VITE_` values from Supabase → Project Settings → API. That's enough to sign up, sign in and use your plan locally (`http://localhost:5173` is an allowed redirect URL). To test key redemption locally too, add `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to `.env.local`; the Vite dev server then serves `/api/redeem-key` with the same handler as Vercel (use Node 22+, supabase-js needs a native WebSocket server-side). Restart `npm run dev` after editing env files. `.env.local` is gitignored; only `.env.example` (placeholders) is committed.
 
-### Roles & invites
+### Access keys
 
-- `profiles.role` is `owner` or `member`. Members get Research, Scanner, Short Kings and Alerts with their **own** DOGE plan. The owner also sees **Invites** in the nav.
-- Invite codes look like `TS-XXXX-XXXX` (no 0/O/1/I/L). The owner creates **member** codes on `/invites` (label + max uses), copies the code or a prefilled signup link, sees uses, and can deactivate / reactivate. Owner codes can only be minted with SQL.
-- `/api/signup` (`api/signup.js`) checks the code with the service key, reserves one use atomically via the `consume_invite()` SQL function (no overshoot under concurrent signups), creates the user already confirmed (`email_confirm: true`), writes the profile with the invite's role, and gives the use back if any later step fails. Clear errors for unknown / deactivated / used-up codes, existing emails and short passwords. Best-effort per-instance rate limit (10 attempts / 10 min / IP).
+- Format `TS-XXXX-XXXX` (no 0/O/1/I/L). The owner creates **member** keys on `/access-keys` (label + max uses), copies the key or a prefilled `/alerts?key=` link, sees uses and who redeemed, and can deactivate / reactivate. Owner keys can only be minted with SQL.
+- `POST /api/redeem-key` (`api/redeem-key.js`) verifies the caller's Supabase JWT, checks the key with the service key, and calls `redeem_access_key()`, which takes one use (never past `max_uses`, even with concurrent redemptions), sets `bot_access` (and `role = 'owner'` for owner keys) and logs the redemption in one transaction. Already-unlocked accounts don't burn a use. Clear errors for unknown / deactivated / used-up keys; best-effort rate limit (10 tries / 10 min / user).
 
 ### Database
 
@@ -227,31 +235,32 @@ Schema lives in `supabase/migrations/` (applied to the hosted project; CLI-compa
 
 | Table | Access |
 | --- | --- |
-| `profiles` | Read own row; owner reads all. Writes only from the server. |
-| `invites` | Owner select / insert (member codes) / update. Redeemed server-side only. |
-| `doge_plans`, `plan_history`, `stop_memory`, `alert_state`, `alert_log` | Each user can CRUD only rows where `user_id = auth.uid()` |
+| `profiles` | Read own row (owner reads all). Users can update only `display_name` (column grant); `role` / `bot_access` change only via `redeem_access_key()` |
+| `access_keys`, `access_key_redemptions` | Owner only (select; insert member keys; update). Redeemed server-side |
+| `doge_plans`, `plan_history`, `stop_memory`, `alert_state`, `alert_log` | Read own rows; insert / update / delete own rows only with bot access (`has_bot_access()`) |
 
 Signed-out (`anon`) requests have no table grants at all. Deleting an auth user cascades to all of their rows.
 
-### Owner-only API routes (next step)
+### Owner-only / bot-tier API routes (next step)
 
-`api/_supabase.js` exports `requireUser(req, res, { role })`. A route such as a Kraken balance proxy does:
+`api/_supabase.js` exports `requireUser(req, res, { role, bot })`. A route such as a Kraken balance proxy does:
 
 ```js
 import { requireUser, sendJson } from './_supabase.js'
 
 export default async function handler(req, res) {
-  const who = await requireUser(req, res, { role: 'owner' }) // 401 / 403 sent for you
+  const who = await requireUser(req, res, { role: 'owner' }) // or { bot: true }; 401 / 403 sent for you
   if (!who) return
   // ... use process.env.KRAKEN_API_KEY / KRAKEN_API_SECRET here, server-side only
 }
 ```
 
-The browser calls it with `Authorization: Bearer ${session.access_token}` (from `supabase.auth.getSession()`). Add a matching entry before the `/api/:path*` catch-all in `vercel.json` `rewrites` (see `/api/signup`).
+The browser calls it with `Authorization: Bearer ${session.access_token}` (from `supabase.auth.getSession()`). Add a matching entry before the `/api/:path*` catch-all in `vercel.json` `rewrites` (see `/api/redeem-key`).
 
 ### Limitations
 
 - Supabase free-plan projects pause after about a week without activity; open the dashboard to restore.
-- No password reset / email change flow yet (needs a custom SMTP sender in Supabase Auth; the built-in mailer is heavily rate limited). The owner can reset a password from the Supabase dashboard.
+- No password reset / email change flow yet, and emails aren't verified (confirmation is off). Both need a custom SMTP sender in Supabase Auth. The owner can reset a password from the Supabase dashboard.
+- Open signup has only Supabase's built-in rate limits; add CAPTCHA (Supabase Auth → Bot protection) if spam signups show up.
 - Research watchlist / positions are still per-browser localStorage (`doge-tracker-state-v2`).
 - Plan data loads once per session; edits made on another device show up after a reload.

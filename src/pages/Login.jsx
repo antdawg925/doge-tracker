@@ -34,7 +34,7 @@ export default function Login() {
         {location.state?.from ? (
           <p className="auth-card__lede muted">Sign in to open that page.</p>
         ) : (
-          <p className="auth-card__lede muted">Research, Scanner, Short Kings and Alerts need an account.</p>
+          <p className="auth-card__lede muted">Research, Scanner, Short Kings and Alerts need a free account.</p>
         )}
 
         {!configured ? (
@@ -78,7 +78,7 @@ export default function Login() {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         <p className="auth-card__alt muted">
-          Have an invite code? <Link to="/signup">Create an account</Link>
+          New here? <Link to="/signup">Create a free account</Link>
         </p>
       </form>
     </main>

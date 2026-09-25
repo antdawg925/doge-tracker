@@ -25,9 +25,9 @@ const CAPABILITIES = [
   },
   {
     to: '/alerts',
-    kicker: 'Alerts',
-    title: 'Watchlist triggers',
-    body: 'Price, stage, and RVOL alerts on your watchlist — still early / thin.',
+    kicker: 'Alerts · Trade Smart Bot',
+    title: 'DOGE plan & staged stop',
+    body: 'Your own DOGE plan, ATR staged stop, crossing alerts and plan history. Unlock with an access key.',
     tone: 'amber',
   },
 ];
@@ -58,7 +58,7 @@ export default function Home() {
                   Sign in
                 </Link>
                 <Link to="/signup" className="btn">
-                  I have an invite
+                  Create free account
                 </Link>
               </>
             )}

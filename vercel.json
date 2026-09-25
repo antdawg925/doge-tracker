@@ -5,8 +5,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/signup",
-      "destination": "/api/signup"
+      "source": "/api/redeem-key",
+      "destination": "/api/redeem-key"
     },
     {
       "source": "/api/:path*",

@@ -5,13 +5,17 @@ import { supabase, supabaseConfigured } from '../../lib/supabase.js';
 async function fetchProfile(userId) {
   const { data } = await supabase
     .from('profiles')
-    .select('id, email, display_name, role')
+    .select('id, email, display_name, role, bot_access')
     .eq('id', userId)
     .maybeSingle();
   return data ?? null;
 }
 
-/** Session + profile (role) for the whole app. */
+/**
+ * Session + profile for the whole app.
+ * Tiers: signed-in member (Research / Scanner / Short Kings) → bot tier
+ * (profiles.bot_access: Alerts / DOGE plan) → owner (access keys, bot admin).
+ */
 export default function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -58,23 +62,58 @@ export default function AuthProvider({ children }) {
     }
   }, []);
 
-  /** Invite-gated signup goes through the server (/api/signup), then signs in. */
-  const signUp = useCallback(
-    async ({ email, password, inviteCode, displayName }) => {
-      const res = await fetch('/api/signup', {
+  /**
+   * Open email + password signup. Email confirmation is off in Supabase Auth, so
+   * this returns a session right away; a DB trigger creates the member profile.
+   */
+  const signUp = useCallback(async ({ email, password, displayName }) => {
+    if (!supabase) throw new Error('Sign-up is not configured.');
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: { data: { display_name: displayName.trim().slice(0, 60) } },
+    });
+    if (error) {
+      const err = new Error(
+        /already registered|already exists/i.test(error.message)
+          ? 'An account with that email already exists. Sign in instead.'
+          : error.message,
+      );
+      if (/already/i.test(error.message)) err.field = 'email';
+      else if (/password/i.test(error.message)) err.field = 'password';
+      throw err;
+    }
+    // Existing-email signups can come back as a user with no identities and no session.
+    if (!data.session) {
+      const err = new Error('An account with that email already exists. Sign in instead.');
+      err.field = 'email';
+      throw err;
+    }
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    const { data } = (await supabase?.auth.getSession()) ?? {};
+    const uid = data?.session?.user?.id;
+    setProfile(uid ? await fetchProfile(uid) : null);
+  }, []);
+
+  /** Unlock the Trade Smart Bot tier with an access key (server-side check). */
+  const redeemKey = useCallback(
+    async (code) => {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) throw new Error('Sign in first.');
+      const res = await fetch('/api/redeem-key', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, inviteCode, displayName }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.ok) {
-        const err = new Error(body.error || `Signup failed (HTTP ${res.status}).`);
-        err.field = body.field;
-        throw err;
-      }
-      await signIn(email, password);
+      if (!res.ok || !body.ok) throw new Error(body.error || `Couldn't redeem (HTTP ${res.status}).`);
+      await refreshProfile();
+      return body;
     },
-    [signIn],
+    [refreshProfile],
   );
 
   const signOut = useCallback(async () => {
@@ -84,6 +123,7 @@ export default function AuthProvider({ children }) {
   const value = useMemo(() => {
     const user = session?.user ?? null;
     const role = user ? profile?.role || 'member' : null;
+    const isOwner = role === 'owner';
     return {
       configured: supabaseConfigured,
       loading,
@@ -91,14 +131,17 @@ export default function AuthProvider({ children }) {
       user,
       profile,
       role,
-      isOwner: role === 'owner',
+      isOwner,
+      hasBotAccess: Boolean(user && (isOwner || profile?.bot_access)),
       displayName:
         profile?.display_name || user?.user_metadata?.display_name || user?.email || '',
       signIn,
       signUp,
       signOut,
+      refreshProfile,
+      redeemKey,
     };
-  }, [session, profile, loading, signIn, signUp, signOut]);
+  }, [session, profile, loading, signIn, signUp, signOut, refreshProfile, redeemKey]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

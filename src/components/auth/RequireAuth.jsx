@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/authContext.js';
+import BotLocked from './BotLocked.jsx';
 
 function Checking() {
   return (
@@ -18,12 +19,19 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-/** Owner only; members land on Home. */
+/** Owner only (access keys now; Kraken / bot connection later); members land on Home. */
 export function RequireOwner() {
   const { user, isOwner, loading } = useAuth();
   const location = useLocation();
   if (loading) return <Checking />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (!isOwner) return <Navigate to="/" replace />;
+  return <Outlet />;
+}
+
+/** Trade Smart Bot tier (bot_access or owner); other members get the locked screen. */
+export function RequireBot() {
+  const { hasBotAccess } = useAuth();
+  if (!hasBotAccess) return <BotLocked />;
   return <Outlet />;
 }

@@ -3432,7 +3432,7 @@ p {
   background: rgba(62, 207, 142, 0.07);
 }
 
-/* ---------- Auth: nav account, login / signup, invites ---------- */
+/* ---------- Auth: nav account, login / signup, access keys, bot lock ---------- */
 .desk-nav__account {
   margin-left: auto;
   display: flex;
@@ -3560,44 +3560,44 @@ p {
   border-color: rgba(240, 113, 120, 0.7);
 }
 
-.invites-page {
+.keys-page {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
 }
 
-.invites-form {
+.keys-form {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem 1rem;
 }
 
-.invites-form__label {
+.keys-form__label {
   flex: 1 1 16rem;
 }
 
-.invites-form__uses {
+.keys-form__uses {
   width: 7rem;
 }
 
-.invites-form__role-value {
+.keys-form__role-value {
   padding: 0.5rem 0.2rem;
   font-size: 0.95rem;
   color: var(--text);
 }
 
-.invites-table-wrap {
+.keys-table-wrap {
   overflow-x: auto;
 }
 
-.invites-table {
+.keys-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.86rem;
 }
 
-.invites-table th {
+.keys-table th {
   text-align: left;
   font-size: 0.72rem;
   font-weight: 650;
@@ -3609,27 +3609,27 @@ p {
   white-space: nowrap;
 }
 
-.invites-table td {
+.keys-table td {
   padding: 0.6rem;
   border-bottom: 1px solid var(--border-soft);
   vertical-align: middle;
 }
 
-.invites-table tr.is-off td {
+.keys-table tr.is-off td {
   opacity: 0.6;
 }
 
-.invites-table__code {
+.keys-table__code {
   font-weight: 650;
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
-.invites-table__role {
+.keys-table__role {
   text-transform: capitalize;
 }
 
-.invites-table__actions {
+.keys-table__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
@@ -3649,5 +3649,102 @@ p {
 
   .auth-card {
     padding: 1.3rem 1.1rem 1.2rem;
+  }
+}
+
+.keys-table__who {
+  max-width: 14rem;
+  font-size: 0.82rem;
+}
+
+.bot-lock {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: clamp(1.25rem, 6vh, 4rem) 1rem 3rem;
+}
+
+.bot-lock__card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.6rem 1.5rem;
+  border-color: rgba(194, 166, 51, 0.35);
+}
+
+.bot-lock__head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.bot-lock__head h1 {
+  font-size: 1.55rem;
+}
+
+.bot-lock__icon {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 10px;
+  color: var(--accent);
+  background: rgba(194, 166, 51, 0.1);
+  border: 1px solid rgba(194, 166, 51, 0.4);
+  flex-shrink: 0;
+}
+
+.bot-lock__lede {
+  font-size: 0.92rem;
+}
+
+.bot-lock__features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.bot-lock__features li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  font-size: 0.82rem;
+}
+
+.bot-lock__features strong {
+  font-size: 0.88rem;
+}
+
+.bot-lock__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.bot-lock__form .field {
+  flex: 1;
+}
+
+.bot-lock__form .btn {
+  padding: 0.58rem 1.2rem;
+}
+
+@media (max-width: 560px) {
+  .bot-lock__features {
+    grid-template-columns: 1fr;
+  }
+
+  .bot-lock__form {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

@@ -3,8 +3,9 @@ import { createContext, useContext } from 'react';
 export const AuthContext = createContext(null);
 
 /**
- * { user, profile, role, isOwner, displayName, loading, configured,
- *   signIn(email, password), signUp({...}), signOut() }
+ * { user, profile, role, isOwner, hasBotAccess, displayName, loading, configured,
+ *   signIn(email, password), signUp({ email, password, displayName }), signOut(),
+ *   redeemKey(code), refreshProfile() }
  */
 export function useAuth() {
   const ctx = useContext(AuthContext);
