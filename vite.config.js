@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { fetchYahooUpstream, YAHOO_UA } from './api/_yahooUpstream.js'
 
 function withYahooHeaders(proxy) {
@@ -67,12 +67,34 @@ function yahooApiPlugin() {
   }
 }
 
+/**
+ * Dev middleware: POST /api/signup runs the same handler as the Vercel function.
+ * Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local (server-only, no
+ * VITE_ prefix so they never reach the browser bundle). Without them signup
+ * returns "not configured"; sign-in still works with just the VITE_ vars.
+ */
+function signupApiPlugin() {
+  return {
+    name: 'signup-api',
+    configureServer(server) {
+      const env = loadEnv(server.config.mode, server.config.root, 'SUPABASE_')
+      for (const [k, v] of Object.entries(env)) {
+        if (!process.env[k]) process.env[k] = v
+      }
+      server.middlewares.use('/api/signup', async (req, res) => {
+        const { default: handler } = await import('./api/signup.js')
+        await handler(req, res)
+      })
+    },
+  }
+}
+
 // CoinGecko: /api/coingecko/* -> https://api.coingecko.com/api/v3/*
 // Kraken:    /api/kraken/*    -> https://api.kraken.com/*
 // Yahoo:     /api/yahoo/*     -> crumb-aware middleware (see yahooApiPlugin)
 //            /api/yahoo-search/* -> https://query2.finance.yahoo.com/*
 export default defineConfig({
-  plugins: [react(), yahooApiPlugin()],
+  plugins: [react(), yahooApiPlugin(), signupApiPlugin()],
   // SPA client-side routing: Vite's dev server already falls back to index.html
   // for unknown paths (historyApiFallback equivalent). Production hosts need the
   // same rewrite when deploying dist/ — see README.
