@@ -103,13 +103,13 @@ const GROUPS = [
     fields: [
       { key: 'atrMult', label: 'ATR multiplier', step: '0.05' },
       { key: 'tightMult', label: 'Tight multiplier', step: '0.05' },
-      { key: 'tightenPct', label: 'Tighten above cost +%', step: '1' },
+      { key: 'tightenPct', label: 'Tighten above ref +%', step: '1' },
       {
         key: 'tightenRef',
         label: 'Tighten reference',
         step: '0.0001',
-        placeholder: 'avg cost',
-        hint: 'Blank = average cost',
+        placeholder: 'breakout level',
+        hint: 'Blank = breakout level',
       },
     ],
   },
@@ -165,12 +165,12 @@ export default function DogePlanForm({ plan, onSave, saving, justSaved }) {
             ))}
             {g.title === 'ATR trail' ? (
               <label className="field dp-form__wide">
-                <span>Trail anchor (highest high counted from)</span>
+                <span>Plan anchor (breakout closes counted from)</span>
                 <input type="datetime-local" value={draft.anchorAt} onChange={set('anchorAt')} />
                 <span className="field__hint">
                   {anchorChanged
-                    ? 'Changing the anchor restarts the trail (ratchet memory resets on save).'
-                    : 'Moving this restarts the trail on save.'}
+                    ? 'Changing the anchor restarts the plan: breakout search and stop memory reset on save.'
+                    : 'Only 4h closes after this count as the breakout.'}
                 </span>
               </label>
             ) : null}

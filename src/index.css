@@ -3396,3 +3396,38 @@ p {
 .dp-page .card__head h2 {
   white-space: nowrap;
 }
+
+.dp-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+}
+.dp-stage__label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dp-stage__sub {
+  color: var(--muted);
+}
+.dp-stage--1 .dp-stage__label {
+  color: var(--accent);
+}
+.dp-stage--1 {
+  border-color: rgba(194, 166, 51, 0.4);
+  background: rgba(194, 166, 51, 0.07);
+}
+.dp-stage--2 .dp-stage__label {
+  color: var(--pos);
+}
+.dp-stage--2 {
+  border-color: rgba(62, 207, 142, 0.4);
+  background: rgba(62, 207, 142, 0.07);
+}

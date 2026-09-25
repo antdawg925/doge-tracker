@@ -30,7 +30,7 @@ export function buildRules(plan, snapshot) {
       dir: 'up',
       level: plan.breakoutLevel,
       title: `DOGE broke out above ${p(plan.breakoutLevel)}`,
-      body: `Raise the stop floor to ${p(plan.breakoutFloor)}.`,
+      body: `A 4h close above ${p(plan.breakoutLevel)} starts stage 2: floor → ${p(plan.breakoutFloor)} and the ATR trail switches on.`,
     },
     {
       id: 'highZoneIn',

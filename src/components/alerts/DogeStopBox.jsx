@@ -15,8 +15,9 @@ const fmtWhen = (t) =>
 
 const SOURCE_COPY = {
   floor: 'manual floor',
+  breakoutFloor: 'floor after breakout',
   trail: 'ATR trail',
-  ratchet: 'ratchet (held from an earlier, higher trail)',
+  ratchet: 'ratchet (held from an earlier, higher stop)',
 };
 
 function Stat({ label, value, sub, tone }) {
@@ -44,21 +45,32 @@ export default function DogeStopBox({ plan, snapshot: s, market, onResetTrail, o
   }
 
   const volRatio = s.medianAtrPct ? s.atrPct / s.medianAtrPct : null;
-  const breakoutActive =
-    plan.breakoutLevel && s.price >= plan.breakoutLevel && plan.stopFloor < plan.breakoutFloor;
+  const stage2 = s.stage === 2;
+  // Stage 2 already applies the breakout floor automatically; this just lets
+  // the user write it into the saved plan.
+  const breakoutActive = stage2 && plan.stopFloor < plan.breakoutFloor;
+  const stageLabel = stage2
+    ? `Stage 2 · ATR trail active`
+    : `Stage 1 · fixed floor until breakout`;
+  const stageSub = stage2
+    ? `4h close ${formatPrice(s.breakoutClose)} above ${formatPrice(plan.breakoutLevel)} on ${fmtWhen(s.breakoutAt)}`
+    : `Trail starts after a 4h close above ${formatPrice(plan.breakoutLevel)}`;
 
   const ladder = [
     { id: 'hzh', label: 'High zone top', level: plan.highZone.high, kind: 'zone-hi' },
     { id: 'hzl', label: 'High zone bottom', level: plan.highZone.low, kind: 'zone-hi' },
     { id: 'bo', label: 'Breakout', level: plan.breakoutLevel, kind: 'level' },
     { id: 'sell', label: `Sell slice (${plan.slicePct}%)`, level: plan.sellLevel, kind: 'sell' },
-    { id: 'hh', label: 'Highest high since anchor', level: s.highestHigh, kind: 'info' },
+    { id: 'hh', label: stage2 ? 'Highest high since breakout' : 'Highest high since anchor', level: s.highestHigh, kind: 'info' },
     { id: 'px', label: 'Price now', level: s.price, kind: 'price' },
     { id: 'lzh', label: 'Low zone top', level: plan.lowZone.high, kind: 'zone-lo' },
     { id: 'buy', label: `Buy back slice`, level: plan.buyBackLevel, kind: 'buy' },
     { id: 'lzl', label: 'Low zone bottom', level: plan.lowZone.low, kind: 'zone-lo' },
     { id: 'stop', label: `Effective stop (core ${plan.corePct}%)`, level: s.effectiveStop, kind: 'stop' },
-    { id: 'trail', label: `ATR trail (${s.mult}×)`, level: s.trail, kind: 'info' },
+    stage2
+      ? { id: 'trail', label: `ATR trail (${s.mult}×)`, level: s.trail, kind: 'info' }
+      : { id: 'trail', label: `${plan.atrMult}× trail (starts after breakout)`, level: s.previewTrail, kind: 'info' },
+    { id: 'bof', label: 'Floor after breakout', level: plan.breakoutFloor, kind: 'info' },
     { id: 'floor', label: 'Manual floor', level: plan.stopFloor, kind: 'info' },
     { id: 'cost', label: 'Average cost', level: plan.avgCost, kind: 'info' },
   ]
@@ -72,12 +84,17 @@ export default function DogeStopBox({ plan, snapshot: s, market, onResetTrail, o
         <span className="muted small">Kraken XDG/USD · 4h candles · ATR(14) Wilder</span>
       </div>
 
+      <div className={`dp-stage dp-stage--${s.stage}`}>
+        <span className="dp-stage__label">{stageLabel}</span>
+        <span className="dp-stage__sub small">{stageSub}</span>
+      </div>
+
       <div className="dp-stop__hero">
         <div>
           <p className="dp-stop__label muted">Effective stop</p>
           <p className="dp-stop__big mono">{formatPrice(s.effectiveStop)}</p>
           <p className="muted small">
-            Source: {SOURCE_COPY[s.stopSource]} · never moves down
+            {stage2 ? 'Stage 2' : 'Stage 1'} · source: {SOURCE_COPY[s.stopSource]} · never moves down
           </p>
         </div>
         <div className="dp-stop__hero-right">
@@ -89,24 +106,37 @@ export default function DogeStopBox({ plan, snapshot: s, market, onResetTrail, o
         </div>
       </div>
 
-      <div className="dp-stop__callout">
-        Set your exchange trailing stop to <strong className="mono">~{s.trailPct.toFixed(1)}%</strong>
-        <span className="muted">
-          {' '}
-          ({s.mult}× ATR = {fmtAtr(s.trailDistance)}
-          {s.tightened ? ', tightened' : ''}). Base {plan.atrMult}× ≈ {s.baseTrailPct.toFixed(1)}% · tight{' '}
-          {plan.tightMult}× ≈ {s.tightTrailPct.toFixed(1)}%.
-        </span>
-      </div>
+      {stage2 ? (
+        <div className="dp-stop__callout">
+          Set your exchange trailing stop to <strong className="mono">~{s.trailPct.toFixed(1)}%</strong>
+          <span className="muted">
+            {' '}
+            ({s.mult}× ATR = {fmtAtr(s.trailDistance)}
+            {s.tightened ? ', tightened' : ''}). Base {plan.atrMult}× ≈ {s.baseTrailPct.toFixed(1)}% · tight{' '}
+            {plan.tightMult}× ≈ {s.tightTrailPct.toFixed(1)}%.
+          </span>
+        </div>
+      ) : (
+        <div className="dp-stop__callout">
+          Trailing stop starts after the <strong className="mono">{formatPrice(plan.breakoutLevel)}</strong>{' '}
+          breakout (4h close above). Fixed stop is{' '}
+          <strong className="mono">{formatPrice(s.effectiveStop)}</strong> for now.
+          <span className="muted">
+            {' '}
+            For reference: {plan.atrMult}× ATR ≈ {s.baseTrailPct.toFixed(1)}% ({fmtAtr(s.baseTrailDistance)}); tight{' '}
+            {plan.tightMult}× ≈ {s.tightTrailPct.toFixed(1)}%.
+          </span>
+        </div>
+      )}
 
       {breakoutActive ? (
         <div className="dp-stop__breakout">
           <span>
-            Price is above breakout {formatPrice(plan.breakoutLevel)} — plan says raise the floor to{' '}
-            <strong className="mono">{formatPrice(plan.breakoutFloor)}</strong>.
+            Breakout confirmed — the floor is already applied at{' '}
+            <strong className="mono">{formatPrice(plan.breakoutFloor)}</strong>. Save it to your plan too?
           </span>
           <button type="button" className="btn" onClick={onRaiseFloor}>
-            Raise floor to {formatPrice(plan.breakoutFloor)}
+            Save floor {formatPrice(plan.breakoutFloor)} to plan
           </button>
         </div>
       ) : null}
@@ -128,28 +158,41 @@ export default function DogeStopBox({ plan, snapshot: s, market, onResetTrail, o
           tone={volRatio > 1.3 ? 'dp-warn' : ''}
         />
         <Stat
-          label="Highest high since anchor"
+          label={stage2 ? 'Highest high since breakout' : 'Highest high since anchor'}
           value={formatPrice(s.highestHigh)}
-          sub={`Anchor ${fmtWhen(Date.parse(plan.anchorAt))}`}
+          sub={stage2 ? `Breakout ${fmtWhen(s.breakoutAt)}` : `Anchor ${fmtWhen(Date.parse(plan.anchorAt))}`}
         />
-        <Stat
-          label={`ATR trail (${s.mult}×${s.tightened ? ' tight' : ''})`}
-          value={formatPrice(s.trail)}
-          sub={
-            s.tightenAt
-              ? s.tightened
-                ? `Tight: price > ${formatPrice(s.tightenAt)} (+${plan.tightenPct}%)`
-                : `Tightens above ${formatPrice(s.tightenAt)}`
-              : null
-          }
-        />
+        {stage2 ? (
+          <Stat
+            label={`ATR trail (${s.mult}×${s.tightened ? ' tight' : ''})`}
+            value={formatPrice(s.trail)}
+            sub={
+              s.tightenAt
+                ? s.tightened
+                  ? `Tight: price > ${formatUsd(s.tightenAt, { decimals: 4 })} (ref +${plan.tightenPct}%)`
+                  : `Tightens above ${formatUsd(s.tightenAt, { decimals: 4 })}`
+                : null
+            }
+          />
+        ) : (
+          <Stat
+            label={`${plan.atrMult}× trail — starts after breakout`}
+            value={formatPrice(s.previewTrail)}
+            sub={`Not applied yet · tightens above ${formatUsd(s.tightenAt, { decimals: 4 })}`}
+            tone="muted"
+          />
+        )}
         <Stat
           label="Distance to stop"
           value={s.distToStopPct != null ? `${s.distToStopPct.toFixed(2)}%` : '—'}
           sub={s.distToStopPct != null ? `${formatPrice(s.price - s.effectiveStop)} below price` : null}
           tone={s.distToStopPct != null && s.distToStopPct < 2 ? 'neg' : ''}
         />
-        <Stat label="Manual floor" value={formatPrice(plan.stopFloor)} sub="Edit in the plan" />
+        <Stat
+          label={stage2 ? 'Floor (after breakout)' : 'Manual floor'}
+          value={formatPrice(s.stageFloor)}
+          sub={stage2 ? `Manual ${formatPrice(plan.stopFloor)} · breakout ${formatPrice(plan.breakoutFloor)}` : `→ ${formatPrice(plan.breakoutFloor)} after breakout`}
+        />
       </dl>
 
       <h3 className="derived__title">Levels</h3>
@@ -174,7 +217,7 @@ export default function DogeStopBox({ plan, snapshot: s, market, onResetTrail, o
           {s.anchorBeforeData ? ' · anchor predates data (using oldest bar)' : ''}
         </span>
         <button type="button" className="btn btn--ghost" onClick={onResetTrail}>
-          Restart trail from now
+          Restart plan from now
         </button>
       </div>
     </section>

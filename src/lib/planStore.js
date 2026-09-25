@@ -7,7 +7,7 @@
  *
  * Stored document (key `trade-smart-doge-plan-v1`):
  * {
- *   version: 1,
+ *   version: 2,
  *   plan: Plan,                  // current editable plan
  *   history: HistoryEntry[],     // newest first; one per Save
  *   stop: StopState,             // ratchet memory (effective stop never moves down)
@@ -21,17 +21,21 @@
  *   breakoutLevel, breakoutFloor,          // on break of breakoutLevel, raise floor to breakoutFloor
  *   highZone: { low, high }, lowZone: { low, high },
  *   atrMult, tightMult, tightenPct,
- *   tightenRef: number|null,               // null → use avgCost
+ *   tightenRef: number|null,               // null → use breakoutLevel
  *   anchorAt: ISO string,                  // trail start; highest high measured from here
  *   note: string, updatedAt: ISO string|null
  * }
  * HistoryEntry = { id, savedAt: ISO, plan: Plan, note, market: { price, atr, atrPct, effectiveStop } | null }
- * StopState    = { effectiveStop: number|null, anchorAt: ISO|null, updatedAt: ISO|null }
+ * StopState    = { effectiveStop: number|null, anchorAt: ISO|null, updatedAt: ISO|null, rulesVersion: number }
+ *                 rulesVersion must equal STOP_RULES_VERSION or the stored stop is discarded
+ *                 (v1 trailed from day one vs avg cost and could persist a too-tight ~$0.092 stop).
  * RuleState    = { armed: boolean, level: number }
  * AlertLogEntry= { id, at: ISO, ruleId, title, body, price, level }
  */
 
 export const PLAN_STORAGE_KEY = 'trade-smart-doge-plan-v1';
+/** Bump whenever stop rules change so stale ratchet memory is recomputed, not trusted. */
+export const STOP_RULES_VERSION = 2;
 const HISTORY_LIMIT = 200;
 const LOG_LIMIT = 100;
 
@@ -129,20 +133,33 @@ export function normalizePlan(p = {}) {
   };
 }
 
-function normalizeDoc(doc) {
+const stopRecord = (effectiveStop, anchorAt, updatedAt = new Date().toISOString()) => ({
+  effectiveStop,
+  anchorAt,
+  updatedAt,
+  rulesVersion: STOP_RULES_VERSION,
+});
+
+export function normalizeDoc(doc) {
   const plan = normalizePlan(doc?.plan);
+  const stale = doc?.stop?.rulesVersion !== STOP_RULES_VERSION;
+  const rules =
+    doc?.alerts?.rules && typeof doc.alerts.rules === 'object' ? { ...doc.alerts.rules } : {};
+  // Stale stop memory → drop it (and the stop alert's arming state) so it recomputes.
+  if (stale) delete rules.stop;
   return {
-    version: 1,
+    version: 2,
     plan,
     history: Array.isArray(doc?.history) ? doc.history.slice(0, HISTORY_LIMIT) : [],
-    stop: {
-      effectiveStop: Number.isFinite(doc?.stop?.effectiveStop) ? doc.stop.effectiveStop : null,
-      anchorAt: doc?.stop?.anchorAt ?? plan.anchorAt,
-      updatedAt: doc?.stop?.updatedAt ?? null,
-    },
+    stop: stale
+      ? stopRecord(null, plan.anchorAt, null)
+      : stopRecord(
+          Number.isFinite(doc.stop.effectiveStop) ? doc.stop.effectiveStop : null,
+          doc.stop.anchorAt ?? plan.anchorAt,
+          doc.stop.updatedAt ?? null,
+        ),
     alerts: {
-      rules:
-        doc?.alerts?.rules && typeof doc.alerts.rules === 'object' ? doc.alerts.rules : {},
+      rules,
       log: Array.isArray(doc?.alerts?.log) ? doc.alerts.log.slice(0, LOG_LIMIT) : [],
     },
   };
@@ -154,11 +171,13 @@ const uid = () =>
 
 /* ---------- public API (all async) ---------- */
 
-/** Load the whole document (creates defaults on first run and persists them). */
+/** Load the whole document (creates defaults on first run; persists migrations). */
 export async function loadPlanDoc() {
   const raw = await backend.read();
   const doc = normalizeDoc(raw);
-  if (!raw) await backend.write(doc);
+  if (!raw || raw.version !== doc.version || raw.stop?.rulesVersion !== STOP_RULES_VERSION) {
+    await backend.write(doc);
+  }
   return doc;
 }
 
@@ -190,9 +209,7 @@ export async function savePlan(planInput, market = null) {
     ...doc,
     plan,
     history: [entry, ...doc.history].slice(0, HISTORY_LIMIT),
-    stop: reanchored
-      ? { effectiveStop: null, anchorAt: plan.anchorAt, updatedAt: now }
-      : doc.stop,
+    stop: reanchored ? stopRecord(null, plan.anchorAt, now) : doc.stop,
   };
   await backend.write(next);
   return next;
@@ -213,10 +230,7 @@ export async function saveStopState(effectiveStop, anchorAt) {
   const sameAnchor = doc.stop.anchorAt === anchorAt;
   const prev = sameAnchor ? doc.stop.effectiveStop : null;
   if (prev != null && effectiveStop <= prev) return doc;
-  const next = {
-    ...doc,
-    stop: { effectiveStop, anchorAt, updatedAt: new Date().toISOString() },
-  };
+  const next = { ...doc, stop: stopRecord(effectiveStop, anchorAt) };
   await backend.write(next);
   return next;
 }
@@ -227,7 +241,7 @@ export async function resetTrail(anchorAt = new Date().toISOString()) {
   const next = {
     ...doc,
     plan: { ...doc.plan, anchorAt },
-    stop: { effectiveStop: null, anchorAt, updatedAt: new Date().toISOString() },
+    stop: stopRecord(null, anchorAt),
   };
   await backend.write(next);
   return next;

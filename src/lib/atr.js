@@ -1,16 +1,22 @@
 /**
- * ATR + ratcheting trailing-stop math (pure — no DOM, no fetch, no storage).
+ * ATR + staged, ratcheting stop math (pure — no DOM, no fetch, no storage).
  *
- * Bars: `{ t (ms), open, high, low, close }`, sorted oldest → newest.
+ * Bars: `{ t (ms, candle OPEN time), open, high, low, close }`, oldest → newest.
+ * The last Kraken bar is usually still forming.
  *
- * Method (DOGE plan):
- *   - True range  = max(high − low, |high − prevClose|, |low − prevClose|)
- *   - ATR(14)     = Wilder smoothing, i.e. EWM with alpha = 1/14
- *                   (recursive form: atr = prev + (tr − prev) / 14, seeded with the first TR)
- *   - Trail       = highest high since anchor − mult × ATR
- *                   mult = atrMult (2.5) normally, tightMult (1.75) once price is
- *                   more than tightenPct (15%) above the tighten reference (avg cost)
- *   - Effective   = max(manual floor, ATR trail, previous effective) — never moves down.
+ * ATR: true range = max(high − low, |high − prevClose|, |low − prevClose|);
+ *      ATR(14) = Wilder smoothing (EWM alpha = 1/14, seeded with the first TR).
+ *
+ * Staged stop (DOGE plan):
+ *   Stage 1 — before breakout: effective stop = manual stop floor. No ATR trail.
+ *   Stage 2 — the first COMPLETED 4h candle (since the plan anchor) that closes
+ *             above `breakoutLevel` switches on:
+ *               floor  → max(manual floor, breakoutFloor)
+ *               trail  = highest high since that breakout candle − mult × ATR
+ *               mult   = atrMult (2.5), or tightMult (1.75) once price is more than
+ *                        tightenPct (15%) above tightenRef (default: breakoutLevel)
+ *   Effective stop = max(floor, trail at every bar since breakout, previous stop).
+ *   It never moves down.
  */
 
 export const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
@@ -79,15 +85,19 @@ export function anchorIndex(bars, anchorMs) {
  * Full stop snapshot for display + alerts.
  *
  * @param {object}   p
- * @param {Array}    p.bars              4h OHLC bars (oldest → newest; last may be in progress)
- * @param {number}  [p.livePrice]        latest ticker price (falls back to last close)
- * @param {number}  [p.anchorMs]         trail start (highest high is measured from the bar containing it)
- * @param {number}  [p.stopFloor]        manual stop floor
+ * @param {Array}    p.bars               4h OHLC bars (oldest → newest; last may be in progress)
+ * @param {number}  [p.livePrice]         latest ticker price (falls back to last close)
+ * @param {number}  [p.anchorMs]          plan start: breakout closes are searched from the bar containing it
+ * @param {number}  [p.stopFloor]         manual stop floor (stage 1 stop)
+ * @param {number}  [p.breakoutLevel]     4h close above this → stage 2
+ * @param {number}  [p.breakoutFloor]     floor once stage 2 starts
  * @param {number}  [p.atrMult=2.5]
  * @param {number}  [p.tightMult=1.75]
  * @param {number}  [p.tightenPct=15]
- * @param {number}  [p.tightenRef]       price the +tightenPct% is measured from (avg cost)
- * @param {number}  [p.prevEffectiveStop] last persisted effective stop (ratchet memory)
+ * @param {number}  [p.tightenRef]        tighten reference; null/blank → breakoutLevel
+ * @param {number}  [p.prevEffectiveStop] persisted stop (ratchet memory)
+ * @param {number}  [p.nowMs=Date.now()]  used to decide which candles are closed
+ * @param {number}  [p.intervalMs=4h]
  * @param {number}  [p.period=14]
  * @param {number}  [p.medianDays=90]
  */
@@ -96,20 +106,26 @@ export function computeStopSnapshot({
   livePrice,
   anchorMs,
   stopFloor,
+  breakoutLevel,
+  breakoutFloor,
   atrMult = 2.5,
   tightMult = 1.75,
   tightenPct = 15,
   tightenRef,
   prevEffectiveStop,
+  nowMs = Date.now(),
+  intervalMs = FOUR_HOURS_MS,
   period = 14,
   medianDays = 90,
 }) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
 
+  const pos = (x) => (Number.isFinite(x) && x > 0 ? x : null);
   const atrSeries = wilderAtr(bars, period);
   const last = bars[bars.length - 1];
-  const price = Number.isFinite(livePrice) && livePrice > 0 ? livePrice : last.close;
-  const atr = atrSeries[atrSeries.length - 1];
+  const lastIdx = bars.length - 1;
+  const price = pos(livePrice) ?? last.close;
+  const atr = atrSeries[lastIdx];
   const atrPct = (atr / price) * 100;
 
   // 90-day median ATR% (skip the warm-up bars so the seed doesn't skew it).
@@ -122,52 +138,86 @@ export function computeStopSnapshot({
   const medianAtrPct = median(pctSeries);
   const medianCoverageDays = pctSeries.length / BARS_PER_DAY_4H;
 
-  const multOpts = { atrMult, tightMult, tightenPct, tightenRef };
-  const floor = Number.isFinite(stopFloor) && stopFloor > 0 ? stopFloor : null;
+  const floor = pos(stopFloor);
+  const boLevel = pos(breakoutLevel);
+  const boFloor = pos(breakoutFloor);
+  const tightenRefUsed = pos(tightenRef) ?? boLevel;
+  const multOpts = { atrMult, tightMult, tightenPct, tightenRef: tightenRefUsed };
+  const tightenAt = tightenRefUsed
+    ? tightenRefUsed * (1 + (Number(tightenPct) || 0) / 100)
+    : null;
 
-  // Walk every bar since the anchor so the ratchet is reproducible from data
-  // even when the app wasn't open (trail only ever steps up).
   const start = anchorIndex(bars, anchorMs);
   const anchorBeforeData = Number.isFinite(anchorMs) && anchorMs < bars[0].t;
-  let highestHigh = -Infinity;
+  const isClosed = (b) => b.t + intervalMs <= nowMs;
+  const barHigh = (i) => (i === lastIdx ? Math.max(bars[i].high, price) : bars[i].high);
+  const barClose = (i) => (i === lastIdx ? price : bars[i].close);
+
+  // Highest high since the anchor (context only in stage 1).
+  let hhSinceAnchor = -Infinity;
+  for (let i = start; i < bars.length; i += 1) hhSinceAnchor = Math.max(hhSinceAnchor, barHigh(i));
+
+  // Stage 2 trigger: first completed candle since anchor closing above breakout.
+  let breakoutIdx = -1;
+  if (boLevel) {
+    for (let i = start; i < bars.length; i += 1) {
+      if (isClosed(bars[i]) && bars[i].close > boLevel) {
+        breakoutIdx = i;
+        break;
+      }
+    }
+  }
+  const stage = breakoutIdx >= 0 ? 2 : 1;
+  const prev = pos(prevEffectiveStop);
+
+  let highestHigh = hhSinceAnchor;
   let highestHighAt = null;
-  let walkedStop = floor;
   let trail = null;
   let mult = atrMult;
   let tightened = false;
-  for (let i = start; i < bars.length; i += 1) {
-    const b = bars[i];
-    const isLast = i === bars.length - 1;
-    const hi = isLast ? Math.max(b.high, price) : b.high;
-    if (hi > highestHigh) {
-      highestHigh = hi;
-      highestHighAt = b.t;
+  let stageFloor = floor;
+  let walked = null;
+
+  if (stage === 2) {
+    stageFloor = ratchet(floor, boFloor);
+    highestHigh = -Infinity;
+    walked = stageFloor;
+    // Replay every bar since the breakout candle so the ratchet is reproducible
+    // from data even when the app wasn't open.
+    for (let i = breakoutIdx; i < bars.length; i += 1) {
+      const hi = barHigh(i);
+      if (hi > highestHigh) {
+        highestHigh = hi;
+        highestHighAt = bars[i].t;
+      }
+      ({ mult, tightened } = multiplierFor(barClose(i), multOpts));
+      trail = highestHigh - mult * atrSeries[i];
+      walked = ratchet(walked, trail);
     }
-    const c = isLast ? price : b.close;
-    ({ mult, tightened } = multiplierFor(c, multOpts));
-    trail = highestHigh - mult * atrSeries[i];
-    walkedStop = ratchet(walkedStop, trail);
   }
 
-  const prev = Number.isFinite(prevEffectiveStop) ? prevEffectiveStop : null;
-  const effectiveStop = ratchet(floor, trail, walkedStop, prev);
+  const effectiveStop = ratchet(stageFloor, walked, prev);
 
   const eq = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-12;
-  const stopSource = eq(effectiveStop, trail)
-    ? 'trail'
-    : eq(effectiveStop, floor)
-      ? 'floor'
-      : 'ratchet';
+  let stopSource = 'ratchet';
+  if (eq(effectiveStop, trail)) stopSource = 'trail';
+  else if (stage === 2 && eq(effectiveStop, boFloor) && (floor == null || boFloor >= floor))
+    stopSource = 'breakoutFloor';
+  else if (eq(effectiveStop, floor)) stopSource = 'floor';
 
   const trailDistance = mult * atr;
-  const tightenAt =
-    Number.isFinite(tightenRef) && tightenRef > 0
-      ? tightenRef * (1 + (Number(tightenPct) || 0) / 100)
-      : null;
+  const baseTrailDistance = atrMult * atr;
 
   return {
+    stage,
+    trailActive: stage === 2,
+    breakoutAt: stage === 2 ? bars[breakoutIdx].t : null,
+    breakoutClose: stage === 2 ? bars[breakoutIdx].close : null,
+    breakoutLevel: boLevel,
+    breakoutFloor: boFloor,
     price,
     lastBarAt: last.t,
+    lastBarClosed: isClosed(last),
     bars: bars.length,
     atr,
     atrPct,
@@ -175,17 +225,23 @@ export function computeStopSnapshot({
     medianCoverageDays,
     anchorBarAt: bars[start].t,
     anchorBeforeData,
+    hhSinceAnchor,
     highestHigh,
     highestHighAt,
     mult,
     tightened,
+    tightenRef: tightenRefUsed,
     tightenAt,
     trail,
+    // Stage 1 reference only: what a base-multiplier trail would be right now.
+    previewTrail: stage === 1 ? hhSinceAnchor - baseTrailDistance : null,
     trailDistance,
+    baseTrailDistance,
     trailPct: (trailDistance / price) * 100,
-    baseTrailPct: ((atrMult * atr) / price) * 100,
+    baseTrailPct: (baseTrailDistance / price) * 100,
     tightTrailPct: ((tightMult * atr) / price) * 100,
     floor,
+    stageFloor,
     effectiveStop,
     stopSource,
     distToStopPct:

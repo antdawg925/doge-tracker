@@ -183,9 +183,10 @@ This is **not** public internet hosting — only devices on your home network. P
 
 ## Alerts — DOGE plan & ATR trailing stop
 
-- **Math** (`src/lib/atr.js`, pure): Kraken `XDGUSD` 4h candles → true range → ATR(14) Wilder (EWM α = 1/14).
-  Trail = highest high since the plan anchor − 2.5×ATR (1.75×ATR once price > tighten reference × (1 + 15%); reference defaults to average cost).
-  Effective stop = max(manual floor, ATR trail, every earlier trail since anchor, stored stop) — it never moves down.
+- **Math** (`src/lib/atr.js`, pure): Kraken `XDGUSD` 4h candles → true range → ATR(14) Wilder (EWM α = 1/14). Staged stop:
+  - **Stage 1** (before breakout): effective stop = manual floor (0.079). ATR shown for reference only.
+  - **Stage 2** (first *completed* 4h candle since the plan anchor that closes above the breakout level, 0.104): floor → floor after breakout (0.090) and trail = highest high since the breakout candle − 2.5×ATR (1.75× once price > tighten reference × 1.15; reference defaults to the breakout level → ~0.1196).
+  - Effective stop = max(floor, every trail value since breakout, stored stop) — never moves down. Stored stop memory carries `rulesVersion`; stale versions are discarded and recomputed.
 - **Alerts** (`src/lib/alertRules.js`): sell, breakout, high/low zone, buy-back and effective-stop crossings. Fire once per crossing, re-arm after price pulls back 0.5% past the level. Polling every 90s runs app-wide (`DogePlanProvider` in `AppLayout`) while Trade Smart is open; system notifications via the Notification API (+ `public/alerts-sw.js` for Android Chrome).
 - **Storage** (`src/lib/planStore.js`): async API over localStorage key `trade-smart-doge-plan-v1` (`plan`, `history`, `stop`, `alerts`). Swap the backend adapter for a server API in the login / cron / Telegram phase.
 - **Checks**: `npm run check:atr` (fixtures + live Kraken numbers) and `npm run check:alerts`.

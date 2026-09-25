@@ -38,7 +38,7 @@ export default function Alerts() {
   const resetTrail = () => {
     if (
       window.confirm(
-        'Restart the ATR trail from now? The highest high resets to the current candle and the ratchet memory clears (the manual floor still applies).',
+        'Restart the plan from now? Breakout detection starts from the current candle and the stop memory clears (the manual floor still applies).',
       )
     ) {
       ctx.resetTrail();
@@ -57,8 +57,9 @@ export default function Alerts() {
             <p className="scanner__kicker muted">Alerts</p>
             <h1>DOGE plan &amp; trailing stop</h1>
             <p className="scanner__subtitle muted">
-              Core rides an ATR trailing stop that only moves up; the trading slice sells into
-              strength and buys back lower. Price checks run every {Math.round(pollMs / 1000)}s
+              Stage 1: the core sits on a fixed floor. Stage 2 (4h close above breakout): the floor
+              steps up and an ATR trailing stop takes over, only ever moving up. The trading slice
+              sells into strength and buys back lower. Price checks run every {Math.round(pollMs / 1000)}s
               while Trade Smart is open.
             </p>
           </div>

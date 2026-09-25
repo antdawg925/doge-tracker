@@ -30,10 +30,12 @@ function snapshotFor(doc, bars, livePrice) {
     livePrice,
     anchorMs: Date.parse(plan.anchorAt),
     stopFloor: plan.stopFloor,
+    breakoutLevel: plan.breakoutLevel,
+    breakoutFloor: plan.breakoutFloor,
     atrMult: plan.atrMult,
     tightMult: plan.tightMult,
     tightenPct: plan.tightenPct,
-    tightenRef: plan.tightenRef ?? plan.avgCost,
+    tightenRef: plan.tightenRef, // null → breakout level (handled in atr.js)
     prevEffectiveStop: stop.anchorAt === plan.anchorAt ? stop.effectiveStop : null,
   });
 }
