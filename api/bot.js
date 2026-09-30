@@ -8,7 +8,7 @@
  *   POST /api/bot/guard/pause     { paused: boolean } — user pauses / resumes their OWN bot.
  *   POST /api/bot/guard/max-loss  { maxLossUsd: number >= 0 } — user's OWN "willing to lose" line.
  *   POST /api/bot/stocks/refresh  bot-tier user: recompute their OWN stock stops now (after add/edit).
- *   POST /api/bot/stocks/plan     { symbol, riskUsd } bot-tier user: "Plan a short" sizing (nothing saved).
+ *   POST /api/bot/stocks/plan     { symbol, riskUsd, side } bot-tier user: "Plan a trade" suggested sizing (nothing saved).
  *   POST /api/bot/stocks/guard/pause|max-loss|unlock  the caller's OWN stocks paper guard
  *                                 (stock_guard, separate from DOGE's bot_guard).
  * /run also runs the watch-only stock pass (api/_stockRunner.js): every 5 min in US market
@@ -21,7 +21,7 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
 import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
-import { planShort } from '../shared/stockEngine.js'
+import { planTrade } from '../shared/stockEngine.js'
 import { bookParts, initStockGuard } from '../shared/stockPaper.js'
 import { fetchTickerPrice } from './_kraken.js'
 import { BOT_SYMBOLS } from '../shared/botEngine.js'
@@ -139,7 +139,7 @@ async function stockRoute(sb, req, res, route) {
   const symbol = String(body.symbol || '').trim().toUpperCase()
   if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return sendJson(res, 400, { error: 'Enter a stock symbol.' })
   const riskUsd = body.riskUsd == null || body.riskUsd === '' ? 100 : Number(body.riskUsd)
-  if (!Number.isFinite(riskUsd) || riskUsd <= 0 || riskUsd > 1e7) return sendJson(res, 400, { error: 'Risk $ must be a positive number.' })
+  if (!Number.isFinite(riskUsd) || riskUsd <= 0 || riskUsd > 1e7) return sendJson(res, 400, { error: 'Max loss $ must be a positive number.' })
   let market
   try {
     market = await fetchDailyMarket(symbol, rangeFor([]))
@@ -148,7 +148,8 @@ async function stockRoute(sb, req, res, route) {
   }
   const info = (await symbolInfo(sb, [symbol]).catch(() => new Map())).get(symbol) ?? null
   try {
-    const plan = planShort({ bars: market.bars, price: market.price, info, riskUsd, nowMs: Date.now() })
+    const side = body.side === 'long' ? 'long' : 'short'
+    const plan = planTrade({ side, bars: market.bars, price: market.price, info, riskUsd, nowMs: Date.now() })
     return sendJson(res, 200, { ok: true, symbol, name: market.name, priceAt: market.priceAt, ...plan })
   } catch (e) {
     return sendJson(res, 400, { error: e.message })

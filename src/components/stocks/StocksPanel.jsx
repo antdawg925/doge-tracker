@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/authContext.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
 import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
-import PlanShort from './PlanShort.jsx';
+import PlanTrade from './PlanTrade.jsx';
 import PaperBar from './PaperBar.jsx';
 import { paperTally } from '../../../shared/stockPaper.js';
 
@@ -249,8 +249,10 @@ function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, bu
         <input type="date" value={draft.entry_date} max={todayEt()} onChange={set('entry_date')} required />
       </label>
       <label>
-        Risk $
-        <input type="number" min="0" step="1" inputMode="decimal" value={draft.risk_usd} onChange={set('risk_usd')} required />
+        <span className="stk-entry-label">
+          Max loss $<span className="stk-live small muted">Whole position closes if it's down this much</span>
+        </span>
+        <input type="number" min="0" step="1" inputMode="decimal" value={draft.risk_usd} onChange={set('risk_usd')} required title="Whole position closes if it's down this much" />
       </label>
       <div className="stk-form__actions">
         <button type="submit" className="btn btn--primary" disabled={busy}>
@@ -296,7 +298,10 @@ function Row({ p, s, o, onEdit }) {
   const shares = Number(p.shares);
   const pnl = Number.isFinite(price) ? (isLong ? price - entry : entry - price) * shares : null;
   const pnlPct = Number.isFinite(price) ? ((isLong ? price - entry : entry - price) / entry) * 100 : null;
-  const sz = d?.size;
+  const stopNum = s ? Number(s.stop) : null;
+  const hitPnl = Number.isFinite(stopNum) && shares > 0 ? (isLong ? stopNum - entry : entry - stopNum) * shares : null;
+  const cap = Number(p.risk_usd);
+  const ruleText = d?.rule === 'risk' ? `Risk cap $${cap.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : d?.rule === 'atr' ? 'ATR stop' : null;
   return (
     <>
       <tr className={d?.hit ? 'stk-row--hit' : d?.near ? 'stk-row--near' : ''}>
@@ -325,6 +330,7 @@ function Row({ p, s, o, onEdit }) {
                 ) : (
                   <span className="small muted"> {isLong ? 'stop' : 'buy-stop'}</span>
                 )}
+                {ruleText ? <span className={`stk-rule small ${d.rule === 'risk' ? 'stk-rule--cap' : ''}`} title={d.ruleHeld ? 'Held by the ratchet (stops only tighten)' : 'Tighter of the ATR stop and your max-loss cap'}>{ruleText}</span> : null}
               </>
             )
           ) : (
@@ -338,17 +344,8 @@ function Row({ p, s, o, onEdit }) {
         <td>
           <Flags f={d?.flags} />
         </td>
-        <td className="num mono" title={sz ? `Per share at risk ${px(sz.perShare)}${!isLong ? ` (incl. gap cushion ${px(sz.cushion)}, max gap ${(sz.gapPct * 100).toFixed(1)}%)` : ''} · your risk ${px(sz.yourRisk)}` : undefined}>
-          {sz ? (
-            <>
-              {sz.lockedIn ? <span className="pos small">stop ≥ entry</span> : (sz.suggested ?? '—')}
-              <span className="muted"> / </span>
-              <span className={sz.overRisk ? 'neg' : ''}>{shares.toLocaleString('en-US')}</span>
-              {sz.overRisk ? <span className="neg small" title={`Your shares risk ${px(sz.yourRisk)} > ${px(sz.riskUsd)}`}> ⚠</span> : null}
-            </>
-          ) : (
-            '—'
-          )}
+        <td className={`num mono ${hitPnl < 0 ? 'is-neg' : hitPnl > 0 ? 'is-pos' : ''}`} title={s ? `If the whole position fills at the stop ${px(s.stop)} (${shares} × ${px(Math.abs(entry - s.stop))})` : undefined}>
+          {hitPnl == null ? '—' : hitPnl < -0.005 ? `−$${Math.abs(hitPnl).toFixed(2)}` : `+$${Math.max(0, hitPnl).toFixed(2)} locked`}
         </td>
         <td>
           <PaperCell o={o} />
@@ -364,7 +361,9 @@ function Row({ p, s, o, onEdit }) {
           <td colSpan={12}>
             <p className="small muted stk-log-head">
               Initial {px(s?.initial_stop)} · trail {d?.mult ?? '—'} ATR from {isLong ? 'highest close' : 'lowest low'} {px(d?.extreme)} · last candle {d?.lastBar || '—'} · checked {ptTime(s?.updated_at)} PT
-              {p.risk_usd != null ? ` · risk $${Number(p.risk_usd)}` : ''}
+              {' · '}in charge: <strong>{ruleText || '—'}</strong>
+              {d?.ruleHeld ? ' (held by ratchet)' : ''} · ATR stop {px(d?.atrStop)}
+              {Number.isFinite(d?.riskStop) ? ` · cap stop ${px(d.riskStop)} (max loss $${cap})` : ' · no max-loss cap'}
             </p>
             {o?.status === 'filled' ? (
               <p className="small neg stk-log-head">
@@ -541,7 +540,7 @@ export default function StocksPanel() {
             setPlanning((v) => !v);
           }}
         >
-          Plan a short
+          Plan a trade
         </button>
       </div>
 
@@ -565,7 +564,7 @@ export default function StocksPanel() {
         />
       ) : null}
 
-      {planning ? <PlanShort onAdd={({ entry_price: _planPx, ...pre }) => openNew(pre)} /> : null}
+      {planning ? <PlanTrade onAdd={(pre) => openNew(pre)} /> : null}
 
       {!data ? (
         <p className="muted small">Loading…</p>
@@ -583,7 +582,7 @@ export default function StocksPanel() {
                 <th className="num" title="Room before the stop, % of price">To stop</th>
                 <th className="num">ATR</th>
                 <th>Flags</th>
-                <th className="num" title="Suggested shares for your risk $ / your shares">Size</th>
+                <th className="num" title="$ result if the whole position fills at the stop">Risk if hit</th>
                 <th title="Simulated stop order the bot manages">Paper</th>
                 <th className="action" />
               </tr>

@@ -163,6 +163,49 @@ export function sizeLong({ entry, stop, riskUsd }) {
   return { perShare, shares: Math.floor(riskUsd / perShare) };
 }
 
+/**
+ * Max-loss cap: your shares are final, risk_usd is the most the WHOLE position may lose.
+ * Long: entry − risk/shares. Short: entry + risk/shares. No cap when risk or shares ≤ 0.
+ */
+export function riskCapStop({ side, entry, shares, riskUsd }) {
+  const e = Number(entry);
+  const q = Number(shares);
+  const r = Number(riskUsd);
+  if (!(e > 0) || !(q > 0) || !(r > 0)) return null;
+  return side === 'short' ? e + r / q : e - r / q;
+}
+
+/**
+ * Effective stop = the TIGHTER of the ATR stop and the risk-cap stop, then ratcheted against the
+ * remembered stop (long up-only, short down-only). rule = which one is in charge:
+ * 'atr' | 'risk' | the remembered rule when the ratchet is holding an older, tighter stop.
+ */
+export function effectiveStop({ side, atrStop, riskStop = null, prevStop = null, prevRule = null }) {
+  const long = side === 'long';
+  const tighter = (a, b) => (long ? Math.max(a, b) : Math.min(a, b));
+  let stop = atrStop;
+  let rule = 'atr';
+  if (fin(riskStop) && (long ? riskStop > atrStop + 1e-9 : riskStop < atrStop - 1e-9)) {
+    stop = riskStop;
+    rule = 'risk';
+  }
+  let held = false;
+  if (fin(prevStop) && prevStop > 0 && (long ? prevStop > stop + 1e-9 : prevStop < stop - 1e-9)) {
+    stop = tighter(stop, prevStop);
+    held = true;
+    rule = prevRule === 'risk' || prevRule === 'atr' ? prevRule : 'atr';
+  }
+  return { stop, rule, held };
+}
+
+/** $ result if the whole position fills at the stop: negative = loss, positive = locked-in gain. */
+export function riskIfHit({ side, entry, shares, stop }) {
+  const q = Number(shares);
+  const e = Number(entry);
+  if (!fin(stop) || !(q > 0) || !(e > 0)) return null;
+  return (side === 'short' ? e - stop : stop - e) * q;
+}
+
 /** Anchor = what the stop memory belongs to; editing side / entry / date starts a new memory. */
 export const stopAnchor = (p) => `${p.side}|${Number(p.entry_price)}|${p.entry_date}`;
 
@@ -256,29 +299,46 @@ export function computeStockStop({ side, entryPrice, entryDate, bars, info = nul
   };
 }
 
-/** "Plan a short" at the current price (nothing saved). */
-export function planShort({ bars, price, info = null, riskUsd = R.defaultRiskUsd, nowMs = Date.now() }) {
+/**
+ * "Plan a trade" at the current price (research only, nothing saved): suggested shares so that a
+ * fill at the stop loses about riskUsd. Long uses the long ATR rule; short adds the gap cushion.
+ */
+export function planTrade({ side = 'short', bars, price, info = null, riskUsd = R.defaultRiskUsd, nowMs = Date.now() }) {
   const done = completedDailyBars(bars, nowMs);
   const today = etDate(nowMs);
-  const s = computeStockStop({ side: 'short', entryPrice: price, entryDate: today, bars: done, info });
-  const { gapPct, cushion } = gapCushion(done, price, s.atr);
-  const size = sizeShort({ price, stop: s.stop, cushion, riskUsd });
+  const long = side === 'long';
+  const s = computeStockStop({ side: long ? 'long' : 'short', entryPrice: price, entryDate: today, bars: done, info: long ? null : info });
+  let size;
+  let gapPct = null;
+  let cushion = null;
+  if (long) {
+    size = sizeLong({ entry: price, stop: s.stop, riskUsd });
+  } else {
+    ({ gapPct, cushion } = gapCushion(done, price, s.atr));
+    size = sizeShort({ price, stop: s.stop, cushion, riskUsd });
+  }
   return {
+    side: long ? 'long' : 'short',
     price,
     atr: s.atr,
     atrPct: (s.atr / price) * 100,
-    swingHigh: s.swing,
-    mult: s.si ? R.shortSiMult : R.shortMult,
+    swingHigh: long ? null : s.swing,
+    swingLow: long ? s.swing : null,
+    mult: long ? R.longMult : s.si ? R.shortSiMult : R.shortMult,
     stop: s.stop,
     gapPct,
     cushion,
     perShare: size.perShare,
     shares: size.shares,
     totalRisk: size.shares != null ? size.shares * size.perShare : null,
+    cost: size.shares != null ? size.shares * price : null,
     riskUsd,
     flags: flagsFor({ info, nowMs, squeezeAt: null, si: s.si }),
   };
 }
+
+/** "Plan a short" (kept for callers/tests): planTrade with side short. */
+export const planShort = (args) => planTrade({ ...args, side: 'short' });
 
 function flagsFor({ info, nowMs, squeezeAt, si, profitTight = false }) {
   const e = info?.earningsAt;
@@ -318,9 +378,12 @@ export function evaluateStockPosition({ position, market, info = null, stopRow =
   const prevStop = sameMemory ? pos(Number(stopRow.stop)) : null;
 
   const done = completedDailyBars(market.bars, nowMs);
-  const s = computeStockStop({ side, entryPrice: entry, entryDate: position.entry_date, bars: done, info, prevStop });
+  // ATR stop on its own (no memory), then the tighter of it and the max-loss cap, then the ratchet.
+  const s = computeStockStop({ side, entryPrice: entry, entryDate: position.entry_date, bars: done, info });
+  const riskStop = riskCapStop({ side, entry, shares, riskUsd });
+  const eff = effectiveStop({ side, atrStop: s.stop, riskStop, prevStop, prevRule: sameMemory ? stopRow?.data?.rule : null });
   const price = market.price;
-  const stop = s.stop;
+  const stop = eff.stop;
   const atr = s.atr;
   const today = etDate(nowMs);
   const isLong = side === 'long';
@@ -343,10 +406,8 @@ export function evaluateStockPosition({ position, market, info = null, stopRow =
   const pnl = (isLong ? price - entry : entry - price) * shares;
   const pnlPct = ((isLong ? price - entry : entry - price) / entry) * 100;
 
-  const { gapPct, cushion } = gapCushion(done, price, atr);
-  const size = isLong ? sizeLong({ entry, stop, riskUsd }) : sizeShort({ price, stop, cushion, riskUsd });
-  const yourRisk = isLong ? shares * Math.max(0, entry - stop) : shares * (stop - price + cushion);
-  const overRisk = yourRisk > riskUsd + 0.005;
+  const hitPnl = riskIfHit({ side, entry, shares, stop });
+  const ruleLabel = eff.rule === 'risk' ? `Risk cap ${money(riskUsd).replace(/\.00$/, '')}` : 'ATR stop';
 
   // ---- alerts (de-duplicated through alert state)
   const st = { ...(alertState || {}) };
@@ -360,7 +421,7 @@ export function evaluateStockPosition({ position, market, info = null, stopRow =
   const fire = (kind, title, body, level = stop) => fired.push({ kind, title, body, level, price });
 
   if (st.lastAlertStop == null) {
-    fire('stop_set', `${sym}: set your Schwab ${stopWord} at ${money(stop)}`, `${isLong ? 'Long' : 'Short'} ${shares} @ ${money(entry)}. ATR ${money(atr)}.`);
+    fire('stop_set', `${sym}: set your Schwab ${stopWord} at ${money(stop)}`, `${isLong ? 'Long' : 'Short'} ${shares} @ ${money(entry)}. ${ruleLabel} in charge (max loss ${money(riskUsd)}). ATR ${money(atr)}.`);
     st.lastAlertStop = stop;
     st.lastMoveDay = today;
   } else if (
@@ -438,7 +499,13 @@ export function evaluateStockPosition({ position, market, info = null, stopRow =
     lastBar: done.at(-1)?.date ?? null,
     barsSinceEntry: s.barsSinceEntry,
     flags,
-    size: { perShare: size.perShare, suggested: size.shares, yourRisk, overRisk, riskUsd, cushion, gapPct, lockedIn: Boolean(size.lockedIn) },
+    atrStop: s.stop,
+    riskStop,
+    riskUsd,
+    rule: eff.rule,
+    ruleHeld: eff.held,
+    ruleLabel,
+    riskIfHit: hitPnl,
     action,
     move: st.moveFrom != null ? { from: st.moveFrom, day: st.moveDay } : null,
     pass,

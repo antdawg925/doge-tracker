@@ -11,6 +11,7 @@ import ResistancePanel from '../components/ResistancePanel';
 import SuggestedStops from '../components/SuggestedStops';
 import PositionSummary from '../components/PositionSummary';
 import PositionEditor from '../components/PositionEditor';
+import PositionSizeLine from '../components/PositionSizeLine';
 import NewsPanel from '../components/NewsPanel';
 import FundamentalsPanel from '../components/FundamentalsPanel';
 import { useAssetPrice } from '../hooks/useAssetPrice';
@@ -269,6 +270,7 @@ export default function Research() {
               </Link>
             }
           />
+          <PositionSizeLine asset={asset} bars={longBars} spot={price} />
           {hasEnteredPosition(position.coins, position.avgCost) ? (
             <PositionSummary position={position} spot={price} asset={asset} />
           ) : null}

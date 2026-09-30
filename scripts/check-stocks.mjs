@@ -14,7 +14,11 @@ import {
   gapCushion,
   isSqueezeDay,
   maxGapUpPct,
+  effectiveStop,
   planShort,
+  planTrade,
+  riskCapStop,
+  riskIfHit,
   sizeLong,
   sizeShort,
 } from '../shared/stockEngine.js';
@@ -225,13 +229,86 @@ ok('size: long shares = floor(risk / (entry − stop)); none needed once stop �
   assert.equal(sizeLong({ entry: 100, stop: 101, riskUsd: 100 }).lockedIn, true);
 });
 
-ok('size: warns when your shares risk more than risk $', () => {
-  const position = { symbol: 'PLUG', side: 'short', shares: 5000, entry_price: 49.5, entry_date: entryDateS, risk_usd: 100 };
-  const bars = shortBars.slice(0, 32);
-  const r = evaluateStockPosition({ position, market: { bars, price: bars.at(-1).close }, nowMs: afterClose(bars.at(-1)) });
-  assert.equal(r.snapshot.size.overRisk, true);
-  const small = evaluateStockPosition({ position: { ...position, shares: 1 }, market: { bars, price: bars.at(-1).close }, nowMs: afterClose(bars.at(-1)) });
-  assert.equal(small.snapshot.size.overRisk, false);
+// ------------------------------------------------------------ MAX-LOSS CAP (shares final, risk $ = whole-position cap)
+ok('risk cap: long riskStop = entry − risk/shares; short = entry + risk/shares; none without risk', () => {
+  assert.equal(riskCapStop({ side: 'long', entry: 762.63, shares: 5, riskUsd: 150 }), 732.63);
+  assert.ok(Math.abs(riskCapStop({ side: 'short', entry: 20, shares: 100, riskUsd: 150 }) - 21.5) < 1e-9);
+  assert.equal(riskCapStop({ side: 'long', entry: 100, shares: 5, riskUsd: 0 }), null);
+  assert.equal(riskCapStop({ side: 'long', entry: 100, shares: 0, riskUsd: 100 }), null);
+});
+
+ok('risk cap: effective = tighter of ATR and cap (long max, short min) and says which is in charge', () => {
+  assert.deepEqual(effectiveStop({ side: 'long', atrStop: 95, riskStop: 97 }), { stop: 97, rule: 'risk', held: false });
+  assert.deepEqual(effectiveStop({ side: 'long', atrStop: 98, riskStop: 97 }), { stop: 98, rule: 'atr', held: false });
+  assert.deepEqual(effectiveStop({ side: 'short', atrStop: 24, riskStop: 21.5 }), { stop: 21.5, rule: 'risk', held: false });
+  assert.deepEqual(effectiveStop({ side: 'short', atrStop: 21, riskStop: 21.5 }), { stop: 21, rule: 'atr', held: false });
+  assert.deepEqual(effectiveStop({ side: 'long', atrStop: 95, riskStop: null }), { stop: 95, rule: 'atr', held: false });
+});
+
+ok('risk cap: ratchet never loosens (long up-only, short down-only), tighter cap may tighten', () => {
+  // Remembered long stop 97 (cap). Cap loosens to 90 (more risk $) → stays 97, still labelled cap.
+  assert.deepEqual(effectiveStop({ side: 'long', atrStop: 95, riskStop: 90, prevStop: 97, prevRule: 'risk' }), { stop: 97, rule: 'risk', held: true });
+  // Remembered ATR stop 95; a tighter cap 97 moves it up (protective).
+  assert.deepEqual(effectiveStop({ side: 'long', atrStop: 95, riskStop: 97, prevStop: 95, prevRule: 'atr' }), { stop: 97, rule: 'risk', held: false });
+  // Short: remembered 21.5; looser ATR 24 & looser cap 22 → held at 21.5; tighter ATR 21 → 21.
+  assert.equal(effectiveStop({ side: 'short', atrStop: 24, riskStop: 22, prevStop: 21.5, prevRule: 'risk' }).stop, 21.5);
+  assert.deepEqual(effectiveStop({ side: 'short', atrStop: 21, riskStop: 22, prevStop: 21.5, prevRule: 'risk' }), { stop: 21, rule: 'atr', held: false });
+});
+
+ok('risk cap: evaluate uses the tighter stop end to end, remembers the rule, never loosens on a bigger cap', () => {
+  const bars = longBars.slice(0, 32);
+  const nowMs = afterClose(bars.at(-1));
+  const base = { symbol: 'QQQ', side: 'long', shares: 10, entry_price: 100.5, entry_date: entryDateL };
+  const loose = evaluateStockPosition({ position: { ...base, risk_usd: 100000 }, market: { bars, price: bars.at(-1).close }, nowMs });
+  const atrStop = loose.snapshot.atrStop;
+  assert.equal(loose.snapshot.rule, 'atr');
+  assert.equal(loose.snapshot.stop, atrStop);
+  // Cap tight enough to beat the ATR stop: shares × (entry − atrStop) − 5 $.
+  const riskUsd = Math.max(1, 10 * (100.5 - atrStop) - 5);
+  const capped = evaluateStockPosition({ position: { ...base, risk_usd: riskUsd }, market: { bars, price: bars.at(-1).close }, nowMs, stopRow: loose.stopRowNext });
+  assert.ok(atrStop < 100.5, 'fixture: ATR stop below entry so the cap can win');
+  {
+    assert.equal(capped.snapshot.rule, 'risk');
+    assert.ok(Math.abs(capped.snapshot.stop - (100.5 - riskUsd / 10)) < 1e-9);
+    assert.ok(capped.snapshot.stop > atrStop);
+    assert.ok(Math.abs(capped.snapshot.riskIfHit + riskUsd) < 1e-6, 'risk if hit = −cap when the cap is in charge');
+  }
+  // Raise the cap again → stop held (never loosens), still labelled the cap.
+  const again = evaluateStockPosition({ position: { ...base, risk_usd: 100000 }, market: { bars, price: bars.at(-1).close }, nowMs, stopRow: capped.stopRowNext });
+  assert.equal(again.snapshot.stop, capped.snapshot.stop);
+  assert.equal(again.snapshot.ruleHeld, atrStop < 100.5);
+  // Short: cap above price but below the ATR buy-stop → cap is in charge.
+  const sb = shortBars.slice(0, 30);
+  const sp = { symbol: 'PLUG', side: 'short', shares: 100, entry_price: sb.at(-1).close, entry_date: sb.at(-1).date };
+  const sAtr = evaluateStockPosition({ position: { ...sp, risk_usd: 1e6 }, market: { bars: sb, price: sb.at(-1).close }, nowMs: afterClose(sb.at(-1)) }).snapshot.atrStop;
+  const sRisk = ((sAtr - sp.entry_price) / 2) * 100;
+  const s2 = evaluateStockPosition({ position: { ...sp, risk_usd: sRisk }, market: { bars: sb, price: sb.at(-1).close }, nowMs: afterClose(sb.at(-1)) });
+  assert.equal(s2.snapshot.rule, 'risk');
+  assert.ok(s2.snapshot.stop < sAtr);
+  assert.ok(Math.abs(s2.snapshot.riskIfHit + sRisk) < 1e-6);
+});
+
+ok('plan a trade: long = long ATR stop, shares = floor(max loss / (price − stop)), cost = shares × price; short unchanged', () => {
+  const bars = longBars.slice(0, 40);
+  const price = bars.at(-1).close;
+  const nowMs = afterClose(bars.at(-1));
+  const p = planTrade({ side: 'long', bars, price, riskUsd: 100, nowMs });
+  const s = computeStockStop({ side: 'long', entryPrice: price, entryDate: etDate(nowMs), bars: completedDailyBars(bars, nowMs) });
+  assert.equal(p.stop, s.stop);
+  assert.ok(Math.abs(p.perShare - (price - p.stop)) < 1e-9);
+  assert.equal(p.shares, Math.floor(100 / p.perShare));
+  assert.ok(Math.abs(p.cost - p.shares * price) < 1e-9);
+  assert.ok(p.totalRisk <= 100);
+  const sb = shortBars.slice(0, 30);
+  assert.deepEqual(planTrade({ side: 'short', bars: sb, price: 20, nowMs: afterClose(sb.at(-1)) }).shares, planShort({ bars: sb, price: 20, nowMs: afterClose(sb.at(-1)) }).shares);
+});
+
+ok('risk if hit: shares × |entry − stop| as a loss, or a locked gain past breakeven', () => {
+  assert.equal(riskIfHit({ side: 'long', entry: 762.63, shares: 5, stop: 732.63 }).toFixed(2), '-150.00');
+  assert.equal(riskIfHit({ side: 'long', entry: 100, shares: 10, stop: 104 }), 40);
+  assert.equal(riskIfHit({ side: 'short', entry: 20, shares: 100, stop: 21.5 }).toFixed(2), '-150.00');
+  assert.equal(riskIfHit({ side: 'short', entry: 20, shares: 100, stop: 18 }), 200);
+  assert.equal(riskIfHit({ side: 'long', entry: 100, shares: 10, stop: null }), null);
 });
 
 // ------------------------------------------------------------ ALERTS
@@ -360,6 +437,22 @@ await okA('paper: long fill at the price the check saw (below the stop), realize
   assert.ok(r.events.some((e) => e.kind === 'filled' && e.fill_price === 94.6 && e.old_price === 95));
   const again = await step(broker, position, { stop: 95, price: 93 }, r.guard, now + 600000, { canFill: true });
   assert.equal(again.events.length, 0, 'filled once');
+});
+
+await okA('paper: a max-loss cap stop that is hit closes the WHOLE position', async () => {
+  const position = pos({ shares: 5, entry_price: 762.63, risk_usd: 150 });
+  const cap = riskCapStop({ side: 'long', entry: 762.63, shares: 5, riskUsd: 150 });
+  const { stop } = effectiveStop({ side: 'long', atrStop: 700, riskStop: cap });
+  assert.equal(stop, cap);
+  const now = Date.parse('2026-09-30T15:00:00Z');
+  const broker = brokerFor(null, { nowIso: new Date(now).toISOString() });
+  let r = await step(broker, position, { stop, price: 760 }, armed(), now, { canFill: true });
+  r = await step(broker, position, { stop, price: 732 }, r.guard, now + 300000, { canFill: true });
+  assert.equal(r.fill.units, 5, 'all 5 shares');
+  const o = broker.get(position.id);
+  assert.equal(o.status, 'filled');
+  assert.equal(Number(o.qty), 5);
+  assert.ok(Math.abs(o.realized_pnl - (732 - 762.63) * 5) < 1e-9);
 });
 
 await okA('paper: short buy-stop fill at the quote (above the stop)', async () => {
