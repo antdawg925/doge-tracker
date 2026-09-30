@@ -57,7 +57,18 @@ function TsbCell({ tsb }) {
           <span className="muted"> · line ${Number(tsb.maxLossUsd ?? 1).toFixed(2)} · {ptShort(tsb.lastRunAt)}</span>
         </span>
       ) : null}
-      {tsb.stocksActive ? <span className="admin-tsb__meta small muted">Stocks: {tsb.stocksActive} active</span> : null}
+      {tsb.stocksActive || tsb.stocksPaper ? (
+        <span className="admin-tsb__meta small">
+          <span className="muted">Stocks: {tsb.stocksActive} active</span>
+          {tsb.stocksPaper ? (
+            <span title={`Paper vs buy & hold ${money(tsb.stocksPaper.hold)} · realized ${money(tsb.stocksPaper.realized)}`}>
+              <span className="muted"> · paper </span>
+              <span className={tsb.stocksPaper.paper >= 0 ? 'pos' : 'neg'}>{money(tsb.stocksPaper.paper)}</span>
+            </span>
+          ) : null}
+          {tsb.stocksLock ? <span className={tsb.stocksLock === 'locked' ? 'neg' : 'dp-warn'}> · {tsb.stocksLock}</span> : null}
+        </span>
+      ) : null}
       {tsb.status === 'locked' && tsb.lockReason ? <span className="admin-tsb__reason small muted">{tsb.lockReason}</span> : null}
     </span>
   );

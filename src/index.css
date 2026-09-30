@@ -4663,3 +4663,39 @@ p {
   margin: 0 0 0.45rem;
   line-height: 1.45;
 }
+
+/* Stocks paper bar */
+.stk-paper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.8rem;
+  padding: 0.45rem 0.7rem;
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.86rem;
+}
+.stk-paper.is-locked {
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.06);
+}
+.stk-paper__pnl strong {
+  font-family: var(--mono);
+}
+.stk-paper__loss {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+.stk-paper__loss input {
+  width: 4.5rem;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 0.25rem 0.45rem;
+  font: inherit;
+}

@@ -122,11 +122,11 @@ export function preTradeCheck(guard, { kind, bookValueNow }) {
     return { allowed: false, decision: GUARD_DECISIONS.blockedPaused, reason: `${label(kind)} skipped: bot paused` };
   }
   const line = lockLine(guard);
-  if (kind === 'buy_back' && line != null && n(bookValueNow) < line - EPS) {
+  if ((kind === 'buy_back' || ENTRY_KINDS.has(kind)) && line != null && n(bookValueNow) < line - EPS) {
     return {
       allowed: false,
       decision: GUARD_DECISIONS.blockedBelowBaseline,
-      reason: `buy-back skipped: book ${usd(bookValueNow)} is below starting ${usd(guard.baseline_value)} − max loss ${usd(maxLossOf(guard))}`,
+      reason: `${label(kind)} skipped: book ${usd(bookValueNow)} is below starting ${usd(guard.baseline_value)} − max loss ${usd(maxLossOf(guard))}`,
     };
   }
   return { allowed: true };
@@ -185,7 +185,61 @@ export function unlockGuard(guard, { bookValueNow, units, price, userId, nowIso 
 }
 
 function label(kind) {
-  return { sell_slice: 'slice sell', buy_back: 'buy-back', exit_core: 'core stop exit' }[kind] || 'trade';
+  return (
+    {
+      sell_slice: 'slice sell',
+      buy_back: 'buy-back',
+      exit_core: 'core stop exit',
+      entry: 'new entry',
+      reentry: 're-entry',
+      loosen_stop: 'loosening the stop',
+    }[kind] || 'trade'
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Stock book (paper now, Schwab later). Every stock order action goes through orderCheck()
+// first and every fill through afterBookFill(). Rule:
+//   PROTECTIVE actions are ALWAYS allowed, even when locked or paused: placing the stop for
+//   a position already held, tightening it (long up / short down), cancelling it because
+//   the position is gone, and a stop FILL (that is the exit).
+//   RISK-ADDING actions are blocked while locked or paused (and when the book is already
+//   below the lock line): a new entry, a re-entry, or loosening a stop.
+// ---------------------------------------------------------------------------------------
+export const PROTECTIVE_KINDS = Object.freeze(new Set(['place_stop', 'tighten_stop', 'cancel_stop', 'stop_fill']));
+export const ENTRY_KINDS = Object.freeze(new Set(['entry', 'reentry', 'loosen_stop']));
+
+/** @returns {{ allowed, protective?, decision?, reason?, note? }} */
+export function orderCheck(guard, { kind, bookValueNow = null }) {
+  if (PROTECTIVE_KINDS.has(kind)) {
+    const note = guard?.locked ? 'protective: allowed while locked' : guard?.paused ? 'protective: allowed while paused' : null;
+    return { allowed: true, protective: true, note };
+  }
+  if (!ENTRY_KINDS.has(kind)) throw new Error(`Unknown order action: ${kind}`);
+  return preTradeCheck(guard, { kind, bookValueNow });
+}
+
+/**
+ * After a stock-book fill. book = Σ entry basis + Σ paper P/L; baseline = Σ entry basis
+ * (+ P/L at the last re-authorization). Locks when book < baseline − max loss.
+ * @param fill { kind: 'stop_fill', symbol, side, units, price, pnl }
+ */
+export function afterBookFill(guard, { fill, bookValueAtFill, nowIso }) {
+  if (!guard) return { guard, locked: false, reason: null };
+  const g = { ...guard, data: { ...(guard.data || {}) } };
+  g.realized_pnl = n(g.realized_pnl) + n(fill.pnl);
+  g.data.last_fill_book = bookValueAtFill;
+  const line = lockLine(g);
+  if (!g.locked && line != null && n(bookValueAtFill) < line - EPS) {
+    g.locked = true;
+    g.locked_at = nowIso;
+    const loss = maxLossOf(g);
+    g.lock_reason =
+      `${fill.symbol || 'Stock'} stop filled at ${px(fill.price)}; book ${usd(bookValueAtFill)} is below starting ${usd(g.baseline_value)}` +
+      (loss > 0 ? ` − max loss ${usd(loss)}` : '');
+    return { guard: g, locked: true, reason: g.lock_reason };
+  }
+  return { guard: g, locked: false, reason: null };
 }
 function fillLabel(fill) {
   return { sell_slice: 'Slice sell', buy_back: 'Buy-back', exit_core: 'Stop' }[fill.kind] || 'Trade';

@@ -1,20 +1,32 @@
 /**
- * FUTURE live-order path for stocks (Schwab Trader API). Not wired up: the stock
- * manager is WATCH-ONLY today and nothing in the app calls this.
+ * Schwab broker adapter — PLACEHOLDER implementing the same interface as the paper adapter
+ * (shared/broker/index.js): placeStop, modifyStop, cancel, getPositions, syncFills.
+ * Not wired up: stocks are paper + watch-only until the Schwab Trader API app is approved.
  *
- * Rule for whoever builds it: every order MUST go through shared/guard.js first —
- *   preTradeCheck(guard, { kind, bookValueNow })  before placing / modifying an order
- *   afterFill(guard, { fill, bookValueAtFill, nowIso }) after each fill
- * (the same Profit lock / Pause functions the DOGE paper book uses), with the guard row
- * read from bot_guard for (user_id, symbol) and written back with an updated_at check.
+ * Going live = make brokerFor() (shared/broker/index.js) return createSchwabBroker(...) for
+ * users who connected Schwab. The runner already routes every action through
+ * shared/stockPaper.js, which calls shared/guard.js orderCheck() before each action and
+ * afterBookFill() after each fill — adapters must never be called around that layer.
+ * Server-only (OAuth tokens would live in server env / a server-only table, never the browser).
  */
-import { preTradeCheck } from '../shared/guard.js'
-
 export const STOCK_ORDERS_ENABLED = false
 
-export async function placeStockStopOrder({ guard, kind = 'stop_update', bookValueNow = null } = {}) {
-  const gate = preTradeCheck(guard, { kind, bookValueNow })
-  if (!gate.allowed) return { placed: false, ...gate }
-  if (!STOCK_ORDERS_ENABLED) return { placed: false, reason: 'watch-only: move the stop at Schwab yourself' }
-  throw new Error('Schwab Trader API is not connected')
+const notConnected = async () => {
+  throw new Error('Schwab Trader API is not connected (paper / watch-only)')
+}
+
+export function createSchwabBroker(/* { accountHash, accessToken, nowIso } */) {
+  return {
+    kind: 'schwab',
+    // POST /trader/v1/accounts/{accountHash}/orders  (STOP, SELL or BUY_TO_COVER, GTC)
+    placeStop: notConnected,
+    // PUT  /trader/v1/accounts/{accountHash}/orders/{orderId}  (replace with the new stopPrice)
+    modifyStop: notConnected,
+    // DELETE /trader/v1/accounts/{accountHash}/orders/{orderId}
+    cancel: notConnected,
+    // GET  /trader/v1/accounts/{accountHash}?fields=positions
+    getPositions: notConnected,
+    // GET  /trader/v1/accounts/{accountHash}/orders?status=FILLED  → executions for our stop orders
+    syncFills: notConnected,
+  }
 }

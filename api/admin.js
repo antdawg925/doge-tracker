@@ -15,6 +15,7 @@
  * (Supabase Auth stores only bcrypt hashes).
  */
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
+import { paperTally } from '../shared/stockPaper.js'
 import { paperBookValue } from '../shared/paper.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -41,7 +42,7 @@ async function listAllAuthUsers(sb) {
 /** Read-only TSB status for every bot user: badge + book vs baseline + max loss + last run. */
 async function botStatusByUser(sb, ids) {
   if (!ids.length) return new Map()
-  const [plans, guards, papers, runs, stocks] = await Promise.all([
+  const [plans, guards, papers, runs, stocks, stockOrders, stockGuards] = await Promise.all([
     sb.from('doge_plans').select('user_id').in('user_id', ids),
     sb.from('bot_guard').select('user_id, locked, lock_reason, locked_at, paused, baseline_value, max_loss_usd').eq('symbol', 'DOGE').in('user_id', ids),
     sb.from('paper_state').select('user_id, cash, core_units, slice_units').eq('symbol', 'DOGE').in('user_id', ids),
@@ -52,7 +53,15 @@ async function botStatusByUser(sb, ids) {
       ),
     ),
     sb.from('stock_positions').select('user_id').eq('status', 'active').in('user_id', ids),
+    sb.from('stock_paper_orders').select('user_id, position_side, qty, entry_price, status, last_price, fill_price, realized_pnl, data').in('user_id', ids),
+    sb.from('stock_guard').select('user_id, locked, paused').eq('book', 'stocks').in('user_id', ids),
   ])
+  const ordersBy = new Map()
+  for (const o of stockOrders.data || []) {
+    if (!ordersBy.has(o.user_id)) ordersBy.set(o.user_id, [])
+    ordersBy.get(o.user_id).push(o)
+  }
+  const stockGuardBy = new Map((stockGuards.data || []).map((g) => [g.user_id, g]))
   const stocksBy = new Map()
   for (const r of stocks.data || []) stocksBy.set(r.user_id, (stocksBy.get(r.user_id) || 0) + 1)
   const hasPlan = new Set((plans.data || []).map((r) => r.user_id))
@@ -77,6 +86,8 @@ async function botStatusByUser(sb, ids) {
       maxLossUsd: g ? Number(g.max_loss_usd) : 1,
       lastRunAt: run?.ran_at ?? null,
       stocksActive: stocksBy.get(id) || 0,
+      stocksPaper: ordersBy.has(id) ? paperTally(ordersBy.get(id)) : null,
+      stocksLock: stockGuardBy.get(id)?.locked ? 'locked' : stockGuardBy.get(id)?.paused ? 'paused' : null,
     })
   }
   return out

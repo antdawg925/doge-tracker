@@ -258,6 +258,23 @@ The trail is replayed bar by bar from the entry date, so missed runs don't matte
 
 **Alerts** (`stock_alert_log`, de-duplicated via `stock_alert_state`; also Telegram when configured): "set your Schwab stop/buy-stop at $X" (first run), "raise your Schwab stop to $X" / "lower your Schwab buy-stop to $X" (move ≥ 0.25% since the last alerted level, max once per ET day per position), "within 1 ATR of your stop" (once per day), "stop hit" (once per stop level), "squeeze warning" (once per squeeze day, also intraday when today's volume already ≥ 3× average on an up move), "earnings <date>" (earnings within 7 days, once per date, from Yahoo `calendarEvents`).
 
+### Stock paper trading (simulated auto-stops until the Schwab Trader API is approved)
+
+The bot manages a **simulated protective stop order** per stock position, exactly as it would at Schwab, so you can see how the auto-stops would have done. Your real position rows are never changed.
+
+- **Entry**: when you add a position, the paper book opens it at *your* entry price and places a paper stop at the computed stop (it starts from now; past days aren't replayed).
+- **Modify**: when the stop moves (after-close pass, or right after you edit), the paper order moves automatically. Logged as "Paper moved $old → $new".
+- **Fill**: only during US market hours (the 5-minute checks). When the latest quote crosses the stop (long: price ≤ stop; short: price ≥ buy-stop), it fills **at the price the check saw**, not at the stop level. The first check of the day with the open already beyond the stop is logged as a **gap fill** at that price. The row shows "Paper: stopped out at $X on <date>" and realized P/L; the real position stays as you entered it.
+- **Re-entry**: editing side, entry, entry date or shares closes the old paper trade at the current price and opens a new one. **Closing** the real position closes the paper trade at the last price seen.
+- **Tally** (top of the Stocks tab): `Paper: +$X (vs hold +$Y)`. Paper = realized (fills) + unrealized (working orders marked to the last price). Hold = the same positions marked to market with no stop. Per row: `Working $X` / `Filled $X` / `Blocked`.
+- **Guard** (`shared/guard.js`): the stocks book has its **own** Profit lock / Max loss / Pause row (`stock_guard`, keyed `(user_id, book='stocks')`), so a DOGE lock never freezes stocks and vice versa. Baseline = Σ entry cost of your active positions (shorts: shares × entry); book = baseline + paper P/L; max loss default **$1**, editable on the Stocks tab. Every paper action goes through `orderCheck()` first and every fill through `afterBookFill()`:
+  - **Protective actions are always allowed, even when locked or paused**: placing the stop for a position you already hold, tightening it (long up / short down), cancelling it because the position is gone, and the stop fill itself.
+  - **Risk-adding actions are blocked while locked or paused** (and when the book is already below the lock line): a new entry, a re-entry, or loosening a stop. The order shows "Blocked" (logged once) and is placed on the next run after you tap **Authorize next trade** (resets the starting amount to the current book) or **Resume**.
+  - A losing stop fill that puts the book below baseline − max loss locks the stocks book (alert + optional Telegram).
+- **Broker adapter** (`shared/broker/`): the runner only calls an adapter with `placeStop`, `modifyStop`, `cancel`, `getPositions`, `syncFills`. `shared/broker/paper.js` is used for everyone today; `api/_schwab.js` is the Schwab placeholder with the same interface. Going live = `brokerFor()` returns the Schwab adapter for users who connected Schwab.
+- **Tables** (migration `20260930190000_stock_paper.sql`, server writes, users read their own, the owner reads all): `stock_paper_orders` (one per position: status working / filled / closed / blocked, stop, fill price, realized P/L, last price), `stock_paper_events` (placed / modified / filled / closed / blocked with old → new price; kept forever), `stock_guard`. API: `POST /api/bot/stocks/guard/pause | max-loss | unlock` (own row only). Admin → Users shows paper P/L (and a stocks lock) next to "Stocks: N active".
+- **Limits**: fills use Yahoo quotes seen every 5 minutes (a real stop can fill between checks, and a real gap fill is usually near the open print); no commissions, borrow fees or partial fills; a stop crossed only after hours isn't filled until the next session's first check (fills at that check's price).
+
 ### Server schedule
 
 The existing pg_cron job `trade-smart-bot-run` (every 5 min → `POST /api/bot/run`) also runs the stock pass (`api/_stockRunner.js`) after DOGE; one failing never skips the other.
@@ -273,7 +290,7 @@ The existing pg_cron job `trade-smart-bot-run` (every 5 min → `POST /api/bot/r
 
 ### Future live orders
 
-`api/_schwab.js` is the (unused) place for a Schwab Trader API order path; it must call `preTradeCheck()` from `shared/guard.js` before any order and `afterFill()` after fills. Watch-only today (`STOCK_ORDERS_ENABLED = false`).
+`api/_schwab.js` is the (unused) Schwab adapter with the paper adapter's interface; every call goes through `shared/stockPaper.js`, which gates it with `orderCheck()` / `afterBookFill()` from `shared/guard.js`. Paper + watch-only today (`STOCK_ORDERS_ENABLED = false`).
 
 ### Limitations
 

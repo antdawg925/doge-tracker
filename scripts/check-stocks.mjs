@@ -18,6 +18,10 @@ import {
   sizeLong,
   sizeShort,
 } from '../shared/stockEngine.js';
+import { assertBroker, brokerFor } from '../shared/broker/index.js';
+import { bookParts, closeWithPosition, initStockGuard, paperTally, stepPaperStop } from '../shared/stockPaper.js';
+import { orderCheck } from '../shared/guard.js';
+import { createSchwabBroker } from '../api/_schwab.js';
 
 let passed = 0;
 const ok = (name, fn) => {
@@ -292,6 +296,169 @@ ok('alerts: short "lower your Schwab buy-stop" + earnings within 7 days (once pe
   assert.equal(r.decision, 'stop_lowered');
   const far = evaluateStockPosition({ position, market: { bars: b1, price: 48 }, info: { earningsAt: now1 + 20 * 86400000 }, nowMs: now1 });
   assert.equal(far.snapshot.flags.earningsSoon, false);
+});
+
+
+// ------------------------------------------------------------ PAPER TRADING (broker adapter + guard)
+const okA = async (name, fn) => {
+  await fn();
+  passed += 1;
+  console.log(`  ✓ ${name}`);
+};
+const armed = (over = {}) => ({ ...initStockGuard({ nowIso: '2026-09-01T00:00:00Z' }), ...over });
+const pos = (over = {}) => ({ id: over.id || '11111111-aaaa-bbbb-cccc-000000000001', user_id: 'u1', symbol: 'SPY', side: 'long', shares: 10, entry_price: 100, entry_date: '2026-06-01', risk_usd: 100, status: 'active', ...over });
+async function step(broker, position, snapshot, guard, nowMs, extra = {}) {
+  return stepPaperStop({ broker, position, snapshot, guard, nowMs, activeIds: new Set([position.id]), ...extra });
+}
+
+await okA('paper: broker adapter implements placeStop / modifyStop / cancel / getPositions / syncFills', async () => {
+  const b = assertBroker(brokerFor(null, { nowIso: '2026-09-30T20:00:00Z' }));
+  assert.equal(b.kind, 'paper');
+  assert.deepEqual(await b.getPositions(), []);
+  const sch = assertBroker(createSchwabBroker());
+  await assert.rejects(sch.placeStop({}), /not connected/, 'Schwab placeholder has the same interface, not live');
+});
+
+await okA('paper: stop placed on entry, then MODIFIED automatically when the after-close pass moves it', async () => {
+  const position = pos({ symbol: 'SPY', entry_price: 100.5, entry_date: entryDateL });
+  let broker = brokerFor(null, { nowIso: new Date(afterClose(longBars[30])).toISOString() });
+  let guard = armed();
+  let stopRow = null;
+  const stops = [];
+  const events = [];
+  for (let k = 31; k <= 36; k += 1) {
+    const bars = longBars.slice(0, k);
+    const now = afterClose(bars.at(-1));
+    const r = evaluateStockPosition({ position, market: { bars, price: bars.at(-1).close }, stopRow, nowMs: now, pass: 'close' });
+    stopRow = r.stopRowNext;
+    broker = brokerFor(null, { orders: broker.orders(), nowIso: new Date(now).toISOString() });
+    const s = await step(broker, position, r.snapshot, guard, now, { canFill: false });
+    guard = s.guard;
+    events.push(...s.events);
+    stops.push(r.snapshot.stop);
+  }
+  assert.equal(events[0].kind, 'placed');
+  const mods = events.filter((e) => e.kind === 'modified');
+  assert.ok(mods.length >= 3, 'order follows the rising stop');
+  for (const m of mods) assert.ok(m.new_price > m.old_price, 'long: only raised');
+  assert.ok(Math.abs(broker.get(position.id).stop_price - stops.at(-1)) < 1e-9, 'working order sits at the computed stop');
+  assert.equal(broker.get(position.id).status, 'working');
+  assert.ok(!events.some((e) => e.kind === 'filled'), 'no fills outside market hours');
+});
+
+await okA('paper: long fill at the price the check saw (below the stop), realized P/L', async () => {
+  const position = pos();
+  const now = Date.parse('2026-09-30T15:00:00Z');
+  const broker = brokerFor(null, { nowIso: new Date(now).toISOString() });
+  let r = await step(broker, position, { stop: 95, price: 99 }, armed(), now, { canFill: true });
+  assert.equal(r.fill, null);
+  r = await step(broker, position, { stop: 95, price: 94.6 }, r.guard, now + 300000, { canFill: true });
+  assert.equal(r.fill.price, 94.6, 'fills at the quote, not 95');
+  const o = broker.get(position.id);
+  assert.equal(o.status, 'filled');
+  assert.ok(Math.abs(o.realized_pnl - (94.6 - 100) * 10) < 1e-9);
+  assert.ok(r.events.some((e) => e.kind === 'filled' && e.fill_price === 94.6 && e.old_price === 95));
+  const again = await step(broker, position, { stop: 95, price: 93 }, r.guard, now + 600000, { canFill: true });
+  assert.equal(again.events.length, 0, 'filled once');
+});
+
+await okA('paper: short buy-stop fill at the quote (above the stop)', async () => {
+  const position = pos({ symbol: 'PLUG', side: 'short', shares: 300, entry_price: 2.05 });
+  const now = Date.parse('2026-09-30T15:00:00Z');
+  const broker = brokerFor(null, { nowIso: new Date(now).toISOString() });
+  let r = await step(broker, position, { stop: 2.1, price: 1.97 }, armed(), now, { canFill: true });
+  assert.equal(broker.get(position.id).order_side, 'buy');
+  r = await step(broker, position, { stop: 2.1, price: 2.13 }, r.guard, now + 300000, { canFill: true });
+  assert.equal(r.fill.price, 2.13);
+  assert.ok(Math.abs(broker.get(position.id).realized_pnl - (2.05 - 2.13) * 300) < 1e-9);
+});
+
+await okA('paper: gap through the stop at the open fills at the open price (first check of the day)', async () => {
+  const position = pos({ symbol: 'RUN', side: 'short', shares: 50, entry_price: 10 });
+  const day1 = Date.parse('2026-09-29T19:00:00Z');
+  const broker = brokerFor(null, { nowIso: new Date(day1).toISOString() });
+  let r = await step(broker, position, { stop: 11, price: 10.2 }, armed(), day1, { canFill: true });
+  const day2 = Date.parse('2026-09-30T13:35:00Z'); // 9:35 ET
+  r = await step(broker, position, { stop: 11, price: 12.4 }, r.guard, day2, { canFill: true, open: 12.5 });
+  assert.equal(r.fill.price, 12.4, 'filled at the gap price, not the $11 stop');
+  assert.equal(r.fill.gap, true);
+  assert.ok(r.events.find((e) => e.kind === 'filled').reason.startsWith('Gapped through'));
+  assert.ok(Math.abs(r.fill.pnl - (10 - 12.4) * 50) < 1e-9);
+});
+
+await okA('paper: a losing fill locks the stocks book (max loss $1) — separate from DOGE', async () => {
+  const position = pos();
+  const now = Date.parse('2026-09-30T15:00:00Z');
+  const broker = brokerFor(null, { nowIso: new Date(now).toISOString() });
+  let r = await step(broker, position, { stop: 95, price: 99 }, armed(), now, { canFill: true });
+  r = await step(broker, position, { stop: 95, price: 94 }, r.guard, now + 300000, { canFill: true });
+  assert.ok(r.lockedNow && r.guard.locked, 'locked');
+  assert.ok(Math.abs(r.guard.baseline_value - 1000) < 1e-9, 'baseline = entry basis 10 × $100');
+  assert.ok(/book \$940\.00 is below starting \$1,000\.00/.test(r.guard.lock_reason), r.guard.lock_reason);
+  assert.ok(Math.abs(r.guard.realized_pnl + 60) < 1e-9);
+});
+
+for (const [label, flag] of [['locked', { locked: true, lock_reason: 'test' }], ['paused', { paused: true }]]) {
+  await okA(`paper: ${label} → new entries / re-entries blocked, tightening + stop fills still allowed`, async () => {
+    const g = armed(flag);
+    const now = Date.parse('2026-09-30T15:00:00Z');
+    // New entry while blocked
+    const nb = brokerFor(null, { nowIso: new Date(now).toISOString() });
+    let r = await step(nb, pos({ id: 'new-1' }), { stop: 95, price: 99 }, g, now, { canFill: true });
+    assert.deepEqual(r.events.map((e) => e.kind), ['blocked']);
+    assert.equal(nb.get('new-1').status, 'blocked');
+    r = await step(nb, pos({ id: 'new-1' }), { stop: 95, price: 99 }, g, now + 300000, { canFill: true });
+    assert.equal(r.events.length, 0, 'blocked logged once');
+    // Working order placed before the lock
+    const position = pos({ id: 'w-1' });
+    const b = brokerFor(null, { nowIso: new Date(now).toISOString() });
+    await step(b, position, { stop: 95, price: 99 }, armed(), now, { canFill: false });
+    r = await step(b, position, { stop: 96.5, price: 99 }, g, now + 60000, { canFill: false });
+    const mod = r.events.find((e) => e.kind === 'modified');
+    assert.ok(mod && mod.new_price === 96.5, 'tightening allowed');
+    assert.equal(mod.guard_note, `protective: allowed while ${label}`);
+    // Loosening is risk-adding → blocked
+    assert.equal(orderCheck(g, { kind: 'loosen_stop' }).allowed, false);
+    // Re-entry (edited entry) → old trade closed, new one blocked
+    r = await step(b, { ...position, entry_price: 98 }, { stop: 96.5, price: 99 }, g, now + 120000, { canFill: false });
+    assert.deepEqual(r.events.map((e) => e.kind), ['closed', 'blocked']);
+    assert.equal(b.get('w-1').status, 'blocked');
+    assert.ok(Math.abs(b.get('w-1').data.prior_realized - (99 - 100) * 10) < 1e-9, 'old trade realized');
+    // Stop fill while blocked is protective
+    const fb = brokerFor(null, { nowIso: new Date(now).toISOString() });
+    await step(fb, pos({ id: 'f-1' }), { stop: 95, price: 99 }, armed(), now, { canFill: false });
+    r = await step(fb, pos({ id: 'f-1' }), { stop: 95, price: 94 }, g, now + 60000, { canFill: true });
+    assert.ok(r.fill, 'stop fill allowed');
+    assert.equal(r.events.find((e) => e.kind === 'filled').guard_note, `protective: allowed while ${label}`);
+    // Unblocked → the blocked entry is placed on the next run
+    r = await step(nb, pos({ id: 'new-1' }), { stop: 95, price: 99 }, armed(), now + 900000, { canFill: false });
+    assert.deepEqual(r.events.map((e) => e.kind), ['placed']);
+  });
+}
+
+await okA('paper: tally = realized + unrealized vs buy & hold (no stop)', async () => {
+  const orders = [
+    { position_id: 'a', position_side: 'long', qty: 10, entry_price: 100, status: 'working', last_price: 110 },
+    { position_id: 'b', position_side: 'short', qty: 20, entry_price: 50, status: 'filled', fill_price: 52, realized_pnl: -40, last_price: 45 },
+    { position_id: 'c', position_side: 'long', qty: 5, entry_price: 10, status: 'closed', fill_price: 12, realized_pnl: 10, last_price: 12 },
+    { position_id: 'd', position_side: 'long', qty: 5, entry_price: 10, status: 'blocked', last_price: 30 },
+    { position_id: 'e', position_side: 'long', qty: 1, entry_price: 10, status: 'working', last_price: 11, data: { prior_realized: -3, prior_hold: 2 } },
+  ];
+  const t = paperTally(orders);
+  assert.ok(Math.abs(t.paper - (100 - 40 + 10 + 0 + (-3 + 1))) < 1e-9, `paper ${t.paper}`);
+  assert.ok(Math.abs(t.hold - (100 + 100 + 10 + 0 + (2 + 1))) < 1e-9, `hold ${t.hold}`);
+  assert.ok(Math.abs(t.realized - (-40 + 10 - 3)) < 1e-9);
+  assert.ok(Math.abs(t.unrealized - (100 + 1)) < 1e-9);
+  assert.equal(t.working, 2);
+  const parts = bookParts(orders, new Set(['a', 'b', 'd', 'e']));
+  assert.ok(Math.abs(parts.basis - (1000 + 1000 + 10)) < 1e-9, 'basis: active, entered positions only');
+  assert.ok(Math.abs(parts.book - (parts.basis + t.paper)) < 1e-9);
+  // Real position closed while working → paper closes at the last price
+  const b = brokerFor(null, { orders: [orders[0]], nowIso: '2026-09-30T20:00:00Z' });
+  const ev = await closeWithPosition({ broker: b, order: orders[0], guard: armed({ locked: true }), nowMs: Date.parse('2026-09-30T20:00:00Z') });
+  assert.equal(ev[0].kind, 'closed');
+  assert.equal(b.get('a').status, 'closed');
+  assert.ok(Math.abs(b.get('a').realized_pnl - 100) < 1e-9);
 });
 
 console.log(`check:stocks OK (${passed} checks; rules: long ${R.longMult} ATR, short ${R.shortMult}/${R.shortSiMult}/${R.shortProfitMult}/${R.squeezeMult} ATR)`);

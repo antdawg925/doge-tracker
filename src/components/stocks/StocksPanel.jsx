@@ -4,6 +4,8 @@ import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
 import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
 import PlanShort from './PlanShort.jsx';
+import PaperBar from './PaperBar.jsx';
+import { paperTally } from '../../../shared/stockPaper.js';
 
 // Watch-only: the server tells you where to put the stop; you move it at Schwab.
 const REFRESH_MS = 60_000;
@@ -42,14 +44,23 @@ const TONE = { stop_raised: 'pos', stop_lowered: 'pos', stop_set: 'pos', stop_hi
 const EMPTY = { symbol: '', side: 'long', shares: '', entry_price: '', entry_date: '', risk_usd: '100', notes: '' };
 
 async function loadStocks(userId) {
-  const [pos, stops, alerts] = await Promise.all([
+  const [pos, stops, alerts, orders, guard] = await Promise.all([
     supabase.from('stock_positions').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
     supabase.from('stock_stops').select('position_id, stop, initial_stop, data, updated_at').eq('user_id', userId),
     supabase.from('stock_alert_log').select('id, symbol, fired_at, kind, title, message').eq('user_id', userId).order('fired_at', { ascending: false }).limit(20),
+    supabase.from('stock_paper_orders').select('*').eq('user_id', userId),
+    supabase.from('stock_guard').select('*').eq('user_id', userId).eq('book', 'stocks').maybeSingle(),
   ]);
-  const err = [pos, stops, alerts].find((r) => r.error)?.error;
+  const err = [pos, stops, alerts, orders, guard].find((r) => r.error)?.error;
   if (err) throw new Error(err.message);
-  return { positions: pos.data, stops: new Map(stops.data.map((s) => [s.position_id, s])), alerts: alerts.data };
+  return {
+    positions: pos.data,
+    stops: new Map(stops.data.map((s) => [s.position_id, s])),
+    alerts: alerts.data,
+    orders: new Map(orders.data.map((o) => [o.position_id, o])),
+    tally: paperTally(orders.data),
+    guard: guard.data,
+  };
 }
 
 function Flags({ f }) {
@@ -63,18 +74,45 @@ function Flags({ f }) {
   return <span className="stk-flags">{out}</span>;
 }
 
+const PAPER_COPY = { placed: 'Paper placed', modified: 'Paper moved', filled: 'Paper filled', closed: 'Paper closed', blocked: 'Paper blocked' };
+const PAPER_TONE = { placed: 'dp-buy', modified: 'pos', filled: 'neg', closed: 'muted', blocked: 'dp-warn' };
+
 function PositionLog({ positionId }) {
   const [rows, setRows] = useState(null);
   useEffect(() => {
     let live = true;
-    supabase
-      .from('stock_runs')
-      .select('id, ran_at, pass, decision, price, stop, reason, error')
-      .eq('position_id', positionId)
-      .neq('decision', 'hold')
-      .order('ran_at', { ascending: false })
-      .limit(15)
-      .then(({ data }) => live && setRows(data || []));
+    Promise.all([
+      supabase
+        .from('stock_runs')
+        .select('id, ran_at, pass, decision, price, stop, reason, error')
+        .eq('position_id', positionId)
+        .neq('decision', 'hold')
+        .order('ran_at', { ascending: false })
+        .limit(15),
+      supabase
+        .from('stock_paper_events')
+        .select('id, at, kind, old_price, new_price, fill_price, pnl, reason, guard_note')
+        .eq('position_id', positionId)
+        .order('at', { ascending: false })
+        .limit(15),
+    ]).then(([runs, ev]) => {
+      if (!live) return;
+      const a = (runs.data || []).map((r) => ({ ...r, key: `r${r.id}`, t: r.ran_at }));
+      const b = (ev.data || []).map((e) => ({
+        key: `p${e.id}`,
+        t: e.at,
+        ran_at: e.at,
+        paperKind: e.kind,
+        price: e.fill_price ?? e.new_price,
+        reason:
+          e.kind === 'modified'
+            ? `${px(e.old_price)} → ${px(e.new_price)}${e.guard_note ? ` (${e.guard_note})` : ''}`
+            : e.kind === 'filled' || e.kind === 'closed'
+              ? `${e.reason} · P/L ${signed(e.pnl, (x) => `$${x.toFixed(2)}`)}${e.guard_note ? ` (${e.guard_note})` : ''}`
+              : e.reason,
+      }));
+      setRows([...a, ...b].sort((x, y) => Date.parse(y.t) - Date.parse(x.t)).slice(0, 20));
+    });
     return () => {
       live = false;
     };
@@ -84,9 +122,13 @@ function PositionLog({ positionId }) {
   return (
     <ul className="bot-log">
       {rows.map((r) => (
-        <li key={r.id} className="bot-log__item">
+        <li key={r.key} className="bot-log__item">
           <span className="muted small mono">{ptTime(r.ran_at)}</span>
-          <span className={`bot-log__decision ${TONE[r.decision] || ''}`}>{DECISION[r.decision] || r.decision}</span>
+          {r.paperKind ? (
+            <span className={`bot-log__decision ${PAPER_TONE[r.paperKind] || ''}`}>{PAPER_COPY[r.paperKind]}</span>
+          ) : (
+            <span className={`bot-log__decision ${TONE[r.decision] || ''}`}>{DECISION[r.decision] || r.decision}</span>
+          )}
           <span className="mono small">{px(r.price)}</span>
           <span className="bot-log__reason muted small">{r.decision === 'error' ? r.error : r.reason}</span>
         </li>
@@ -154,7 +196,20 @@ function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, bu
   );
 }
 
-function Row({ p, s, onEdit }) {
+function PaperCell({ o }) {
+  if (!o) return <span className="muted small">—</span>;
+  if (o.status === 'working') return <span className="small">Working <span className="mono">{px(o.stop_price)}</span></span>;
+  if (o.status === 'filled')
+    return (
+      <span className="small neg" title={`Paper: stopped out at ${px(o.fill_price)} on ${ptTime(o.filled_at)} PT (stop ${px(o.stop_price)}${o.data?.gap ? ', gapped through' : ''}) · P/L ${signed(o.realized_pnl, (x) => `$${x.toFixed(2)}`)}`}>
+        Filled <span className="mono">{px(o.fill_price)}</span> {o.filled_at ? <span className="muted">{new Date(o.filled_at).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' })}</span> : null}
+      </span>
+    );
+  if (o.status === 'blocked') return <span className="small dp-warn" title={o.data?.blocked_reason || ''}>Blocked</span>;
+  return <span className="small muted">Closed</span>;
+}
+
+function Row({ p, s, o, onEdit }) {
   const [open, setOpen] = useState(false);
   const d = s?.data;
   const isLong = p.side === 'long';
@@ -217,6 +272,9 @@ function Row({ p, s, onEdit }) {
             '—'
           )}
         </td>
+        <td>
+          <PaperCell o={o} />
+        </td>
         <td className="action">
           <button type="button" className="btn btn--ghost stk-edit" onClick={() => onEdit(p)}>
             Edit
@@ -225,11 +283,17 @@ function Row({ p, s, onEdit }) {
       </tr>
       {open ? (
         <tr className="stk-log-row">
-          <td colSpan={11}>
+          <td colSpan={12}>
             <p className="small muted stk-log-head">
               Initial {px(s?.initial_stop)} · trail {d?.mult ?? '—'} ATR from {isLong ? 'highest close' : 'lowest low'} {px(d?.extreme)} · last candle {d?.lastBar || '—'} · checked {ptTime(s?.updated_at)} PT
               {p.risk_usd != null ? ` · risk $${Number(p.risk_usd)}` : ''}
             </p>
+            {o?.status === 'filled' ? (
+              <p className="small neg stk-log-head">
+                Paper: stopped out at {px(o.fill_price)} on {ptTime(o.filled_at)} PT (stop {px(o.stop_price)}{o.data?.gap ? ', gapped through' : ''}) · P/L{' '}
+                {signed(o.realized_pnl, (x) => `$${x.toFixed(2)}`)}. Your real position is unchanged.
+              </p>
+            ) : null}
             <PositionLog positionId={p.id} />
           </td>
         </tr>
@@ -361,6 +425,10 @@ export default function StocksPanel() {
         </span>
       </div>
 
+      {data && (data.tally.orders || data.guard) ? (
+        <PaperBar key={`${data.guard?.max_loss_usd ?? 1}`} tally={data.tally} guard={data.guard} onChanged={refreshServer} onError={setError} />
+      ) : null}
+
       <div className="stk-toolbar">
         <button type="button" className="btn btn--primary stk-btn" onClick={() => openNew()}>
           + Position
@@ -434,12 +502,13 @@ export default function StocksPanel() {
                 <th className="num">ATR</th>
                 <th>Flags</th>
                 <th className="num" title="Suggested shares for your risk $ / your shares">Size</th>
+                <th title="Simulated stop order the bot manages">Paper</th>
                 <th className="action" />
               </tr>
             </thead>
             <tbody>
               {active.map((p) => (
-                <Row key={p.id} p={p} s={data.stops.get(p.id)} onEdit={openEdit} />
+                <Row key={p.id} p={p} s={data.stops.get(p.id)} o={data.orders.get(p.id)} onEdit={openEdit} />
               ))}
             </tbody>
           </table>

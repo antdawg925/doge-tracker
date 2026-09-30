@@ -9,6 +9,8 @@
  *   POST /api/bot/guard/max-loss  { maxLossUsd: number >= 0 } — user's OWN "willing to lose" line.
  *   POST /api/bot/stocks/refresh  bot-tier user: recompute their OWN stock stops now (after add/edit).
  *   POST /api/bot/stocks/plan     { symbol, riskUsd } bot-tier user: "Plan a short" sizing (nothing saved).
+ *   POST /api/bot/stocks/guard/pause|max-loss|unlock  the caller's OWN stocks paper guard
+ *                                 (stock_guard, separate from DOGE's bot_guard).
  * /run also runs the watch-only stock pass (api/_stockRunner.js): every 5 min in US market
  * hours + one after-close pass per trading day; outside those it is a no-op.
  * Guard routes act only on the caller's user id (from their JWT). A body/query user id
@@ -20,6 +22,7 @@ import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase
 import { runBot } from './_botRunner.js'
 import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
 import { planShort } from '../shared/stockEngine.js'
+import { bookParts, initStockGuard } from '../shared/stockPaper.js'
 import { fetchTickerPrice } from './_kraken.js'
 import { BOT_SYMBOLS } from '../shared/botEngine.js'
 import { parseMaxLoss, unlockGuard } from '../shared/guard.js'
@@ -27,7 +30,7 @@ import { paperBookValue } from '../shared/paper.js'
 
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
-const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan'])
+const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock'])
 
 function routeParts(req) {
   const q = req.query?.route
@@ -127,6 +130,7 @@ async function stockRoute(sb, req, res, route) {
   if (target != null && String(target) !== who.user.id) {
     return sendJson(res, 403, { error: 'You can only refresh your own positions.' })
   }
+  if (route.startsWith('stocks/guard/')) return await stockGuardRoute(sb, res, route, body, who.user.id)
   if (route === 'stocks/refresh') {
     const summary = await runStocks(sb, { source: 'manual', userIds: [who.user.id], force: true })
     return sendJson(res, 200, { ok: true, ranAt: summary.ranAt, positions: summary.positions, errors: summary.errors })
@@ -149,6 +153,73 @@ async function stockRoute(sb, req, res, route) {
   } catch (e) {
     return sendJson(res, 400, { error: e.message })
   }
+}
+
+/** Stocks paper guard: pause / max loss / unlock on the caller's own stock_guard row. */
+async function stockGuardRoute(sb, res, route, body, userId) {
+  const now = new Date().toISOString()
+  const { data: guard, error } = await sb.from('stock_guard').select('*').eq('user_id', userId).eq('book', 'stocks').maybeSingle()
+  if (error) return sendJson(res, 500, { error: 'Could not read your stocks guard.' })
+  const write = async (cols) => {
+    const r = guard
+      ? await sb.from('stock_guard').update({ ...cols, updated_at: now }).eq('user_id', userId).eq('book', 'stocks')
+      : await sb.from('stock_guard').insert({ user_id: userId, book: 'stocks', ...initStockGuard({ nowIso: now }), ...cols, updated_at: now })
+    return !r.error
+  }
+  if (route === 'stocks/guard/pause') {
+    if (typeof body.paused !== 'boolean') return sendJson(res, 400, { error: 'Send { paused: true|false }.' })
+    const ok = await write({ paused: body.paused, paused_at: body.paused ? now : null, paused_by: body.paused ? userId : null })
+    return ok ? sendJson(res, 200, { ok: true, paused: body.paused }) : sendJson(res, 500, { error: 'Could not update.' })
+  }
+  if (route === 'stocks/guard/max-loss') {
+    let maxLoss
+    try {
+      maxLoss = parseMaxLoss(body.maxLossUsd)
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message })
+    }
+    const ok = await write({ max_loss_usd: maxLoss })
+    return ok ? sendJson(res, 200, { ok: true, maxLossUsd: maxLoss }) : sendJson(res, 500, { error: 'Could not save the max loss.' })
+  }
+  // unlock: baseline := current book (entry basis + paper P/L now)
+  if (!guard?.locked) return sendJson(res, 400, { error: 'Your stocks paper book is not locked.' })
+  const [orders, active] = await Promise.all([
+    sb.from('stock_paper_orders').select('*').eq('user_id', userId),
+    sb.from('stock_positions').select('id').eq('user_id', userId).eq('status', 'active'),
+  ])
+  if (orders.error || active.error) return sendJson(res, 500, { error: 'Could not read your paper book.' })
+  const parts = bookParts(orders.data, new Set(active.data.map((r) => r.id)))
+  const next = unlockGuard(guard, { bookValueNow: parts.book, units: 0, price: 0, userId, nowIso: now })
+  const up = await sb
+    .from('stock_guard')
+    .update({
+      locked: false,
+      lock_reason: null,
+      unlocked_at: now,
+      unlocked_by: userId,
+      baseline_value: parts.book,
+      baseline_source: 'reauthorized',
+      baseline_set_at: now,
+      data: { ...next.data, reauth_pnl: parts.pnl },
+      updated_at: now,
+    })
+    .eq('user_id', userId)
+    .eq('book', 'stocks')
+    .eq('updated_at', guard.updated_at)
+    .select('user_id')
+  if (up.error) return sendJson(res, 500, { error: 'Could not unlock.' })
+  if (!up.data.length) return sendJson(res, 409, { error: 'The bot just ran; try again.' })
+  await sb.from('stock_alert_log').insert({
+    user_id: userId,
+    symbol: 'STOCKS',
+    fired_at: now,
+    kind: 'unlocked',
+    level: parts.book,
+    title: 'Stocks paper book re-authorized',
+    message: `New starting amount ${parts.book.toFixed(2)} USD; it locks again if the book falls below that minus your max loss.`,
+  })
+  await runStocks(sb, { source: 'manual', userIds: [userId], force: true }).catch(() => null)
+  return sendJson(res, 200, { ok: true, baselineValue: parts.book, maxLossUsd: Number(guard.max_loss_usd ?? 1) })
 }
 
 /** Unlock / pause / max-loss: always the caller's own guard row; service role writes. */
