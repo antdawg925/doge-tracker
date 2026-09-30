@@ -301,7 +301,10 @@ function Row({ p, s, o, onEdit }) {
   const stopNum = s ? Number(s.stop) : null;
   const hitPnl = Number.isFinite(stopNum) && shares > 0 ? (isLong ? stopNum - entry : entry - stopNum) * shares : null;
   const cap = Number(p.risk_usd);
-  const ruleText = d?.rule === 'risk' ? `Risk cap $${cap.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : d?.rule === 'atr' ? 'ATR stop' : null;
+  // Which rule is in charge: from the run snapshot, else inferred (stop sits on the max-loss cap → cap).
+  const capStop = cap > 0 && shares > 0 ? (isLong ? entry - cap / shares : entry + cap / shares) : null;
+  const rule = d?.rule || (Number.isFinite(stopNum) ? (capStop != null && Math.abs(stopNum - capStop) < 0.005 ? 'risk' : 'atr') : null);
+  const ruleText = rule === 'risk' ? `Risk cap $${cap.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : rule === 'atr' ? 'ATR stop' : null;
   return (
     <>
       <tr className={d?.hit ? 'stk-row--hit' : d?.near ? 'stk-row--near' : ''}>
@@ -330,7 +333,7 @@ function Row({ p, s, o, onEdit }) {
                 ) : (
                   <span className="small muted"> {isLong ? 'stop' : 'buy-stop'}</span>
                 )}
-                {ruleText ? <span className={`stk-rule small ${d.rule === 'risk' ? 'stk-rule--cap' : ''}`} title={d.ruleHeld ? 'Held by the ratchet (stops only tighten)' : 'Tighter of the ATR stop and your max-loss cap'}>{ruleText}</span> : null}
+                {ruleText ? <span className={`stk-rule small ${rule === 'risk' ? 'stk-rule--cap' : ''}`} title={d?.ruleHeld ? 'Held by the ratchet (stops only tighten)' : 'Tighter of the ATR stop and your max-loss cap'}>{ruleText}</span> : null}
               </>
             )
           ) : (
@@ -362,8 +365,8 @@ function Row({ p, s, o, onEdit }) {
             <p className="small muted stk-log-head">
               Initial {px(s?.initial_stop)} · trail {d?.mult ?? '—'} ATR from {isLong ? 'highest close' : 'lowest low'} {px(d?.extreme)} · last candle {d?.lastBar || '—'} · checked {ptTime(s?.updated_at)} PT
               {' · '}in charge: <strong>{ruleText || '—'}</strong>
-              {d?.ruleHeld ? ' (held by ratchet)' : ''} · ATR stop {px(d?.atrStop)}
-              {Number.isFinite(d?.riskStop) ? ` · cap stop ${px(d.riskStop)} (max loss $${cap})` : ' · no max-loss cap'}
+              {d?.ruleHeld ? ' (held by ratchet)' : ''} {Number.isFinite(d?.atrStop) ? ` · ATR stop ${px(d.atrStop)}` : ''}
+              {capStop != null ? ` · cap stop ${px(capStop)} (max loss $${cap})` : ' · no max-loss cap'}
             </p>
             {o?.status === 'filled' ? (
               <p className="small neg stk-log-head">
