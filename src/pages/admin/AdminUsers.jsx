@@ -57,6 +57,7 @@ function TsbCell({ tsb }) {
           <span className="muted"> · line ${Number(tsb.maxLossUsd ?? 1).toFixed(2)} · {ptShort(tsb.lastRunAt)}</span>
         </span>
       ) : null}
+      {tsb.stocksActive ? <span className="admin-tsb__meta small muted">Stocks: {tsb.stocksActive} active</span> : null}
       {tsb.status === 'locked' && tsb.lockReason ? <span className="admin-tsb__reason small muted">{tsb.lockReason}</span> : null}
     </span>
   );
@@ -189,7 +190,7 @@ export default function AdminUsers() {
                   <th>Last sign-in</th>
                   <th>Role</th>
                   <th>Bot</th>
-                  <th title="Trade Smart Bot: status, book vs starting amount, max-loss line, last run (PT)">TSB</th>
+                  <th title="Trade Smart Bot: status, book vs starting amount, max-loss line, last run (PT), active stock positions">TSB</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>

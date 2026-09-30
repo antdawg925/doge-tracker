@@ -7,6 +7,10 @@
  *                                 (clears the lock, baseline := current book value).
  *   POST /api/bot/guard/pause     { paused: boolean } — user pauses / resumes their OWN bot.
  *   POST /api/bot/guard/max-loss  { maxLossUsd: number >= 0 } — user's OWN "willing to lose" line.
+ *   POST /api/bot/stocks/refresh  bot-tier user: recompute their OWN stock stops now (after add/edit).
+ *   POST /api/bot/stocks/plan     { symbol, riskUsd } bot-tier user: "Plan a short" sizing (nothing saved).
+ * /run also runs the watch-only stock pass (api/_stockRunner.js): every 5 min in US market
+ * hours + one after-close pass per trading day; outside those it is a no-op.
  * Guard routes act only on the caller's user id (from their JWT). A body/query user id
  * that isn't the caller's is refused with 403 — the owner can't change someone else's.
  * No endpoint here places orders.
@@ -14,6 +18,8 @@
 import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
+import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
+import { planShort } from '../shared/stockEngine.js'
 import { fetchTickerPrice } from './_kraken.js'
 import { BOT_SYMBOLS } from '../shared/botEngine.js'
 import { parseMaxLoss, unlockGuard } from '../shared/guard.js'
@@ -21,6 +27,7 @@ import { paperBookValue } from '../shared/paper.js'
 
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
+const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan'])
 
 function routeParts(req) {
   const q = req.query?.route
@@ -42,7 +49,7 @@ function secretMatches(given) {
 export default async function handler(req, res) {
   try {
     const route = routeParts(req).join('/')
-    if (route !== 'run' && route !== 'paper/restart' && !GUARD_ROUTES.has(route)) {
+    if (route !== 'run' && route !== 'paper/restart' && !GUARD_ROUTES.has(route) && !STOCK_ROUTES.has(route)) {
       return sendJson(res, 404, { error: 'Unknown bot route.' })
     }
     if (req.method !== 'POST') {
@@ -62,9 +69,29 @@ export default async function handler(req, res) {
         if (!who) return
         source = 'manual'
       }
-      const summary = await runBot(sb, { source })
-      return sendJson(res, 200, { ok: true, ...summary })
+      // DOGE and the stock pass are independent: one failing never skips the other.
+      let summary = null
+      let dogeError = null
+      try {
+        summary = await runBot(sb, { source })
+      } catch (err) {
+        dogeError = String(err?.message || err)
+      }
+      let stocks
+      try {
+        stocks = await runStocks(sb, { source })
+      } catch (err) {
+        console.error('stock pass failed', err?.message || err)
+        stocks = { error: 'stock pass failed' }
+      }
+      if (dogeError) {
+        console.error('bot run failed', dogeError)
+        return sendJson(res, 500, { error: 'Bot run failed.', stocks })
+      }
+      return sendJson(res, 200, { ok: true, ...summary, stocks })
     }
+
+    if (STOCK_ROUTES.has(route)) return await stockRoute(sb, req, res, route)
 
     if (GUARD_ROUTES.has(route)) return await guardRoute(sb, req, res, route)
 
@@ -83,6 +110,44 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('bot api failed', err?.message || err)
     return sendJson(res, 500, { error: 'Bot run failed.' })
+  }
+}
+
+/** Stock watcher routes: always the caller's own data (bot tier). */
+async function stockRoute(sb, req, res, route) {
+  const who = await requireUser(req, res, { bot: true })
+  if (!who) return
+  let body = {}
+  try {
+    body = (await readJsonBody(req)) || {}
+  } catch {
+    return sendJson(res, 400, { error: 'Bad JSON body.' })
+  }
+  const target = body.userId ?? body.user_id
+  if (target != null && String(target) !== who.user.id) {
+    return sendJson(res, 403, { error: 'You can only refresh your own positions.' })
+  }
+  if (route === 'stocks/refresh') {
+    const summary = await runStocks(sb, { source: 'manual', userIds: [who.user.id], force: true })
+    return sendJson(res, 200, { ok: true, ranAt: summary.ranAt, positions: summary.positions, errors: summary.errors })
+  }
+  // stocks/plan
+  const symbol = String(body.symbol || '').trim().toUpperCase()
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return sendJson(res, 400, { error: 'Enter a stock symbol.' })
+  const riskUsd = body.riskUsd == null || body.riskUsd === '' ? 100 : Number(body.riskUsd)
+  if (!Number.isFinite(riskUsd) || riskUsd <= 0 || riskUsd > 1e7) return sendJson(res, 400, { error: 'Risk $ must be a positive number.' })
+  let market
+  try {
+    market = await fetchDailyMarket(symbol, rangeFor([]))
+  } catch {
+    return sendJson(res, 502, { error: `Couldn't load ${symbol} from Yahoo; check the symbol or try again.` })
+  }
+  const info = (await symbolInfo(sb, [symbol]).catch(() => new Map())).get(symbol) ?? null
+  try {
+    const plan = planShort({ bars: market.bars, price: market.price, info, riskUsd, nowMs: Date.now() })
+    return sendJson(res, 200, { ok: true, symbol, name: market.name, priceAt: market.priceAt, ...plan })
+  } catch (e) {
+    return sendJson(res, 400, { error: e.message })
   }
 }
 

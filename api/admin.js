@@ -41,7 +41,7 @@ async function listAllAuthUsers(sb) {
 /** Read-only TSB status for every bot user: badge + book vs baseline + max loss + last run. */
 async function botStatusByUser(sb, ids) {
   if (!ids.length) return new Map()
-  const [plans, guards, papers, runs] = await Promise.all([
+  const [plans, guards, papers, runs, stocks] = await Promise.all([
     sb.from('doge_plans').select('user_id').in('user_id', ids),
     sb.from('bot_guard').select('user_id, locked, lock_reason, locked_at, paused, baseline_value, max_loss_usd').eq('symbol', 'DOGE').in('user_id', ids),
     sb.from('paper_state').select('user_id, cash, core_units, slice_units').eq('symbol', 'DOGE').in('user_id', ids),
@@ -51,7 +51,10 @@ async function botStatusByUser(sb, ids) {
           .order('ran_at', { ascending: false }).limit(1).maybeSingle(),
       ),
     ),
+    sb.from('stock_positions').select('user_id').eq('status', 'active').in('user_id', ids),
   ])
+  const stocksBy = new Map()
+  for (const r of stocks.data || []) stocksBy.set(r.user_id, (stocksBy.get(r.user_id) || 0) + 1)
   const hasPlan = new Set((plans.data || []).map((r) => r.user_id))
   const guardBy = new Map((guards.data || []).map((r) => [r.user_id, r]))
   const paperBy = new Map((papers.data || []).map((r) => [r.user_id, r]))
@@ -73,6 +76,7 @@ async function botStatusByUser(sb, ids) {
       earningsPct: earnings != null && baseline > 0 ? (earnings / baseline) * 100 : null,
       maxLossUsd: g ? Number(g.max_loss_usd) : 1,
       lastRunAt: run?.ran_at ?? null,
+      stocksActive: stocksBy.get(id) || 0,
     })
   }
   return out

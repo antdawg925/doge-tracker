@@ -4459,3 +4459,207 @@ p {
 .admin-tsb:focus-within .admin-tsb__reason {
   display: block;
 }
+
+/* ---------------- My Bot tabs + Stocks (watch-only stop manager) */
+.bot-tabs {
+  margin: 0.45rem 0 0.35rem;
+}
+.stk-head {
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+.stk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.7rem;
+}
+.stk-btn {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.82rem;
+}
+.stk-toolbar .btn.is-active {
+  border-color: rgba(61, 156, 240, 0.55);
+  color: var(--text);
+  background: rgba(61, 156, 240, 0.12);
+}
+.stk-pick,
+.stk-form input,
+.stk-form select,
+.stk-plan input {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 0.32rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.stk-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.6rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.7rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.stk-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stk-form input {
+  width: 7.2rem;
+}
+.stk-form input[type='date'] {
+  width: 9.5rem;
+}
+.stk-form__actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.stk-form__actions .btn--primary {
+  padding: 0.38rem 0.9rem;
+}
+.stk-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+.stk-table th,
+.stk-table td {
+  padding: 0.42rem 0.55rem;
+}
+.stk-table th {
+  position: static;
+}
+.stk-sym {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-2);
+  cursor: pointer;
+}
+.stk-side {
+  display: inline-block;
+  min-width: 1.2rem;
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.05rem 0.25rem;
+}
+.stk-side--long {
+  color: var(--pos);
+  background: rgba(62, 207, 142, 0.12);
+}
+.stk-side--short {
+  color: var(--neg);
+  background: rgba(240, 113, 120, 0.12);
+}
+.stk-move {
+  color: var(--accent);
+  font-weight: 650;
+  font-size: 0.78rem;
+}
+.stk-row--near td {
+  background: rgba(230, 162, 60, 0.06);
+}
+.stk-row--hit td {
+  background: rgba(240, 113, 120, 0.09);
+}
+.stk-flags {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.stk-flag {
+  font-size: 0.66rem;
+  font-weight: 650;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: #1a2433;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.stk-flag--warn {
+  color: var(--warn);
+  background: rgba(230, 162, 60, 0.12);
+}
+.stk-flag--neg {
+  color: var(--neg);
+  background: rgba(240, 113, 120, 0.12);
+}
+.stk-edit {
+  padding: 0.2rem 0.5rem;
+}
+.stk-log-row td {
+  background: rgba(255, 255, 255, 0.015);
+  white-space: normal;
+}
+.stk-log-head {
+  margin: 0.1rem 0 0.35rem;
+}
+.stk-plan {
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.7rem;
+  border: 1px solid rgba(61, 156, 240, 0.3);
+  border-radius: 10px;
+  background: rgba(61, 156, 240, 0.04);
+}
+.stk-plan__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.stk-plan__form input {
+  width: 6.5rem;
+}
+.stk-plan__form label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.stk-plan__form label input {
+  width: 4.8rem;
+}
+.stk-plan__out {
+  margin-top: 0.6rem;
+}
+.stk-plan__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.4rem 0.8rem;
+  margin: 0 0 0.45rem;
+}
+.stk-plan__stats dt {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.stk-plan__stats dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.95rem;
+}
+.stk-plan__big dd {
+  color: var(--accent-2);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.stk-plan p {
+  margin: 0 0 0.45rem;
+  line-height: 1.45;
+}

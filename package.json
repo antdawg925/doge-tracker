@@ -11,7 +11,8 @@
     "check:atr": "node scripts/check-atr.mjs",
     "check:alerts": "node scripts/check-alerts.mjs",
     "make-owner": "node --env-file=.env.local scripts/make-owner.mjs",
-    "check:bot": "node scripts/check-bot.mjs"
+    "check:bot": "node scripts/check-bot.mjs",
+    "check:stocks": "node scripts/check-stocks.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

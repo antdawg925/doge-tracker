@@ -34,7 +34,7 @@ npm run preview   # optional local preview of dist/
 | `/positions` | Signed in | **Positions** — your holdings (one row per symbol): live price, day %, value, gain/loss + totals; click a symbol to open it in Research |
 | `/scanner` | Signed in | **Scanner** — Momentum / Investable stock lanes (5M+ volume) |
 | `/short-kings` | Signed in | **Short Kings** — My Shorts + Hunt (float / short interest) |
-| `/bot` | Trade Smart Bot | **Trade Smart Bot** — the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, server bot status + decision log + paper results (checked every 5 min on the server), plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
+| `/bot` (`?tab=stocks`) | Trade Smart Bot | **Trade Smart Bot** — tabs **DOGE** and **Stocks** (watch-only stock stop manager + short assist, see below). DOGE: the user's own DOGE plan (core trailing stop + trading slice), ATR(14) 4h ratcheting stop, server bot status + decision log + paper results (checked every 5 min on the server), plan history, in-browser crossing alerts. Members without bot access see a locked Trade Smart Bot screen with **Request access** |
 | `/alerts` | Redirect | Legacy path that redirects to `/bot` |
 | `/admin/users` · `/admin/beta` · `/admin/system` | Owner | **Admin** — Users (requests, tier, activity, grant / revoke bot, delete), Beta feature flags, System status |
 
@@ -198,7 +198,7 @@ This is **not** public internet hosting — only devices on your home network. P
   - Effective stop = max(floor, every trail value since breakout, stored stop) — never moves down. Stored stop memory carries `rulesVersion`; stale versions are discarded and recomputed.
 - **Alerts** (`src/lib/alertRules.js`): sell, breakout, high/low zone, buy-back and effective-stop crossings. Fire once per crossing, re-arm after price pulls back 0.5% past the level. Polling every 90s runs app-wide (`DogePlanProvider` in `AppLayout`) while Trade Smart is open; system notifications via the Notification API (+ `public/alerts-sw.js` for Android Chrome).
 - **Storage** (`src/lib/planStore.js`): async API over one document (`plan`, `history`, `stop`, `alerts`) with a swappable backend. For Trade Smart Bot accounts, `DogePlanProvider` plugs in `src/lib/planStoreSupabase.js`, which splits it across per-user Supabase tables (`doge_plans`, `plan_history`, `stop_memory` with the rules version, `alert_state`, `alert_log`). The first time an account with no stored plan signs in, a pre-login localStorage plan (`trade-smart-doge-plan-v1`) + history + stop memory + alert log are imported once (flag `trade-smart-doge-plan-imported`). Plans load once per session and later writes only send what changed. localStorage stays the default backend for scripts.
-- **Checks**: `npm run check:atr` (fixtures + live Kraken numbers), `npm run check:alerts`, and `npm run check:bot` (server run logic on fixture candles: stages, ratchet, decisions, paper trades).
+- **Checks**: `npm run check:atr` (fixtures + live Kraken numbers), `npm run check:alerts`, `npm run check:bot` (server run logic on fixture candles: stages, ratchet, decisions, paper trades), and `npm run check:stocks` (stock stop manager: long/short ratchets, tightening, sizing, alert de-dup, market hours).
 
 ## Server bot (watch-only, every 5 minutes)
 
@@ -231,6 +231,55 @@ Rule: **the bot must never leave a user below their starting amount while unatte
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and add its token as a **sensitive** Vercel env var: `printf '%s' '<token>' | vercel env add TELEGRAM_BOT_TOKEN production --sensitive --scope ant-dawg`, then redeploy.
 2. Set the user's chat id in `profiles.telegram_chat_id` (server/SQL only for now — users can't write it, just like `role` / `bot_access`). A self-serve linking flow (e.g. `/start <code>` webhook) is a later step.
+
+
+## Stocks: watch-only stop manager + short assist (My Bot → Stocks)
+
+Tells you where to put your **Schwab** stops for the stocks you hold (long or short). **Nothing places orders**; you move the stop at Schwab yourself. Same access gate as My Bot (`bot_access` or owner).
+
+### Rules (pure code in `shared/stockEngine.js`, fixtures in `npm run check:stocks`)
+
+Daily candles from Yahoo, Wilder **ATR(14)** on daily bars. Stops use **completed** daily candles only (today's bar counts after the 4:00 pm ET close). Swing windows use the completed bars before the entry date. buffer = max($0.01, 0.1 ATR).
+
+| | Long (steady movers, e.g. SPY / QQQ) | Short |
+| --- | --- | --- |
+| Initial | max(10-day swing low − buffer, entry − 2.5 ATR); swing low ignored if ≥ entry | max(20-day swing high + buffer, entry + 3 ATR) |
+| Trail | **highest close** since entry (closes, not highs, so one intraday spike doesn't yank the stop) − 2.5 ATR | **lowest low** since entry (bars after the entry day, plus the entry price) + 3 ATR |
+| Tighten | — | 2 ATR once a close is ≥ 20% in profit; 1.5 ATR on a **squeeze day** (up close with volume ≥ 3× the prior 20-day average) |
+| Short interest | — | short % float ≥ 20% or days-to-cover ≥ 5 → starts at 2.5 ATR instead of 3 (flag **SI**) |
+| Direction | stop = max(initial, every daily trail since entry, stored stop): only moves **up** | stop = min(...): only moves **down** |
+
+The trail is replayed bar by bar from the entry date, so missed runs don't matter. Stop memory is in `stock_stops` with `version` + `anchor` (side|entry|date); a DB trigger keeps a long stop from moving down / a short buy-stop from moving up for the same version + anchor. Editing side, entry or entry date starts a new memory. If a squeeze carries price past lowest low + 1.5 ATR, the tightened buy-stop is at/under the price → "stop hit".
+
+**Size** (column "Size" = suggested / yours; ⚠ when your shares risk more than your risk $, default **$100**):
+- Short: gap cushion = max(1 ATR, largest overnight gap-up % in the last 60 sessions × price); shares = floor(risk $ / (stop − price + cushion)). Your risk = shares × (stop − price + cushion).
+- Long: shares = floor(risk $ / (entry − stop)); none needed once the stop is at/above entry. Your risk = shares × max(0, entry − stop).
+- **Plan a short** (`POST /api/bot/stocks/plan`): the same short math at the current price for any symbol; nothing is saved; "Add as position" pre-fills the form.
+
+**Alerts** (`stock_alert_log`, de-duplicated via `stock_alert_state`; also Telegram when configured): "set your Schwab stop/buy-stop at $X" (first run), "raise your Schwab stop to $X" / "lower your Schwab buy-stop to $X" (move ≥ 0.25% since the last alerted level, max once per ET day per position), "within 1 ATR of your stop" (once per day), "stop hit" (once per stop level), "squeeze warning" (once per squeeze day, also intraday when today's volume already ≥ 3× average on an up move), "earnings <date>" (earnings within 7 days, once per date, from Yahoo `calendarEvents`).
+
+### Server schedule
+
+The existing pg_cron job `trade-smart-bot-run` (every 5 min → `POST /api/bot/run`) also runs the stock pass (`api/_stockRunner.js`) after DOGE; one failing never skips the other.
+- **intraday**: NYSE trading day 9:30 am–4:00 pm ET (1:00 pm on early-close days): latest Yahoo quote → near-stop / stop-hit / intraday squeeze alerts. Stops don't change intraday (they use completed candles).
+- **close**: once per trading day, first tick ≥ 15 min after the close (4:15 pm ET): today's candle is complete, stops move, "raise / lower" alerts fire in the evening.
+- Otherwise (nights, weekends, NYSE holidays in `shared/marketHours.js`, extend yearly) the pass is a no-op.
+- **manual**: after you add / edit a position the page calls `POST /api/bot/stocks/refresh` (your own positions only, any time).
+- One Yahoo chart request per unique symbol (4 in parallel); short interest + earnings (`quoteSummary` `defaultKeyStatistics,calendarEvents`) cached 6 h in `stock_symbol_info`. Errors are recorded per position (`decision = 'error'`), never fatal. Heartbeat row `bot_heartbeat.symbol = 'STOCKS'`.
+
+### Tables (migration `20260930170000_stock_stops.sql`)
+
+`stock_positions` (symbol, side long|short, shares, entry_price, entry_date, risk_usd default 100, status active|closed, notes; users insert / update / delete their own rows only with bot access, `user_id` isn't updatable), and server-written `stock_stops`, `stock_alert_state`, `stock_alert_log`, `stock_runs` (one row per position per run; `hold` / `error` rows kept 90 days by the daily `trade-smart-stocks-retention` job, real decisions forever). RLS: users read their own rows, the owner reads all. `stock_symbol_info` is server-only. DOGE tables are untouched. Admin → Users shows "Stocks: N active" under the TSB badge.
+
+### Future live orders
+
+`api/_schwab.js` is the (unused) place for a Schwab Trader API order path; it must call `preTradeCheck()` from `shared/guard.js` before any order and `afterFill()` after fills. Watch-only today (`STOCK_ORDERS_ENABLED = false`).
+
+### Limitations
+
+- Yahoo quotes can be delayed / briefly stale and the free endpoints can rate-limit; checks are every 5 minutes, so a fast move can hit the stop between checks. Schwab's own stop order is what protects you.
+- Short interest (% float, days to cover) is Yahoo's bi-monthly exchange data; ETFs have none. Earnings dates come from Yahoo `calendarEvents` and are sometimes estimates or missing (shown as "n/a").
+- Watch-only: no Schwab connection. Automating stops needs the Schwab Trader API (OAuth app approval) plus the guard hook above.
 
 
 ## Accounts & login (Supabase)
