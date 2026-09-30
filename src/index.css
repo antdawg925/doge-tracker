@@ -4699,3 +4699,10 @@ p {
   padding: 0.25rem 0.45rem;
   font: inherit;
 }
+
+/* Stocks form: live entry price hint */
+.stk-entry-label { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+.stk-live { display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 400; white-space: nowrap; }
+.stk-live__btn { background: none; border: 0; padding: 0 0.15rem; color: inherit; cursor: pointer; font-size: 0.95em; line-height: 1; }
+.stk-live__btn:hover:not(:disabled) { color: var(--accent, #4ade80); }
+.stk-live__btn:disabled { opacity: 0.4; cursor: default; }

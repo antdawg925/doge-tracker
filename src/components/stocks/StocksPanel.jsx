@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchYahooChart } from '../../lib/yahoo.js';
 import { useAuth } from '../../hooks/authContext.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
@@ -137,8 +138,55 @@ function PositionLog({ positionId }) {
   );
 }
 
+const roundPx = (v) => (v >= 1 ? Math.round(v * 100) / 100 : Math.round(v * 10000) / 10000);
+const ptClock = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+
+/** New positions only: pull the live price for the symbol and fill Entry $ unless the user typed one. */
+function useLiveEntry({ symbol, editing, setDraft }) {
+  const touched = useRef(false);
+  const [live, setLive] = useState(null); // { symbol, price, at } | { symbol, error } | { symbol, loading }
+  const seq = useRef(0);
+  const pull = useCallback(
+    async (sym, { force = false } = {}) => {
+      const s = String(sym || '').trim().toUpperCase();
+      if (editing || !/^[A-Z][A-Z0-9.^=-]{0,9}$/.test(s)) return;
+      const id = ++seq.current;
+      if (force) touched.current = false;
+      setLive((l) => ({ ...(l?.symbol === s ? l : {}), symbol: s, loading: true }));
+      try {
+        const q = await fetchYahooChart(s, '5d', { interval: '1d' });
+        if (id !== seq.current) return;
+        const price = Number(q?.spot);
+        if (!Number.isFinite(price) || price <= 0) throw new Error('no price');
+        setLive({ symbol: s, price: roundPx(price), at: new Date() });
+        if (!touched.current) setDraft((d) => (d && d.symbol.trim().toUpperCase() === s ? { ...d, entry_price: String(roundPx(price)) } : d));
+      } catch {
+        if (id === seq.current) setLive({ symbol: s, error: true });
+      }
+    },
+    [editing, setDraft],
+  );
+  // Debounced on symbol change (covers typed symbols and presets).
+  useEffect(() => {
+    if (editing) return undefined;
+    const s = String(symbol || '').trim().toUpperCase();
+    if (!s) {
+      setLive(null);
+      return undefined;
+    }
+    if (live?.symbol === s && (live.loading || live.price)) return undefined;
+    const t = setTimeout(() => pull(s), 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, editing, pull]);
+  return { live, pull, touch: () => (touched.current = true) };
+}
+
 function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, busy, editing }) {
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const { live, pull, touch } = useLiveEntry({ symbol: draft.symbol, editing, setDraft });
+  const sym = draft.symbol.trim().toUpperCase();
+  const liveHere = live && live.symbol === sym ? live : null;
   return (
     <form
       className="stk-form"
@@ -149,7 +197,16 @@ function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, bu
     >
       <label>
         Symbol
-        <input value={draft.symbol} onChange={(e) => setDraft((d) => ({ ...d, symbol: e.target.value.toUpperCase() }))} required maxLength={10} autoFocus={!draft.symbol} />
+        <input
+          value={draft.symbol}
+          onChange={(e) => setDraft((d) => ({ ...d, symbol: e.target.value.toUpperCase() }))}
+          onBlur={() => {
+            if (!editing && sym && !(liveHere && (liveHere.loading || liveHere.price))) pull(sym);
+          }}
+          required
+          maxLength={10}
+          autoFocus={!draft.symbol}
+        />
       </label>
       <label>
         Side
@@ -163,8 +220,29 @@ function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, bu
         <input type="number" min="0" step="any" inputMode="decimal" value={draft.shares} onChange={set('shares')} required autoFocus={Boolean(draft.symbol) && !draft.shares} />
       </label>
       <label>
-        Entry $
-        <input type="number" min="0" step="any" inputMode="decimal" value={draft.entry_price} onChange={set('entry_price')} required />
+        <span className="stk-entry-label">
+          Entry $
+          {!editing && sym ? (
+            <span className="stk-live small muted">
+              {liveHere?.price ? `live ${px(liveHere.price)} · ${ptClock(liveHere.at)} PT` : liveHere?.loading ? 'fetching…' : liveHere?.error ? 'no quote' : ''}
+              <button type="button" className="stk-live__btn" title="Re-pull live price" aria-label="Refresh live price" onClick={() => pull(sym, { force: true })} disabled={liveHere?.loading}>
+                ↻
+              </button>
+            </span>
+          ) : null}
+        </span>
+        <input
+          type="number"
+          min="0"
+          step="any"
+          inputMode="decimal"
+          value={draft.entry_price}
+          onChange={(e) => {
+            touch();
+            set('entry_price')(e);
+          }}
+          required
+        />
       </label>
       <label>
         Entry date
@@ -308,6 +386,7 @@ export default function StocksPanel() {
   const [error, setError] = useState('');
   const [draft, setDraft] = useState(null); // form open when non-null
   const [editingId, setEditingId] = useState(null);
+  const [formKey, setFormKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [notice, setNotice] = useState('');
@@ -338,12 +417,14 @@ export default function StocksPanel() {
   };
 
   const openNew = (preset = {}) => {
+    setFormKey((k) => k + 1);
     setPlanning(false);
     setEditingId(null);
     setNotice('');
     setDraft({ ...EMPTY, entry_date: todayEt(), ...preset });
   };
   const openEdit = (p) => {
+    setFormKey((k) => k + 1);
     setPlanning(false);
     setEditingId(p.id);
     setDraft({
@@ -469,6 +550,7 @@ export default function StocksPanel() {
 
       {draft ? (
         <PositionForm
+          key={formKey}
           draft={draft}
           setDraft={setDraft}
           onSave={save}
@@ -483,7 +565,7 @@ export default function StocksPanel() {
         />
       ) : null}
 
-      {planning ? <PlanShort onAdd={(pre) => openNew(pre)} /> : null}
+      {planning ? <PlanShort onAdd={({ entry_price: _planPx, ...pre }) => openNew(pre)} /> : null}
 
       {!data ? (
         <p className="muted small">Loading…</p>
