@@ -122,7 +122,7 @@ export function preTradeCheck(guard, { kind, bookValueNow }) {
     return { allowed: false, decision: GUARD_DECISIONS.blockedPaused, reason: `${label(kind)} skipped: bot paused` };
   }
   const line = lockLine(guard);
-  if ((kind === 'buy_back' || ENTRY_KINDS.has(kind)) && line != null && n(bookValueNow) < line - EPS) {
+  if (kind === 'buy_back' && line != null && n(bookValueNow) < line - EPS) {
     return {
       allowed: false,
       decision: GUARD_DECISIONS.blockedBelowBaseline,
@@ -203,8 +203,9 @@ function label(kind) {
 //   PROTECTIVE actions are ALWAYS allowed, even when locked or paused: placing the stop for
 //   a position already held, tightening it (long up / short down), cancelling it because
 //   the position is gone, and a stop FILL (that is the exit).
-//   RISK-ADDING actions are blocked while locked or paused (and when the book is already
-//   below the lock line): a new entry, a re-entry, or loosening a stop.
+//   RISK-ADDING actions are blocked while locked or paused: a new entry, a re-entry, or
+//   loosening a stop. (Unrealized drawdown alone doesn't block entries; the lock itself is
+//   decided on fills by afterBookFill, like DOGE.)
 // ---------------------------------------------------------------------------------------
 export const PROTECTIVE_KINDS = Object.freeze(new Set(['place_stop', 'tighten_stop', 'cancel_stop', 'stop_fill']));
 export const ENTRY_KINDS = Object.freeze(new Set(['entry', 'reentry', 'loosen_stop']));

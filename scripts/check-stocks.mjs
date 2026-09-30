@@ -417,6 +417,8 @@ for (const [label, flag] of [['locked', { locked: true, lock_reason: 'test' }], 
     const mod = r.events.find((e) => e.kind === 'modified');
     assert.ok(mod && mod.new_price === 96.5, 'tightening allowed');
     assert.equal(mod.guard_note, `protective: allowed while ${label}`);
+    // Armed: an unrealized drawdown alone doesn't block entries (the lock is decided on fills)
+    assert.equal(orderCheck(armed({ baseline_value: 1000 }), { kind: 'entry', bookValueNow: 900 }).allowed, true);
     // Loosening is risk-adding → blocked
     assert.equal(orderCheck(g, { kind: 'loosen_stop' }).allowed, false);
     // Re-entry (edited entry) → old trade closed, new one blocked
