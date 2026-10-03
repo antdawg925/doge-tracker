@@ -206,6 +206,8 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   const alerts = fresh.filter((f) => ALERT_CODES.has(f.code))
   const fills = logs.filter((l) => l.action === 'fill')
   const placedLive = logs.filter((l) => l.mode === 'live' && ['placed', 'amended', 'cancelled'].includes(l.status))
+  // Dry-run "would place / amend / cancel" notices also go to alert_log + Telegram.
+  const wouldDry = logs.filter((l) => l.mode === 'dry' && /^would_/.test(String(l.status || '')))
 
   // real (read-only) Kraken balances for display while in dry-run (owner key)
   let kraken = null
@@ -245,8 +247,8 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     await sb.from('doge_live_log').insert({ user_id: userId, plan_id: state.planId, at: nowIso, mode, role: 'plan', action: 'request', status: 'error', reason: clip(reqs.find((r) => !r.ok)?.error), details: { requests: reqs.slice(0, 30) } })
   }
 
-  if (alerts.length || fills.length || placedLive.length) {
-    const lines = [...fills.map((f) => `${f.mode === 'dry' ? 'Dry-run ' : ''}${f.role} fill: ${f.side} ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}`), ...placedLive.map((l) => `LIVE ${l.status} ${l.role} ${l.ordertype || ''} ${fmtQty(l.qty)} @ ${fmtPx(l.price)}`), ...alerts.map((a) => a.message)]
+  if (alerts.length || fills.length || placedLive.length || wouldDry.length) {
+    const lines = [...wouldDry.map((l) => `Would ${String(l.status).slice(6)} ${l.role} ${l.side || ''} ${l.ordertype || ''} ${fmtQty(l.qty)} @ ${fmtPx(l.price)}${l.reason ? ` (${l.reason})` : ''}`.replace(/ +/g, ' ')), ...fills.map((f) => `${f.mode === 'dry' ? 'Dry-run ' : ''}${f.role} fill: ${f.side} ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}`), ...placedLive.map((l) => `LIVE ${l.status} ${l.role} ${l.ordertype || ''} ${fmtQty(l.qty)} @ ${fmtPx(l.price)}`), ...alerts.map((a) => a.message)]
     await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title: `DOGE plan (${mode === 'live' ? 'LIVE' : 'dry-run'})`, message: clip(lines.join(' · '), 1000) })
     if (profile.telegram_chat_id) await sendTelegram(profile.telegram_chat_id, `DOGE plan (${mode === 'live' ? 'LIVE' : 'dry-run'})\n${lines.join('\n')}`).catch(() => null)
   }
