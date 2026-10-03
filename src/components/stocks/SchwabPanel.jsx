@@ -89,12 +89,11 @@ export default function SchwabPanel({ schwab, onChanged, onError }) {
         </div>
       ) : null}
       <div className="stk-schwab__row">
-        {c ? <BrandMark brand="schwab" height={20} className="stk-schwab__logo" /> : <strong className="stk-schwab__title">Schwab</strong>}
+        <BrandMark brand="schwab" height={28} className="stk-schwab__logo" />
         {!c ? (
           <>
             <span className="small muted">Not connected · stops are watch-only + paper.</span>
-            <button type="button" className="btn btn--primary stk-btn stk-btn--brand" disabled={Boolean(busy)} onClick={connect}>
-              <BrandMark brand="schwab" height={16} decorative />
+            <button type="button" className="btn btn--primary stk-btn" disabled={Boolean(busy)} onClick={connect}>
               {busy === 'connect' || busy === 'finish' ? 'Connecting…' : 'Connect Schwab'}
             </button>
           </>
@@ -108,7 +107,7 @@ export default function SchwabPanel({ schwab, onChanged, onError }) {
         ) : (
           <>
             <span className={`small ${soon ? 'dp-warn' : 'pos'}`} title={`Schwab login ends ${ptWhen(c.refreshExpiresAt)} PT (7 days after connecting)`}>
-              Schwab connected{c.accountLast4 ? ` · …${c.accountLast4}` : ''} · expires in {fmtLeft(c.expiresInMs)}
+              · connected{c.accountLast4 ? ` · …${c.accountLast4}` : ''} · expires in {fmtLeft(c.expiresInMs)}
             </span>
             <button type="button" className={`btn ${soon ? 'btn--primary' : 'btn--ghost'} stk-btn`} disabled={Boolean(busy)} onClick={connect}>
               Reconnect
