@@ -6,6 +6,8 @@ import { supabase } from '../../lib/supabase.js';
 import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
 import PlanTrade from './PlanTrade.jsx';
 import PaperBar from './PaperBar.jsx';
+import SchwabPanel, { LiveCell } from './SchwabPanel.jsx';
+import useSchwabStatus from './useSchwabStatus.js';
 import { paperTally } from '../../../shared/stockPaper.js';
 
 // Watch-only: the server tells you where to put the stop; you move it at Schwab.
@@ -45,14 +47,15 @@ const TONE = { stop_raised: 'pos', stop_lowered: 'pos', stop_set: 'pos', stop_hi
 const EMPTY = { symbol: '', side: 'long', shares: '', entry_price: '', entry_date: '', risk_usd: '100', notes: '' };
 
 async function loadStocks(userId) {
-  const [pos, stops, alerts, orders, guard] = await Promise.all([
+  const [pos, stops, alerts, orders, guard, live] = await Promise.all([
     supabase.from('stock_positions').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
     supabase.from('stock_stops').select('position_id, stop, initial_stop, data, updated_at').eq('user_id', userId),
     supabase.from('stock_alert_log').select('id, symbol, fired_at, kind, title, message').eq('user_id', userId).order('fired_at', { ascending: false }).limit(20),
     supabase.from('stock_paper_orders').select('*').eq('user_id', userId),
     supabase.from('stock_guard').select('*').eq('user_id', userId).eq('book', 'stocks').maybeSingle(),
+    supabase.from('stock_live_orders').select('*').eq('user_id', userId),
   ]);
-  const err = [pos, stops, alerts, orders, guard].find((r) => r.error)?.error;
+  const err = [pos, stops, alerts, orders, guard, live].find((r) => r.error)?.error;
   if (err) throw new Error(err.message);
   return {
     positions: pos.data,
@@ -61,6 +64,7 @@ async function loadStocks(userId) {
     orders: new Map(orders.data.map((o) => [o.position_id, o])),
     tally: paperTally(orders.data),
     guard: guard.data,
+    live: new Map((live.data || []).map((o) => [o.position_id, o])),
   };
 }
 
@@ -75,8 +79,15 @@ function Flags({ f }) {
   return <span className="stk-flags">{out}</span>;
 }
 
-const PAPER_COPY = { placed: 'Paper placed', modified: 'Paper moved', filled: 'Paper filled', closed: 'Paper closed', blocked: 'Paper blocked' };
-const PAPER_TONE = { placed: 'dp-buy', modified: 'pos', filled: 'neg', closed: 'muted', blocked: 'dp-warn' };
+const PAPER_COPY = {
+  placed: 'Paper placed', modified: 'Paper moved', filled: 'Paper filled', closed: 'Paper closed', blocked: 'Paper blocked',
+  live_placed: 'LIVE placed', live_modified: 'LIVE moved', live_filled: 'LIVE filled', live_canceled: 'LIVE canceled', live_flag: 'LIVE note',
+  live_error: 'LIVE error', live_adopted: 'LIVE adopted', live_setting: 'LIVE', live_request: 'LIVE req',
+};
+const PAPER_TONE = {
+  placed: 'dp-buy', modified: 'pos', filled: 'neg', closed: 'muted', blocked: 'dp-warn',
+  live_placed: 'dp-buy', live_modified: 'pos', live_filled: 'neg', live_canceled: 'muted', live_flag: 'dp-warn', live_error: 'neg', live_adopted: 'pos', live_setting: 'muted',
+};
 
 function PositionLog({ positionId }) {
   const [rows, setRows] = useState(null);
@@ -94,6 +105,7 @@ function PositionLog({ positionId }) {
         .from('stock_paper_events')
         .select('id, at, kind, old_price, new_price, fill_price, pnl, reason, guard_note')
         .eq('position_id', positionId)
+        .neq('kind', 'live_request')
         .order('at', { ascending: false })
         .limit(15),
     ]).then(([runs, ev]) => {
@@ -289,7 +301,7 @@ function PaperCell({ o }) {
   return <span className="small muted">Closed</span>;
 }
 
-function Row({ p, s, o, onEdit }) {
+function Row({ p, s, o, lo, conn, liveActions, onEdit }) {
   const [open, setOpen] = useState(false);
   const d = s?.data;
   const isLong = p.side === 'long';
@@ -353,6 +365,9 @@ function Row({ p, s, o, onEdit }) {
         <td>
           <PaperCell o={o} />
         </td>
+        <td>
+          <LiveCell p={p} lo={lo} conn={conn} {...liveActions} />
+        </td>
         <td className="action">
           <button type="button" className="btn btn--ghost stk-edit" onClick={() => onEdit(p)}>
             Edit
@@ -361,7 +376,7 @@ function Row({ p, s, o, onEdit }) {
       </tr>
       {open ? (
         <tr className="stk-log-row">
-          <td colSpan={12}>
+          <td colSpan={13}>
             <p className="small muted stk-log-head">
               Initial {px(s?.initial_stop)} · trail {d?.mult ?? '—'} ATR from {isLong ? 'highest close' : 'lowest low'} {px(d?.extreme)} · last candle {d?.lastBar || '—'} · checked {ptTime(s?.updated_at)} PT
               {' · '}in charge: <strong>{ruleText || '—'}</strong>
@@ -392,6 +407,8 @@ export default function StocksPanel() {
   const [busy, setBusy] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [notice, setNotice] = useState('');
+  const schwab = useSchwabStatus();
+  const [liveBusy, setLiveBusy] = useState(false);
 
   const load = useCallback(() => {
     if (!supabase || !user) return Promise.resolve();
@@ -416,6 +433,27 @@ export default function StocksPanel() {
       setError(e.message);
     }
     await load();
+  };
+
+  const liveCall = async (path, body) => {
+    setLiveBusy(true);
+    setError('');
+    try {
+      await authedFetch(path, { method: 'POST', body });
+    } catch (e) {
+      setError(e.message);
+    }
+    await Promise.all([load(), schwab.reload()]);
+    setLiveBusy(false);
+  };
+  const liveActions = {
+    busy: liveBusy,
+    onToggle: (p, live) => {
+      if (live && !window.confirm(`Make ${p.symbol} Live? ${schwab.status?.connection?.liveEnabled ? 'The bot places a real Schwab STOP for the shares you hold now.' : 'Orders start once "Live Schwab stops" is ON.'}`)) return;
+      liveCall('/api/schwab/position-live', { positionId: p.id, live });
+    },
+    onAdopt: (p, orderId) => liveCall('/api/schwab/adopt', { positionId: p.id, orderId }),
+    onCancel: (p) => liveCall('/api/schwab/cancel', { positionId: p.id }),
   };
 
   const openNew = (preset = {}) => {
@@ -504,9 +542,11 @@ export default function StocksPanel() {
       <div className="card__head stk-head">
         <h2>Stocks</h2>
         <span className="small muted">
-          Watch-only · every 5 min in market hours + after the close{lastChecked ? ` · checked ${ptTime(lastChecked)} PT` : ''}
+          {schwab.status?.connection?.liveEnabled && !schwab.status.connection.killSwitch && schwab.status.connection.status === 'connected' ? 'LIVE stops on Live positions' : 'Watch-only'} · every 5 min in market hours + after the close{lastChecked ? ` · checked ${ptTime(lastChecked)} PT` : ''}
         </span>
       </div>
+
+      <SchwabPanel schwab={schwab} onChanged={load} onError={setError} />
 
       {data && (data.tally.orders || data.guard) ? (
         <PaperBar key={`${data.guard?.max_loss_usd ?? 1}`} tally={data.tally} guard={data.guard} onChanged={refreshServer} onError={setError} />
@@ -587,12 +627,13 @@ export default function StocksPanel() {
                 <th>Flags</th>
                 <th className="num" title="$ result if the whole position fills at the stop">Risk if hit</th>
                 <th title="Simulated stop order the bot manages">Paper</th>
+                <th title="Real Schwab stop order the bot manages (off by default)">Live</th>
                 <th className="action" />
               </tr>
             </thead>
             <tbody>
               {active.map((p) => (
-                <Row key={p.id} p={p} s={data.stops.get(p.id)} o={data.orders.get(p.id)} onEdit={openEdit} />
+                <Row key={p.id} p={p} s={data.stops.get(p.id)} o={data.orders.get(p.id)} lo={data.live.get(p.id)} conn={schwab.status?.connection} liveActions={liveActions} onEdit={openEdit} />
               ))}
             </tbody>
           </table>

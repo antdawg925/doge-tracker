@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto'
 import { fetchYahooUpstream } from './_yahooUpstream.js'
 import { sendTelegram } from './_telegram.js'
+import { runLive } from './_schwabLive.js'
 import { etDate, stockPassFor } from '../shared/marketHours.js'
 import { barsFromYahooChart, evaluateStockPosition, infoFromQuoteSummary } from '../shared/stockEngine.js'
 import { brokerFor } from '../shared/broker/index.js'
@@ -202,6 +203,7 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
 
   const results = []
   const firedByUser = new Map()
+  const snapshots = new Map()
   for (const p of positions) {
     const t0 = Date.now()
     const iso = new Date(nowMs).toISOString()
@@ -251,6 +253,7 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
         firedByUser.get(p.user_id).push(...r.fired)
       }
       const s = r.snapshot
+      snapshots.set(p.id, s)
       // Paper stop order (broker adapter + stocks guard). Errors are noted, not fatal.
       let paper = null
       try {
@@ -351,6 +354,24 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
     }
   }
 
+  // ---- LIVE Schwab protective stops (only users who connected Schwab, turned Live on, and
+  // marked positions Live). Never fails the run; see api/_schwabLive.js + shared/schwabLive.js.
+  let live = null
+  try {
+    live = await runLive(sb, {
+      positions,
+      snapshots,
+      guardFor: (uid) => books.get(uid)?.guard ?? null,
+      pass,
+      nowMs,
+      runId,
+      profileBy,
+    })
+  } catch (err) {
+    console.error('live pass failed', err?.message || err)
+    live = { error: clip(err?.message || err) }
+  }
+
   // Optional Telegram (no-op unless TELEGRAM_BOT_TOKEN + profiles.telegram_chat_id exist).
   for (const [uid, fired] of firedByUser) {
     const chat = profileBy.get(uid)?.telegram_chat_id
@@ -368,6 +389,7 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
     errors,
     paperErrors,
     paperEvents: [...books.values()].reduce((a, b) => a + b.events.length, 0),
+    live,
     durationMs: Date.now() - started,
     results: results.map(({ symbol, decision, error }) => ({ symbol, decision, error: error ? 'yes' : null })),
   }

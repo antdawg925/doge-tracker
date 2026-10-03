@@ -392,8 +392,8 @@ await okA('paper: broker adapter implements placeStop / modifyStop / cancel / ge
   const b = assertBroker(brokerFor(null, { nowIso: '2026-09-30T20:00:00Z' }));
   assert.equal(b.kind, 'paper');
   assert.deepEqual(await b.getPositions(), []);
-  const sch = assertBroker(createSchwabBroker());
-  await assert.rejects(sch.placeStop({}), /not connected/, 'Schwab placeholder has the same interface, not live');
+  const sch = assertBroker(createSchwabBroker({ call: async () => ({ json: null }), accountHash: 'H' }));
+  assert.equal(sch.kind, 'schwab', 'Schwab adapter has the same interface');
 });
 
 await okA('paper: stop placed on entry, then MODIFIED automatically when the after-close pass moves it', async () => {

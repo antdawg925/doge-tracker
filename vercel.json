@@ -17,6 +17,10 @@
       "destination": "/api/bot?route=:route*"
     },
     {
+      "source": "/api/schwab/:route*",
+      "destination": "/api/schwab?route=:route*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/[...slug]"
     },
@@ -27,6 +31,9 @@
   ],
   "functions": {
     "api/bot.js": {
+      "maxDuration": 60
+    },
+    "api/schwab.js": {
       "maxDuration": 60
     }
   }

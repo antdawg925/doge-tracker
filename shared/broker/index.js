@@ -19,7 +19,11 @@ import { createPaperBroker } from './paper.js';
 
 export const BROKER_METHODS = Object.freeze(['placeStop', 'modifyStop', 'cancel', 'getPositions', 'syncFills']);
 
-/** Adapter per user. Paper for everyone until the Schwab Trader API is connected. */
+/**
+ * Paper adapter per user (always runs: the paper tally keeps simulating). LIVE Schwab orders
+ * run alongside it in api/_schwabLive.js with createSchwabBroker (api/_schwab.js), only for
+ * users who connected Schwab, turned Live on and marked positions Live.
+ */
 export function brokerFor(_profile, { orders = [], nowIso } = {}) {
   return createPaperBroker({ orders, nowIso });
 }

@@ -251,3 +251,14 @@ function px(x) {
 function usd(x) {
   return `$${n(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+/**
+ * Live (real broker) order gate. Live mode only ever manages PROTECTIVE stop orders:
+ * the kill switch ("Pause live orders entirely") blocks every broker action; otherwise
+ * protective kinds pass (even while locked / paused, like paper) and anything else is refused.
+ */
+export function liveOrderCheck(guard, { kind, killSwitch = false }) {
+  if (killSwitch) return { allowed: false, reason: 'Live orders paused entirely (kill switch)' };
+  if (!PROTECTIVE_KINDS.has(kind)) return { allowed: false, reason: `Live mode never sends ${kind} orders (protective stops only)` };
+  return orderCheck(guard, { kind });
+}

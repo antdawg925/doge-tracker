@@ -21,6 +21,7 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
 import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
+import { schwabHousekeeping } from './_schwabLive.js'
 import { planTrade } from '../shared/stockEngine.js'
 import { bookParts, initStockGuard } from '../shared/stockPaper.js'
 import { fetchTickerPrice } from './_kraken.js'
@@ -87,6 +88,13 @@ export default async function handler(req, res) {
         console.error('stock pass failed', err?.message || err)
         stocks = { error: 'stock pass failed' }
       }
+      let schwab = null
+      try {
+        schwab = await schwabHousekeeping(sb)
+      } catch (err) {
+        schwab = { error: String(err?.message || err).slice(0, 200) }
+      }
+      if (stocks && typeof stocks === 'object') stocks.schwab = schwab
       if (dogeError) {
         console.error('bot run failed', dogeError)
         return sendJson(res, 500, { error: 'Bot run failed.', stocks })
