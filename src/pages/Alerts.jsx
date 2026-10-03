@@ -8,6 +8,7 @@ import DogeStopBox from '../components/alerts/DogeStopBox.jsx';
 import PlanHistory from '../components/alerts/PlanHistory.jsx';
 import AlertLog from '../components/alerts/AlertLog.jsx';
 import BotStatus from '../components/alerts/BotStatus.jsx';
+import DogeLivePanel from '../components/alerts/DogeLivePanel.jsx';
 import StocksPanel from '../components/stocks/StocksPanel.jsx';
 
 const TABS = [
@@ -124,6 +125,7 @@ export default function Alerts() {
       ) : (
         <div className="dp-grid">
           <div className="dp-col">
+            <DogeLivePanel refreshKey={market.updatedAt} />
             <BotStatus refreshKey={market.updatedAt} />
             <DogeStopBox
               plan={plan}

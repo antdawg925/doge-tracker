@@ -4745,3 +4745,29 @@ p {
 .stk-schwab__logo { margin-right: 0.1rem; }
 .stk-live-cell__mark { margin-left: 0.1rem; }
 .bot-status__brand { display: flex; align-items: center; gap: 0.3rem; line-height: 1.2; }
+
+/* DOGE live plan panel (My Bot > DOGE) */
+.dl__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.dl__head .card__title { display: inline-flex; align-items: center; gap: 0.45rem; }
+.dl-mode { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid rgba(251, 191, 36, 0.6); color: #fbbf24; }
+.dl-mode--live { border-color: rgba(248, 113, 113, 0.8); color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
+.dl--live { border-color: rgba(248, 113, 113, 0.45); }
+.dl-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem 1rem; margin: 0.2rem 0 0.6rem; }
+.dl-stats dt { font-size: 0.72rem; color: var(--muted); }
+.dl-stats dd { margin: 0; font-weight: 650; font-size: 0.92rem; }
+.dl-flags { margin: 0 0 0.5rem; padding-left: 1rem; }
+.dl-note { margin: 0 0 0.5rem; }
+.dl-kill { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.45rem 0.6rem; margin-bottom: 0.6rem; border-radius: 8px; background: rgba(248, 113, 113, 0.14); border: 1px solid rgba(248, 113, 113, 0.6); color: #fca5a5; font-size: 0.85rem; }
+.dl-log { border-top: 1px solid rgba(148, 163, 184, 0.15); padding-top: 0.45rem; }
+.dl-log__head { margin-bottom: 0.25rem; }
+.dl-log ul { list-style: none; margin: 0; padding: 0; max-height: 9.5rem; overflow: auto; }
+.dl-log li { padding: 0.12rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.dl-confirm { margin-top: 0.5rem; }
+.dl-form { display: grid; gap: 0.45rem; margin-top: 0.6rem; }
+.dl-form__row { display: flex; flex-wrap: wrap; gap: 0.5rem 0.7rem; align-items: flex-end; }
+.dl-form label { display: grid; gap: 0.15rem; font-size: 0.72rem; color: var(--muted); }
+.dl-form input { width: 7rem; }
+.dl-zone { font-size: 0.78rem; color: var(--muted); display: inline-flex; align-items: center; gap: 0.3rem; }
+.dl-zone input { width: 4.6rem; }
+@media (max-width: 640px) { .dl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

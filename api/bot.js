@@ -15,7 +15,14 @@
  * hours + one after-close pass per trading day; outside those it is a no-op.
  * Guard routes act only on the caller's user id (from their JWT). A body/query user id
  * that isn't the caller's is refused with 403 — the owner can't change someone else's.
- * No endpoint here places orders.
+ *   POST /api/bot/doge-live/save      { config, startNew? } the caller's DOGE live plan (creates it)
+ *   POST /api/bot/doge-live/new-plan  { confirm: 'NEW' } restart the plan state (after a lock exit)
+ *   POST /api/bot/doge-live/live      { enabled, confirm: 'LIVE' } owner + trade key only
+ *   POST /api/bot/doge-live/kill      { on } red kill switch: cancels bot orders, places nothing
+ *   POST /api/bot/doge-live/balances  read-only Kraken balances to prefill the start (owner)
+ *   POST /api/bot/doge-live/run       recompute the caller's plan now
+ * Only the DOGE live plan (api/_dogeLive.js) can place Kraken orders, and only in LIVE mode
+ * (trade key in env + Live switch on). Everything else here is watch-only.
  */
 import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
@@ -24,13 +31,18 @@ import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunne
 import { schwabHousekeeping } from './_schwabLive.js'
 import { planTrade } from '../shared/stockEngine.js'
 import { bookParts, initStockGuard } from '../shared/stockPaper.js'
-import { fetchTickerPrice } from './_kraken.js'
+import { fetchKrakenAccount, fetchTickerPrice, krakenCredsFor } from './_kraken.js'
 import { BOT_SYMBOLS } from '../shared/botEngine.js'
 import { parseMaxLoss, unlockGuard } from '../shared/guard.js'
 import { paperBookValue } from '../shared/paper.js'
+import { runDogeLive, fetchLiveMarket } from './_dogeLive.js'
+import { tradeKeyConfigured } from './_krakenTrade.js'
+import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
+import { dogeFromKrakenBalance } from '../shared/botEngine.js'
 
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
+const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/run'])
 const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock'])
 
 function routeParts(req) {
@@ -53,7 +65,7 @@ function secretMatches(given) {
 export default async function handler(req, res) {
   try {
     const route = routeParts(req).join('/')
-    if (route !== 'run' && route !== 'paper/restart' && !GUARD_ROUTES.has(route) && !STOCK_ROUTES.has(route)) {
+    if (route !== 'run' && route !== 'paper/restart' && !GUARD_ROUTES.has(route) && !STOCK_ROUTES.has(route) && !LIVE_ROUTES.has(route)) {
       return sendJson(res, 404, { error: 'Unknown bot route.' })
     }
     if (req.method !== 'POST') {
@@ -81,6 +93,15 @@ export default async function handler(req, res) {
       } catch (err) {
         dogeError = String(err?.message || err)
       }
+      // DOGE live plan (dry-run unless trade key + Live switch); independent of the rest.
+      let dogeLive = null
+      try {
+        dogeLive = await runDogeLive(sb, { source })
+      } catch (err) {
+        console.error('doge live failed', err?.message || err)
+        dogeLive = { error: String(err?.message || err).slice(0, 200) }
+      }
+      if (summary) summary.dogeLive = dogeLive
       let stocks
       try {
         stocks = await runStocks(sb, { source })
@@ -103,6 +124,7 @@ export default async function handler(req, res) {
     }
 
     if (STOCK_ROUTES.has(route)) return await stockRoute(sb, req, res, route)
+    if (LIVE_ROUTES.has(route)) return await liveRoute(sb, req, res, route)
 
     if (GUARD_ROUTES.has(route)) return await guardRoute(sb, req, res, route)
 
@@ -321,3 +343,96 @@ async function guardRoute(sb, req, res, route) {
   return sendJson(res, 200, { ok: true, baselineValue: book, price, maxLossUsd: Number(guard.max_loss_usd ?? 1) })
 }
 
+
+/** DOGE live plan routes: always the caller's own plan; writes via service role. */
+async function liveRoute(sb, req, res, route) {
+  const who = await requireUser(req, res, { bot: true })
+  if (!who) return
+  const userId = who.user.id
+  let body = {}
+  try {
+    body = (await readJsonBody(req)) || {}
+  } catch {
+    return sendJson(res, 400, { error: 'Bad JSON body.' })
+  }
+  const target = body.userId ?? body.user_id
+  if (target != null && String(target) !== userId) return sendJson(res, 403, { error: 'You can only change your own plan.' })
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const { data: row, error } = await sb.from('doge_live_plans').select('*').eq('user_id', userId).maybeSingle()
+  if (error) return sendJson(res, 500, { error: 'Could not read your plan.' })
+  const isOwner = who.profile?.role === 'owner'
+  const log = (fields) => sb.from('doge_live_log').insert({ user_id: userId, plan_id: row?.state?.planId ?? null, at: nowIso, mode: row?.live_enabled && isOwner && tradeKeyConfigured() ? 'live' : 'dry', role: 'plan', ...fields })
+  const rerun = async () => {
+    const r = await runDogeLive(sb, { source: 'manual', userIds: [userId] }).catch((e) => ({ error: e.message }))
+    const { data } = await sb.from('doge_live_plans').select('snapshot, status, live_enabled, kill_switch, config').eq('user_id', userId).maybeSingle()
+    return { run: r?.results?.[0] ?? r, plan: data }
+  }
+
+  if (route === 'doge-live/balances') {
+    const ro = krakenCredsFor(who.profile)
+    if (!ro) return sendJson(res, 400, { error: 'No Kraken key is linked to your account.' })
+    const [a, m] = await Promise.all([fetchKrakenAccount(ro), fetchLiveMarket().catch(() => null)])
+    if (!a.balances) return sendJson(res, 502, { error: 'Kraken balance unavailable; try again.' })
+    const doge = dogeFromKrakenBalance(a.balances).total
+    const usd = Number(a.balances.ZUSD || 0) + Number(a.balances.USD || 0)
+    const price = m?.price ?? null
+    return sendJson(res, 200, { ok: true, doge, usd, price, value: price ? doge * price + usd : null })
+  }
+
+  if (route === 'doge-live/save') {
+    let config
+    try {
+      config = normalizeLiveConfig(body.config || {}, now.getTime())
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message })
+    }
+    if (!(config.startValue > 0)) return sendJson(res, 400, { error: 'Start value must be positive.' })
+    const fresh = !row || body.startNew === true || row.status === 'ended'
+    const state = fresh ? initLiveState(config, now.getTime()) : { ...row.state, zonesDone: config.zones.map((_, i) => Boolean(row.state?.zonesDone?.[i])) }
+    if (!fresh && state) state.hwm = Math.max(Number(state.hwm) || 0, config.startValue)
+    const cols = { config, state, status: 'active', updated_at: nowIso }
+    const r = row ? await sb.from('doge_live_plans').update(cols).eq('user_id', userId) : await sb.from('doge_live_plans').insert({ user_id: userId, ...cols })
+    if (r.error) return sendJson(res, 500, { error: 'Could not save the plan.' })
+    await log({ action: 'config', status: fresh ? 'plan_started' : 'config_saved', reason: `Start $${config.startValue} on ${config.startDate}: ${config.startDoge} DOGE + $${config.startUsd}; pot $${config.potUsd}; zones ${config.zones.map((z) => `$${z.price}→${z.keepPct}%`).join(', ')}`, details: { config } })
+    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+  }
+
+  if (!row) return sendJson(res, 400, { error: 'Save a plan first.' })
+
+  if (route === 'doge-live/new-plan') {
+    if (body.confirm !== 'NEW') return sendJson(res, 400, { error: 'Confirm with { confirm: "NEW" }.' })
+    const config = normalizeLiveConfig(row.config, now.getTime())
+    const prev = row.state || {}
+    // keep the real resting order ids so the next run cancels them as untracked bot orders
+    const state = initLiveState(config, now.getTime())
+    const r = await sb.from('doge_live_plans').update({ state, status: 'active', updated_at: nowIso }).eq('user_id', userId)
+    if (r.error) return sendJson(res, 500, { error: 'Could not start a new plan.' })
+    await log({ action: 'config', status: 'plan_restarted', reason: `New plan (previous ${prev.planId || '—'} ${prev.status || ''})` })
+    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+  }
+
+  if (route === 'doge-live/kill') {
+    if (typeof body.on !== 'boolean') return sendJson(res, 400, { error: 'Send { on: true|false }.' })
+    const r = await sb.from('doge_live_plans').update({ kill_switch: body.on, kill_switch_at: body.on ? nowIso : null, updated_at: nowIso }).eq('user_id', userId)
+    if (r.error) return sendJson(res, 500, { error: 'Could not update.' })
+    await log({ action: 'kill', status: body.on ? 'kill_on' : 'kill_off', reason: body.on ? 'Kill switch ON: cancel bot orders, place nothing' : 'Kill switch off' })
+    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+  }
+
+  if (route === 'doge-live/live') {
+    if (typeof body.enabled !== 'boolean') return sendJson(res, 400, { error: 'Send { enabled: true|false }.' })
+    if (body.enabled) {
+      if (body.confirm !== 'LIVE') return sendJson(res, 400, { error: 'Confirm with { confirm: "LIVE" }.' })
+      if (!isOwner) return sendJson(res, 403, { error: 'Live orders are only available on the owner account.' })
+      if (!tradeKeyConfigured()) return sendJson(res, 400, { error: 'No Kraken trade key configured (KRAKEN_TRADE_KEY / KRAKEN_TRADE_SECRET). Staying in dry-run.' })
+    }
+    const r = await sb.from('doge_live_plans').update({ live_enabled: body.enabled, live_enabled_at: body.enabled ? nowIso : null, updated_at: nowIso }).eq('user_id', userId)
+    if (r.error) return sendJson(res, 500, { error: 'Could not update.' })
+    await log({ action: 'live', status: body.enabled ? 'live_on' : 'live_off', reason: body.enabled ? 'Live switch ON' : 'Live switch off (bot orders cancelled; back to dry-run)' })
+    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+  }
+
+  // doge-live/run
+  return sendJson(res, 200, { ok: true, ...(await rerun()) })
+}

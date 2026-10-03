@@ -13,7 +13,8 @@
     "make-owner": "node --env-file=.env.local scripts/make-owner.mjs",
     "check:bot": "node scripts/check-bot.mjs",
     "check:stocks": "node scripts/check-stocks.mjs",
-    "check:schwab": "node scripts/check-schwab.mjs"
+    "check:schwab": "node scripts/check-schwab.mjs",
+    "check:doge-live": "node scripts/check-doge-live.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

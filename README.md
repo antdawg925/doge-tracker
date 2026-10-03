@@ -233,6 +233,48 @@ Rule: **the bot must never leave a user below their starting amount while unatte
 2. Set the user's chat id in `profiles.telegram_chat_id` (server/SQL only for now — users can't write it, just like `role` / `bot_access`). A self-serve linking flow (e.g. `/start <code>` webhook) is a later step.
 
 
+## DOGE live plan on Kraken (My Bot → DOGE, top panel)
+
+Round 4 backtest rules (`doge-backtest/protect.py`, `today_plan.py`) as Kraken orders on **XDGUSD**.
+Engine: `shared/dogeLive.js` (pure). Runner: `api/_dogeLive.js` (every 5 min from `/api/bot/run`).
+Trading client: `api/_krakenTrade.js`. Checks: `npm run check:doge-live`.
+
+**Mode.** DRY-RUN by default: a virtual book (start DOGE + start USD + simulated fills) and a log of
+every order it *would* place / move / cancel. It becomes LIVE only when **both** a trade key is in
+the server env (`KRAKEN_TRADE_KEY`, `KRAKEN_TRADE_SECRET`; owner only) **and** the Live switch is on
+(confirm dialog). The read-only key (`KRAKEN_API_KEY/SECRET`) is never used to trade.
+
+**Rules.**
+- *Pot buy (once)*: first run after a UTC daily close (00:00 UTC = 5 PM PT) where the close > the prior
+  20-day closing high, DOGE > SMA50 and BTC > SMA50 → marketable IOC buy limit (ask + 0.5%) with the pot.
+- *Pot stop* (pot DOGE only, until the lock is active): highest 4h close since the fill − daily ATR14 × 3
+  (× 2 when 20–50% above SMA20, × 1.5 above 50%). Only rises.
+- *Account lock*: active once the account (DOGE × last 4h close + USD) reached 1.5 × start;
+  lock = start + 70% × (HWM − start), only rises. One Kraken `stop-loss` for all DOGE at
+  (lock − USD) ÷ DOGE (none if USD already covers it). Lock stop fills → plan ends; "Start new plan" is manual.
+- *Zones* (editable): sell limits at $0.20 / $0.30 / $0.40 down to 40% / 20% / 10% of max DOGE held. A zone
+  limit rests only within 5% of its price; while armed the stop covers the rest (stop + limit ≤ balance,
+  since Kraken holds balance for open orders). Disarms 3% below the arm band.
+- *One stop order*: lock stop (all DOGE) once the lock is active, else the pot stop (pot DOGE).
+  Per-DOGE stop only ratchets up for the same quantity; it is re-priced after a fill (e.g. zone cash).
+
+**Safety.** Kill switch (cancels bot orders, places nothing) · daily cap of 20 order actions (cancels
+always pass) · refuses stops at/above the bid · raises > 15% per step are capped · raises < 0.5%
+skipped · sell quantities re-checked against the DOGE available to the bot (your own open orders'
+holds excluded) right before every call · AmendOrder in place (txid kept; cancel+new fallback) ·
+idempotent `cl_ord_id` (prefix `tsb`; timeouts resolved by lookup; untracked `tsb` orders cancelled) ·
+one run per plan at a time (lease) · sells use `oflags=fciq` · Kraken rules from AssetPairs
+(price 7 dp, volume 8 dp, ordermin 50 DOGE, costmin $0.50) · Pause bot blocks the pot buy and new
+zone orders, never stop raises · every intent / placement / fill / refusal in `doge_live_log`.
+
+**Kraken trade key permissions:** Query Funds · Query Open Orders & Trades · Query Closed Orders &
+Trades · Create & Modify Orders · Cancel & Close Orders. Everything else OFF (no Withdraw Funds,
+no Deposit, no Earn, no Export/Ledger needed). Env: `KRAKEN_TRADE_KEY`, `KRAKEN_TRADE_SECRET`
+(Vercel production, sensitive).
+
+**Tables:** `doge_live_plans` (config, state, snapshot, Live/kill switches, lease; clients read own),
+`doge_live_log` (clients read own). Writes only via `/api/bot/doge-live/{save,new-plan,live,kill,balances,run}`.
+
 ## Stocks: watch-only stop manager + short assist (My Bot → Stocks)
 
 Tells you where to put your **Schwab** stops for the stocks you hold (long or short). **Nothing places orders**; you move the stop at Schwab yourself. Same access gate as My Bot (`bot_access` or owner).
