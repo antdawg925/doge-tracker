@@ -89,7 +89,7 @@ export default function SchwabPanel({ schwab, onChanged, onError }) {
         </div>
       ) : null}
       <div className="stk-schwab__row">
-        {c ? <BrandMark brand="schwab" height={18} className="stk-schwab__logo" /> : <strong className="stk-schwab__title">Schwab</strong>}
+        {c ? <BrandMark brand="schwab" height={20} className="stk-schwab__logo" /> : <strong className="stk-schwab__title">Schwab</strong>}
         {!c ? (
           <>
             <span className="small muted">Not connected · stops are watch-only + paper.</span>

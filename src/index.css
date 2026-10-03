@@ -4745,4 +4745,4 @@ p {
 .stk-btn--brand { display: inline-flex; align-items: center; gap: 0.4rem; }
 .stk-schwab__logo { margin-right: 0.1rem; }
 .stk-live-cell__mark { margin-left: 0.1rem; }
-.bot-status__brand { display: inline-flex; align-items: center; gap: 0.3rem; }
+.bot-status__brand { display: flex; align-items: center; gap: 0.3rem; line-height: 1.2; }

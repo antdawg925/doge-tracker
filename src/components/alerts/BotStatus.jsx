@@ -278,7 +278,7 @@ export default function BotStatus({ refreshKey }) {
           <>
             <div>
               <dt className="bot-status__brand">
-                <BrandMark brand="kraken" height={14} /> DOGE
+                <BrandMark brand="kraken" height={12} /> DOGE
               </dt>
               <dd className="mono">{lastOk?.kraken_balance != null ? formatCoins(Number(lastOk.kraken_balance)) : '—'}</dd>
             </div>
