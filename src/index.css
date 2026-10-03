@@ -4738,3 +4738,11 @@ p {
 .stk-linkbtn { background: none; border: 0; padding: 0 0.25rem; color: #22d3ee; cursor: pointer; text-decoration: underline; font-size: inherit; }
 .stk-linkbtn:disabled { opacity: 0.5; cursor: default; }
 .stk-own { display: grid; gap: 0.1rem; }
+
+/* Official broker/exchange logos (public/brands, unaltered): height only, never recolored */
+.brand-mark { display: inline-block; flex: none; vertical-align: middle; object-fit: contain; }
+.brand-mark--schwab { border-radius: 2px; }
+.stk-btn--brand { display: inline-flex; align-items: center; gap: 0.4rem; }
+.stk-schwab__logo { margin-right: 0.1rem; }
+.stk-live-cell__mark { margin-left: 0.1rem; }
+.bot-status__brand { display: inline-flex; align-items: center; gap: 0.3rem; }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../../lib/api.js';
+import { BrandMark } from '../BrandMark.jsx';
 
 const fmtLeft = (ms) => {
   if (ms == null) return '—';
@@ -88,11 +89,12 @@ export default function SchwabPanel({ schwab, onChanged, onError }) {
         </div>
       ) : null}
       <div className="stk-schwab__row">
-        <strong className="stk-schwab__title">Schwab</strong>
+        {c ? <BrandMark brand="schwab" height={18} className="stk-schwab__logo" /> : <strong className="stk-schwab__title">Schwab</strong>}
         {!c ? (
           <>
             <span className="small muted">Not connected · stops are watch-only + paper.</span>
-            <button type="button" className="btn btn--primary stk-btn" disabled={Boolean(busy)} onClick={connect}>
+            <button type="button" className="btn btn--primary stk-btn stk-btn--brand" disabled={Boolean(busy)} onClick={connect}>
+              <BrandMark brand="schwab" height={16} decorative />
               {busy === 'connect' || busy === 'finish' ? 'Connecting…' : 'Connect Schwab'}
             </button>
           </>
@@ -201,6 +203,7 @@ export function LiveCell({ p, lo, conn, onToggle, onAdopt, onCancel, busy }) {
       <label className={`stk-switch stk-switch--sm${p.live ? ' is-on' : ''}`} title={usable ? 'Let the bot manage a real Schwab stop for this position' : 'Connect Schwab and pick an account first'}>
         <input type="checkbox" checked={Boolean(p.live)} disabled={!usable || busy} onChange={(e) => onToggle(p, e.target.checked)} />
         <span>{p.live ? 'Live' : 'Off'}</span>
+        {p.live ? <BrandMark brand="schwab" height={14} className="stk-live-cell__mark" /> : null}
       </label>
       {p.live && lo?.status === 'working' ? (
         <span className="small pos" title={`Order ${lo.order_id}${lo.adopted ? ' (yours, bot-managed)' : ''}`}>

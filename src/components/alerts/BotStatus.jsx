@@ -4,6 +4,7 @@ import { authedFetch } from '../../lib/api.js';
 import { formatCoins, formatPct, formatPrice, formatUsd } from '../../lib/format.js';
 import { paperBookValue, paperValues } from '../../../shared/paper.js';
 import { supabase } from '../../lib/supabase.js';
+import { BrandMark } from '../BrandMark.jsx';
 
 const SYMBOL = 'DOGE';
 const LATE_MS = 15 * 60 * 1000;
@@ -276,7 +277,9 @@ export default function BotStatus({ refreshKey }) {
         {isOwner ? (
           <>
             <div>
-              <dt>Kraken DOGE</dt>
+              <dt className="bot-status__brand">
+                <BrandMark brand="kraken" height={14} /> DOGE
+              </dt>
               <dd className="mono">{lastOk?.kraken_balance != null ? formatCoins(Number(lastOk.kraken_balance)) : '—'}</dd>
             </div>
             <div>
