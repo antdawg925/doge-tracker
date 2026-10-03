@@ -29,6 +29,15 @@ const LOG_COPY = {
   refused: 'Refused',
   skipped: 'Skipped',
   error: 'Error',
+  unfilled: 'Unfilled',
+  amend_failed: 'Amend failed',
+  plan_started: 'Plan started',
+  plan_restarted: 'New plan',
+  config_saved: 'Settings saved',
+  kill_on: 'Kill switch on',
+  kill_off: 'Kill switch off',
+  live_on: 'Live on',
+  live_off: 'Live off',
 };
 const ROLE_COPY = { stop: 'stop', zone: 'zone sell', pot: 'pot buy', orphan: 'old bot order' };
 
@@ -205,7 +214,7 @@ export default function DogeLivePanel({ refreshKey }) {
                     {px(s?.signal?.trigger)}
                     <span className="small muted" title={`DOGE close ${px(s?.signal?.close)} vs SMA50 ${px(s?.signal?.sma50)}; BTC ${usd(s?.signal?.btcClose)} vs SMA50 ${usd(s?.signal?.btcSma)}`}>
                       {' '}
-                      close · SMA50 {yes(s?.signal?.aboveSma)} BTC {yes(s?.signal?.btcOk)}
+                      SMA50 {yes(s?.signal?.aboveSma)} BTC {yes(s?.signal?.btcOk)}
                     </span>
                   </>
                 ) : s?.pot?.status === 'held' ? (
