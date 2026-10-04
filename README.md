@@ -235,6 +235,8 @@ Rule: **the bot must never leave a user below their starting amount while unatte
 
 ## DOGE live plan on Kraken (My Bot → DOGE, top panel)
 
+**Telegram commands** (api/telegram.js, webhook /api/telegram/webhook, secret header = env TELEGRAM_WEBHOOK_SECRET; only chats matching profiles.telegram_chat_id; deduped by update_id): /status, /stop 0.092 (same path and checks as Raise stop), /pause + "/pause yes" (kill switch: removes the protective stop), /resume + "/resume yes", /help. Nothing uses getUpdates (webhook mode).
+
 **Bottom stop (main job, Oct 2026).** One real Kraken stop-loss always covers all the DOGE you hold
 (minus your own / the bot's resting sells). It starts at your bottom stop (e.g. $0.089) and only
 moves up: effective = max(current, ATR trail = highest 4h close since start − 3/2/1.5 × daily ATR,

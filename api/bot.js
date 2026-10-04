@@ -40,7 +40,7 @@ import { parseMaxLoss, unlockGuard } from '../shared/guard.js'
 import { paperBookValue } from '../shared/paper.js'
 import { runDogeLive, fetchLiveMarket } from './_dogeLive.js'
 import { runStopReminders } from './_stopReminders.js'
-import { sendTelegram } from './_telegram.js'
+import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
@@ -432,10 +432,9 @@ async function liveRoute(sb, req, res, route) {
 
   if (route === 'doge-live/kill') {
     if (typeof body.on !== 'boolean') return sendJson(res, 400, { error: 'Send { on: true|false }.' })
-    const r = await sb.from('doge_live_plans').update({ kill_switch: body.on, kill_switch_at: body.on ? nowIso : null, updated_at: nowIso }).eq('user_id', userId)
-    if (r.error) return sendJson(res, 500, { error: 'Could not update.' })
-    await log({ action: 'kill', status: body.on ? 'kill_on' : 'kill_off', reason: body.on ? 'Kill switch ON: cancel bot orders, place nothing' : 'Kill switch off' })
-    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+    const r = await setDogeKill(sb, { userId, on: body.on })
+    if (!r.ok) return sendJson(res, r.status, { error: r.error })
+    return sendJson(res, 200, { ok: true, run: r.run, plan: r.plan })
   }
 
   if (route === 'doge-live/live') {
@@ -452,34 +451,9 @@ async function liveRoute(sb, req, res, route) {
   }
 
   if (route === 'doge-live/stop') {
-    const price = Number(body.price)
-    if (!(price > 0) || price > 10) return sendJson(res, 400, { error: 'Enter a stop price in USD per DOGE.' })
-    const st = row.state || {}
-    const cur = Number.isFinite(Number(st.stopPx)) ? Number(st.stopPx) : null
-    const p = Math.round(price * 1e7) / 1e7
-    const lower = body.lower === true
-    if (lower) {
-      if (!isOwner) return sendJson(res, 403, { error: 'Only the owner can lower the stop.' })
-      if (body.confirm !== 'LOWER') return sendJson(res, 400, { error: 'Type LOWER to confirm lowering the stop.' })
-      if (cur != null && !(p < cur)) return sendJson(res, 400, { error: `That is not lower than the current stop ${cur}.` })
-    } else if (cur != null && !(p > cur)) {
-      return sendJson(res, 400, { error: `The stop only moves up: ${p} is not above the current stop ${cur}. Use "Lower stop" if you really mean it.` })
-    }
-    const m = await fetchLiveMarket().catch(() => null)
-    if (!m) return sendJson(res, 502, { error: 'Kraken price unavailable; try again.' })
-    if (p >= m.bid) return sendJson(res, 400, { error: `A stop at ${p} is at/above the market (bid ${m.bid}); it would sell at once. Use Sell now instead.` })
-    const { setStop } = await import('../shared/dogeLive.js')
-    const state = structuredClone(st)
-    const reason = lower ? 'Lowered by you (confirmed)' : 'Raised by you'
-    setStop(state, p, { by: 'user', reason, nowIso })
-    const config = { ...(row.config || {}), bottomStop: p }
-    const r = await sb.from('doge_live_plans').update({ state, config, updated_at: nowIso }).eq('user_id', userId)
-    if (r.error) return sendJson(res, 500, { error: 'Could not save the stop.' })
-    await log({ action: 'stop', status: lower ? 'stop_lowered' : 'stop_raised', price: p, reason: `${reason}: ${cur ?? '—'} → ${p}` })
-    const { data: tp } = await sb.from('profiles').select('telegram_chat_id').eq('id', userId).maybeSingle()
-    const chat = tp?.telegram_chat_id
-    if (chat) await sendTelegram(chat, `DOGE stop: ${lower ? '⚠️ Stop LOWERED' : 'Stop raised'} $${cur != null ? cur.toFixed(4) : '—'} → $${p.toFixed(4)}: ${reason.toLowerCase()}.`).catch(() => null)
-    return sendJson(res, 200, { ok: true, ...(await rerun()) })
+    const r = await changeDogeStop(sb, { userId, isOwner, price: body.price, lower: body.lower === true, confirm: body.confirm ?? null })
+    if (!r.ok) return sendJson(res, r.status, { error: r.error })
+    return sendJson(res, 200, { ok: true, run: r.run, plan: r.plan })
   }
 
   if (route === 'doge-live/sell') {

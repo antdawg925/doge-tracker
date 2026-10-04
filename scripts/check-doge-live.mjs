@@ -11,6 +11,7 @@ import {
 import { createKrakenTrader, krakenTradeCredsFor, bookFromBalance, splitOpenOrders } from '../api/_krakenTrade.js'
 import { executeLive, dogeTelegramLines } from '../api/_dogeLive.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
+import { parseCommand, parsePrice, statusText, handleUpdate, HELP } from '../api/telegram.js'
 import { cryptoUncovered, krakenAlt, remindFor, stockReminderWindow } from '../api/_stopReminders.js'
 
 let n = 0
@@ -368,6 +369,45 @@ await okA('live executor: Sell now = IOC sell limit with fciq, fill recorded; re
   const logs2 = []
   await executeLive({ trader, state, intents: [it], market: { price: 0.0929, bid: 0.0929 }, book: { doge: 1000, usd: 0 }, killSwitch: true, config: c0, logs: logs2, nowIso: 'x' })
   assert.equal(logs2[0].status, 'refused')
+})
+
+await okA('telegram: parse commands, ignore unknown chats silently, dedupe update_id, help/status/stop usage', async () => {
+  assert.deepEqual(parseCommand('/stop .092'), { cmd: 'stop', arg: '.092' })
+  assert.deepEqual(parseCommand('stop 0.092'), { cmd: 'stop', arg: '0.092' })
+  assert.deepEqual(parseCommand('/stop@TradeSmartAlerts_bot 0.092'), { cmd: 'stop', arg: '0.092' })
+  assert.deepEqual(parseCommand('/pause yes'), { cmd: 'pause', arg: 'yes' })
+  assert.equal(parseCommand('hello'), null)
+  assert.equal(parsePrice('.092'), 0.092)
+  assert.equal(parsePrice('$0.0925'), 0.0925)
+  assert.equal(parsePrice('abc'), null)
+  const seen = new Set()
+  const sent = []
+  const mk = (table) => {
+    const q = { _t: table, _f: {}, select: () => q, eq: (k, v) => ((q._f[k] = v), q), maybeSingle: async () => {
+      if (table === 'profiles') return { data: q._f.telegram_chat_id === '8500354525' ? { id: 'U1', role: 'owner', bot_access: true, telegram_chat_id: '8500354525' } : null }
+      return { data: null }
+    }, insert: async (row) => {
+      if (seen.has(row.update_id)) return { error: { message: 'dup' } }
+      seen.add(row.update_id)
+      return { error: null }
+    } }
+    return q
+  }
+  const sb = { from: mk }
+  const send = async (chat, text) => sent.push({ chat, text })
+  let r = await handleUpdate(sb, { update_id: 1, message: { chat: { id: 999 }, text: '/status' } }, { send })
+  assert.equal(r.ignored, 'unknown chat')
+  assert.equal(sent.length, 0, 'silent for strangers')
+  r = await handleUpdate(sb, { update_id: 2, message: { chat: { id: 8500354525 }, text: '/help' } }, { send })
+  assert.equal(r.reply, HELP)
+  r = await handleUpdate(sb, { update_id: 2, message: { chat: { id: 8500354525 }, text: '/help' } }, { send })
+  assert.equal(r.ignored, 'duplicate')
+  r = await handleUpdate(sb, { update_id: 3, message: { chat: { id: 8500354525 }, text: '/pause' } }, { send })
+  assert.ok(/pause yes/.test(r.reply) && /protective stop/.test(r.reply), 'pause asks to confirm and warns')
+  r = await handleUpdate(sb, { update_id: 4, message: { chat: { id: 8500354525 }, text: '/stop abc' } }, { send })
+  assert.ok(/Usage/.test(r.reply))
+  const txt = statusText({ plan: { snapshot: { mode: 'dry', stop: { qty: 1032.3 }, lockActivatesAt: 28500, userBuys: [] }, state: { stopPx: 0.089, stopSetAt: '2026-10-04T01:10:01Z', stopReason: 'Bottom stop (your choice)' }, status: 'active' }, price: 0.0928 })
+  assert.ok(txt.includes('Bottom stop $0.0890 (4.3% below price)') && txt.includes('Covers 1,032 DOGE') && txt.includes('dry-run'), txt)
 })
 
 console.log(`check:doge-live OK (${n} checks; bottom stop $0.089 × 1,032.3 DOGE; HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)

@@ -21,6 +21,10 @@
       "destination": "/api/schwab?route=:route*"
     },
     {
+      "source": "/api/telegram/:route*",
+      "destination": "/api/telegram?route=:route*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/[...slug]"
     },
@@ -34,6 +38,9 @@
       "maxDuration": 60
     },
     "api/schwab.js": {
+      "maxDuration": 60
+    },
+    "api/telegram.js": {
       "maxDuration": 60
     }
   }
