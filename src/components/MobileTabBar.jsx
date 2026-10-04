@@ -10,6 +10,7 @@ const I = {
   shorts: 'M4 7l6 6 4-4 6 6m0 0v-5m0 5h-5',
   bot: 'M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  plan: 'M5 21V4m0 0h11l-2 4 2 4H5',
 };
 const Icon = ({ d }) => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -20,6 +21,7 @@ const TABS = [
   { to: '/home', label: 'Home', icon: I.home, match: ['/', '/home'] },
   { to: '/research', label: 'Research', icon: I.research },
   { to: '/scanner', label: 'Scanner', icon: I.scanner },
+  { to: '/plan', label: 'Plan', icon: I.plan },
   { to: '/bot', label: 'My Bot', icon: I.bot },
 ];
 

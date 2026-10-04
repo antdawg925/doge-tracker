@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../hooks/authContext.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
 import { BrandMark } from '../BrandMark.jsx';
 import { LOG_COPY, QuietHours, ROLE_COPY, Settings } from '../alerts/DogeLivePanel.jsx';
+import LevelChart from '../plan/LevelChart.jsx';
+import { actionOf, fetchPlanPosts } from '../../lib/plan.js';
 
 /**
  * My Bot → DOGE: one screen. Hero (bottom stop) · Position · Orders · Quick actions ·
@@ -159,6 +161,36 @@ function MobileBar({ row }) {
   );
 }
 
+/** Candles + the latest plan's levels (dim), the bottom stop (red) and open orders (buy green, sell orange). */
+function BotChart({ row, plan, botBuys, onPickSell }) {
+  const s = row.snapshot || {};
+  const stopPx = row.state?.stopPx ?? s.bottom?.price ?? null;
+  const price = s.price;
+  const { lines, fit } = useMemo(() => {
+    const out = [];
+    for (const l of plan?.levels || []) {
+      if (l.action === 'stop' && /bottom/i.test(l.label || '')) continue; // the live stop is drawn below
+      out.push({ price: Number(l.price), label: l.label, color: `${actionOf(l.action).color}99`, style: 'dotted', plan: true });
+    }
+    if (stopPx) out.push({ price: stopPx, label: 'Stop', color: '#f07178', style: 'solid', width: 2 });
+    for (const o of s.userBuys || []) out.push({ price: o.price, label: 'Your buy', color: '#3ecf8e', style: 'solid' });
+    for (const o of botBuys || []) out.push({ price: Number(o.price), label: 'Bot buy', color: '#3ecf8e', style: 'solid' });
+    for (const o of s.userSells || []) out.push({ price: o.price, label: 'Your sell', color: '#f5a524', style: 'solid' });
+    if (s.orders?.zone) out.push({ price: s.orders.zone.price, label: 'Zone sell', color: '#f5a524', style: 'solid' });
+    // autoscale: the stop, orders, and plan levels within ~-25%/+60% of price
+    const f = out.filter((l) => !l.plan || !price || (l.price > price * 0.75 && l.price < price * 1.6)).map((l) => l.price);
+    return { lines: out, fit: f };
+  }, [plan, stopPx, price, s.userBuys, s.userSells, s.orders, botBuys]);
+  return (
+    <section className="card mb-chart">
+      <LevelChart lines={lines} fit={fit} height={typeof window !== 'undefined' && window.innerWidth < 768 ? 220 : 280} defaultRange="4h" price={price} onPick={(l) => price && l.price > price && onPickSell(l.price)} />
+      <p className="small muted mb-chart__note">
+        {plan ? `Levels from “${plan.title || 'latest plan'}”` : 'No plan levels yet'} · red = your stop{price ? ' · tap a level above the price to prefill a limit sell' : ''}
+      </p>
+    </section>
+  );
+}
+
 function Position({ row }) {
   const s = row.snapshot || {};
   const doge = s.book?.doge;
@@ -224,10 +256,9 @@ function Orders({ row, botBuys }) {
   );
 }
 
-function QuickActions({ row, busy, setBusy, setMsg, reload, isOwner }) {
+function QuickActions({ row, busy, setBusy, setMsg, reload, isOwner, sp, setSp }) {
   const [amt, setAmt] = useState('');
   const [plan, setPlan] = useState(null);
-  const [sp, setSp] = useState('');
   const [sAmt, setSAmt] = useState('');
   const [unit, setUnit] = useState('pct');
   const [result, setResult] = useState('');
@@ -398,6 +429,8 @@ export default function MyBot({ refreshKey }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [checkedAt, setCheckedAt] = useState(0);
+  const [plan, setPlan] = useState(null);
+  const [sellPx, setSellPx] = useState('');
 
   const load = useCallback(async () => {
     if (!supabase || !user) return;
@@ -411,6 +444,11 @@ export default function MyBot({ refreshKey }) {
     setBotBuys(b.data ?? []);
     setCheckedAt(Date.now());
   }, [user]);
+  useEffect(() => {
+    fetchPlanPosts('DOGE', 1)
+      .then((p) => setPlan(p[0] || null))
+      .catch(() => setPlan(null));
+  }, []);
   useEffect(() => {
     load();
     const id = setInterval(load, 60000);
@@ -459,11 +497,20 @@ export default function MyBot({ refreshKey }) {
           ))}
         </ul>
       ) : null}
+      <BotChart
+        row={row}
+        plan={plan}
+        botBuys={botBuys}
+        onPickSell={(p) => {
+          setSellPx(String(Number(p)));
+          jump('mb-sell');
+        }}
+      />
       <div className="mb-two">
         <Position row={row} />
         <Orders row={row} botBuys={botBuys} />
       </div>
-      <QuickActions row={row} busy={busy} setBusy={setBusy} setMsg={setMsg} reload={load} isOwner={isOwner} />
+      <QuickActions row={row} busy={busy} setBusy={setBusy} setMsg={setMsg} reload={load} isOwner={isOwner} sp={sellPx} setSp={setSellPx} />
       <YourSettings row={row} busy={busy} call={call} isOwner={isOwner} userId={user?.id} />
       <Activity log={log} lastRun={row.last_run_at} />
       <MobileBar row={row} />

@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Research from './pages/Research';
 import Positions from './pages/Positions';
 import ScannerHub from './pages/ScannerHub';
+import Plan from './pages/Plan';
 import Alerts from './pages/Alerts';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -45,6 +46,8 @@ export default function App() {
                 <Route path="/research" element={<Research />} />
                 <Route path="/positions" element={<Positions />} />
                 <Route path="/scanner" element={<ScannerHub />} />
+                {/* Plan: the publish surface; any signed-in user reads it (no bot gating) */}
+                <Route path="/plan" element={<Plan />} />
                 {/* Trade Smart Bot tier; others see the locked screen with Request access */}
                 <Route element={<RequireBot />}>
                   <Route path="/bot" element={<Alerts />} />

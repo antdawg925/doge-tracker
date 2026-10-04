@@ -9,6 +9,7 @@ import { createSupabasePlanBackend } from '../lib/planStoreSupabase.js';
 const NAV = [
   { to: '/home', label: 'Home', end: true, match: ['/', '/home'] },
   { to: '/research', label: 'Research' },
+  { to: '/plan', label: 'Plan' },
   { to: '/positions', label: 'Positions' },
   { to: '/scanner', label: 'Scanner' },
   { to: '/bot', label: 'My Bot' },
