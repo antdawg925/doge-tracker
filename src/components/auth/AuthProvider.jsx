@@ -29,6 +29,7 @@ export default function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(supabaseConfigured);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [signedOut, setSignedOut] = useState(false); // this tab just signed out → land on Home, not /login
   const ownerId = profile?.role === 'owner' ? profile.id : null;
 
   const applyPending = useCallback(({ count }) => setPendingRequests(count ?? 0), []);
@@ -53,6 +54,7 @@ export default function AuthProvider({ children }) {
       if (!alive) return;
       setSession(s ?? null);
       setProfile(p);
+      if (s?.user) setSignedOut(false);
       setLoading(false);
     };
     supabase.auth.getSession().then(({ data }) => apply(data.session));
@@ -131,6 +133,7 @@ export default function AuthProvider({ children }) {
   const signOut = useCallback(async () => {
     // clear first (synchronously) so a navigate('/') in the same tick shows the landing page,
     // not a signed-in redirect or a RequireAuth bounce to /login
+    setSignedOut(true);
     setSession(null);
     setProfile(null);
     await supabase?.auth.signOut();
@@ -143,6 +146,7 @@ export default function AuthProvider({ children }) {
     return {
       configured: supabaseConfigured,
       loading,
+      signedOut,
       session,
       user,
       profile,
@@ -163,6 +167,7 @@ export default function AuthProvider({ children }) {
       requestBotAccess,
     };
   }, [
+    signedOut,
     session,
     profile,
     loading,

@@ -20,9 +20,10 @@ export function HomeGate({ children }) {
 
 /** Signed-in only; otherwise bounce to /login and come back after. */
 export function RequireAuth() {
-  const { user, loading } = useAuth();
+  const { user, loading, signedOut } = useAuth();
   const location = useLocation();
   if (loading) return <Checking />;
+  if (!user && signedOut) return <Navigate to="/" replace />; // just signed out: Home, not /login
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <Outlet />;
 }
