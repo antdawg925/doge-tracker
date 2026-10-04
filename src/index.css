@@ -5084,3 +5084,4 @@ p {
   .plan-form__chk { grid-column: 2 / 4; }
   .mb-hero__stop { font-size: 0.86rem; }
 }
+.mb-hero__stop > span { white-space: nowrap; }

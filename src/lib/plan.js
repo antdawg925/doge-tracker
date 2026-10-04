@@ -52,7 +52,7 @@ export function chartLabel(l) {
 
 /** Key resistance lines only (levels with on_chart), thin and muted. */
 export const keyLines = (levels) =>
-  (levels || []).filter((l) => l.on_chart && Number(l.price) > 0).map((l) => ({ price: Number(l.price), label: chartLabel(l), color: '#8b9bb4aa', style: 'dashed', muted: true }));
+  (levels || []).filter((l) => l.on_chart && Number(l.price) > 0).map((l) => ({ price: Number(l.price), label: chartLabel(l), color: '#5b6b82', style: 'dashed', muted: true }));
 
 /** Ladder stages sorted by `from`; current = the last stage whose `from` ≤ price. Fallback: one row per level. */
 export function ladderOf(post) {

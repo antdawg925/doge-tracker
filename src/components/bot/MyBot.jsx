@@ -168,7 +168,7 @@ function BotChart({ row, plan, botBuys, onPickSell, spot }) {
     const out = [];
     for (const l of plan?.levels || []) {
       if (!l.on_chart) continue; // key resistance only; zones live in the Plan ladder
-      out.push({ price: Number(l.price), label: chartLabel(l), color: '#8b9bb4aa', style: 'dashed', plan: true, muted: true });
+      out.push({ price: Number(l.price), label: chartLabel(l), color: '#5b6b82', style: 'dashed', plan: true, muted: true });
     }
     if (stopPx) out.push({ price: stopPx, label: 'Stop', color: '#f07178', style: 'solid', width: 2 });
     for (const o of s.userBuys || []) out.push({ price: o.price, label: 'Your buy', color: '#3ecf8e', style: 'solid' });
