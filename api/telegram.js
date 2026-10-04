@@ -12,6 +12,8 @@ import { sendTelegram } from './_telegram.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { fetchLiveMarket } from './_dogeLive.js'
 import { changeStockStop, stockStopTargets } from './_stockActions.js'
+import { cancelBuys, confirmPending, startBuy } from './_dogeBuy.js'
+import { parseBuy } from '../shared/dogeBuy.js'
 
 const px = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : `$${Number(v).toFixed(4)}`)
 const q0 = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : Math.round(Number(v)).toLocaleString('en-US'))
@@ -25,6 +27,9 @@ export const HELP = [
   '/stop SPY 745.50: raise a stock stop (Stocks-tab stop; Live Schwab order updated too)',
   '/pause: kill switch: cancels the bot\'s orders INCLUDING the protective stop (asks to confirm)',
   '/resume: turn the bot back on (asks to confirm)',
+  'buy $1000 DOGE (or /buy 1000): post-only limit buy at the best bid; reply yes within 2 min',
+  '/cancel: cancel the bot\'s pending / open buy',
+  'yes: confirm the pending buy or stop suggestion',
   '/help: this list',
 ].join('\n')
 
@@ -39,7 +44,7 @@ function secretOk(given) {
 /** Parse a message text → { cmd, arg }. Accepts "/stop .092", "stop 0.092", "/stop@Bot 0.092". */
 export function parseCommand(text) {
   const t = String(text || '').trim().replace(/^\/(\w+)@\w+/, '/$1')
-  const m = t.match(/^\/?(status|stop|pause|resume|help|start)\b\s*(.*)$/i)
+  const m = t.match(/^\/?(status|stop|pause|resume|help|start|buy|cancel|yes)\b\s*(.*)$/i)
   if (!m) return null
   return { cmd: m[1].toLowerCase(), arg: m[2].trim() }
 }
@@ -158,6 +163,9 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
   }
 
   if (c.cmd === 'help' || c.cmd === 'start') return reply(HELP)
+  if (c.cmd === 'buy') return reply(await startBuy(sb, { profile: prof, usd: parseBuy(msg.text)?.usd ?? null }))
+  if (c.cmd === 'yes') return reply(await confirmPending(sb, { profile: prof }))
+  if (c.cmd === 'cancel') return reply(await cancelBuys(sb, { profile: prof }))
 
   if (c.cmd === 'status') {
     const [{ data: plan }, m, stocks] = await Promise.all([

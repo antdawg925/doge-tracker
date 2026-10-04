@@ -42,6 +42,7 @@ import { runDogeLive, fetchLiveMarket } from './_dogeLive.js'
 import { runStopReminders } from './_stopReminders.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { flushDigests } from './_notify.js'
+import { manageBuys } from './_dogeBuy.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
@@ -99,6 +100,13 @@ export default async function handler(req, res) {
       } catch (err) {
         dogeError = String(err?.message || err)
       }
+      // Telegram buys: re-peg / fills (fills re-run the plan so the stop covers them at once)
+      let buys = null
+      try {
+        buys = await manageBuys(sb)
+      } catch (err) {
+        buys = { error: String(err?.message || err).slice(0, 200) }
+      }
       // DOGE live plan (dry-run unless trade key + Live switch); independent of the rest.
       let dogeLive = null
       try {
@@ -108,6 +116,7 @@ export default async function handler(req, res) {
         dogeLive = { error: String(err?.message || err).slice(0, 200) }
       }
       if (summary) summary.dogeLive = dogeLive
+      if (summary) summary.buys = buys
       // Missing-stop reminders (reads only; Telegram with cooldowns)
       let reminders = null
       try {

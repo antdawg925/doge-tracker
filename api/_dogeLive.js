@@ -183,6 +183,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
       const trackedNow = new Set([state.orders.stop?.id, state.orders.zone?.id].filter(Boolean))
       for (const o of open.mine) {
         if (trackedNow.has(o.txid)) continue
+        if (String(o.clOrdId || '').startsWith('tsbb')) continue // Telegram buy orders: managed by api/_dogeBuy.js
         try {
           await trader.cancel({ txid: o.txid })
           logs.push({ mode, role: 'orphan', action: 'cancel', status: 'cancelled', side: o.type, ordertype: o.ordertype, price: o.price, qty: o.vol - o.volExec, txid: o.txid, cl_ord_id: o.clOrdId, reason: 'untracked bot order' })

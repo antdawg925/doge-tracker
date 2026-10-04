@@ -10,6 +10,7 @@ import {
 } from '../shared/dogeLive.js'
 import { createKrakenTrader, krakenTradeCredsFor, bookFromBalance, splitOpenOrders } from '../api/_krakenTrade.js'
 import { executeLive, dogeTelegramLines, priceFlags } from '../api/_dogeLive.js'
+import { parseBuy, analyzeDepth, planBuy, postOnlyPrice, repegDecision, suggestStop, suggestText } from '../shared/dogeBuy.js'
 import { inQuiet, notifyLines, flushDigests } from '../api/_notify.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
 import { parseCommand, parsePrice, statusText, handleUpdate, HELP, isStopIntent, stopPromptText, parseStopArgs, stopListText } from '../api/telegram.js'
@@ -463,6 +464,55 @@ await okA('quiet hours 9 PM–6 AM PT: non-urgent queued, urgent goes now, one d
   const fl = priceFlags({ market: { price: 0.0915, bars5m: b5 }, stopPx: 0.0910, nowMs: now })
   assert.deepEqual(fl.map((f) => f.code).sort(), ['drop_1h', 'near_stop'])
   assert.equal(priceFlags({ market: { price: 0.0928, bars5m: [] }, stopPx: 0.089, nowMs: now }).length, 0)
+})
+
+ok('telegram buy: parse, L2 read, post-only price, sizing, balance, re-peg, stop suggestion', () => {
+  assert.deepEqual(parseBuy('buy $1000 DOGE'), { usd: 1000 })
+  assert.deepEqual(parseBuy('/buy 1000'), { usd: 1000 })
+  assert.deepEqual(parseBuy('buy 1000 doge'), { usd: 1000 })
+  assert.deepEqual(parseBuy('buy $2,500'), { usd: 2500 })
+  assert.deepEqual(parseBuy('buy'), { usd: null })
+  assert.equal(parseBuy('status'), null)
+  assert.deepEqual(parseCommand('buy $1000 DOGE'), { cmd: 'buy', arg: '$1000 DOGE' })
+  assert.deepEqual(parseCommand('Yes'), { cmd: 'yes', arg: '' })
+  const bids = [['0.0927900', '50000'], ['0.0927800', '40000'], ['0.0927000', '60000'], ['0.0908000', '2100000'], ...Array.from({ length: 20 }, (_, i) => [(0.0926 - i * 0.00005).toFixed(7), '45000'])]
+  const asks = [['0.0928100', '30000'], ['0.0928200', '1500000'], ...Array.from({ length: 20 }, (_, i) => [(0.0929 + i * 0.00005).toFixed(7), '40000'])]
+  const book = analyzeDepth({ bids, asks })
+  assert.equal(book.bid, 0.09279)
+  assert.equal(book.ask, 0.09281)
+  assert.ok(book.spreadPct < 0.03)
+  assert.equal(book.askWall.price, 0.09282)
+  assert.equal(book.bidWall.price, 0.0908)
+  assert.equal(postOnlyPrice(book), 0.0927901) // bid + 1 tick, still under the ask
+  assert.equal(postOnlyPrice({ ...book, bid: 0.0928099, ask: 0.09281 }), 0.0928099) // no room → join the bid
+  const pl = planBuy({ usd: 1000, book, usdAvailable: 5000 })
+  assert.ok(pl.ok)
+  assert.equal(pl.qty, Math.floor((1000 / 0.0927901) * 1e8) / 1e8)
+  assert.ok(pl.notes.some((n) => n.startsWith('Ask wall 1,500,000 DOGE')))
+  assert.ok(/Not enough USD/.test(planBuy({ usd: 1000, book, usdAvailable: 500 }).error))
+  assert.ok(/minimum/.test(planBuy({ usd: 2, book }).error))
+  const t0 = Date.UTC(2026, 9, 4, 18, 0)
+  const req = { price: 0.0927901, repegs: 0, placed_at: new Date(t0).toISOString() }
+  assert.equal(repegDecision({ req, book: { ...book, bid: 0.0929, ask: 0.0930 }, nowMs: t0 + 60000 }).action, 'wait')
+  assert.deepEqual(repegDecision({ req, book: { ...book, bid: 0.0929, ask: 0.093 }, nowMs: t0 + 181000 }), { action: 'repeg', price: 0.0929001 })
+  assert.equal(repegDecision({ req: { ...req, repegs: 3 }, book, nowMs: t0 + 999999 }).action, 'rest')
+  // suggestion: swing low 0.0910 on 4h, hourly ATR ~0.0006, wall 2.1M @ 0.0908
+  const H = 3600000
+  const b4 = Array.from({ length: 40 }, (_, i) => {
+    const low = i === 30 ? 0.091 : 0.0915 + i * 0.00003
+    return { t: t0 - (40 - i) * 4 * H, open: 0.093, high: 0.0935, low, close: 0.093, volume: 1 }
+  })
+  const b1 = Array.from({ length: 60 }, (_, i) => ({ t: t0 - (60 - i) * H, open: 0.0928, high: 0.0931, low: 0.0925, close: 0.0928, volume: 1 }))
+  const sg = suggestStop({ fill: 0.0928, qty: 10777, bars4h: b4, bars1h: b1, book, currentStop: 0.089 })
+  assert.equal(sg.swing, 0.091)
+  assert.equal(sg.wall.price, 0.0908)
+  assert.ok(sg.price < 0.0908 && sg.price > 0.089, String(sg.price))
+  assert.ok(!sg.keep)
+  const txt = suggestText(sg, { fill: 0.0928, currentStop: 0.089 })
+  assert.ok(/^Suggested stop \$0\.09\d\d: below the 4h swing low \$0\.0910, .*hourly ATR .*bid wall of 2\.1M DOGE at \$0\.0908\. Risk from your fill \$0\.0928: \$\d+\.\d\d \(\d\.\d%\)\.\nReply 'yes'/.test(txt), txt)
+  const keep = suggestStop({ fill: 0.0928, qty: 10777, bars4h: b4, bars1h: b1, book, currentStop: 0.0912 })
+  assert.ok(keep.keep)
+  assert.ok(/already tighter, so it stays/.test(suggestText(keep, { fill: 0.0928, currentStop: 0.0912 })))
 })
 
 console.log(`check:doge-live OK (${n} checks; bottom stop $0.089 × 1,032.3 DOGE; HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)

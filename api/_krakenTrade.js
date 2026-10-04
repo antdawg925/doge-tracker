@@ -102,13 +102,17 @@ export function createKrakenTrader({ creds, fetchImpl = fetch, log = () => {}, r
     /** "Sell N% now": marketable IOC sell limit (bounded slippage, never a market order). */
     addSellIoc: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'sell', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'IOC', oflags: 'fciq', cl_ord_id: clOrdId }),
+    /** Telegram "buy $X": post-only GTC buy limit (maker only; Kraken cancels it if it would cross). */
+    addBuyPost: ({ qty, price, clOrdId }) =>
+      call('AddOrder', { pair: rules.pair, type: 'buy', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'GTC', oflags: 'post', cl_ord_id: clOrdId }),
     /** Pot buy: marketable IOC buy limit (never a market order). */
     addBuyIoc: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'buy', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'IOC', cl_ord_id: clOrdId }),
     /** In-place amend (keeps txid; no unprotected gap). */
-    amend: ({ txid, qty, triggerPrice, limitPrice }) =>
+    amend: ({ txid, qty, triggerPrice, limitPrice, postOnly = false }) =>
       call('AmendOrder', {
         txid,
+        ...(postOnly ? { post_only: true } : {}),
         ...(qty != null ? { order_qty: volStr(qty, rules) } : {}),
         ...(triggerPrice != null ? { trigger_price: priceStr(triggerPrice, rules) } : {}),
         ...(limitPrice != null ? { limit_price: priceStr(limitPrice, rules) } : {}),
