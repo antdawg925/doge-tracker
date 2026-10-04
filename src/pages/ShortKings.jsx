@@ -139,9 +139,11 @@ function formatDistFromHigh(pctFromHigh) {
   return formatRatioPct(pctFromHigh, 1);
 }
 
-export default function ShortKings() {
+/** `mode` ('my-shorts' | 'hunt') + `embedded`: driven by the unified Scanner presets (ScannerHub). */
+export default function ShortKings({ mode = null, embedded = false } = {}) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState('my-shorts');
+  const [tabState, setTab] = useState('my-shorts');
+  const tab = mode ?? tabState;
   const [watchSymbols, setWatchSymbols] = useState(() => loadWatchlist());
   const [rawRows, setRawRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -349,15 +351,17 @@ export default function ShortKings() {
   const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
 
   return (
-    <main className="scanner short-kings">
+    <main className={`scanner short-kings${embedded ? ' scanner--embedded' : ''}`}>
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__kicker muted">Short Kings</p>
-            <h1>Short Kings</h1>
-            <p className="scanner__subtitle muted">
-              Float &amp; short-interest research.
-            </p>
+            {embedded ? null : (
+              <>
+                <p className="scanner__kicker muted">Short Kings</p>
+                <h1>Short Kings</h1>
+                <p className="scanner__subtitle muted">Float &amp; short-interest research.</p>
+              </>
+            )}
             <p className="scanner__subtitle muted">{activeTab.blurb}</p>
           </div>
           <div className="scanner__controls">
@@ -376,6 +380,7 @@ export default function ShortKings() {
           </div>
         </div>
 
+        {embedded ? null : (
         <div
           className="scanner__tabs"
           role="tablist"
@@ -394,6 +399,7 @@ export default function ShortKings() {
             </button>
           ))}
         </div>
+        )}
 
         <p className="scanner__note muted">
           Floor: prefer{' '}

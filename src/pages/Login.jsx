@@ -35,7 +35,7 @@ export default function Login() {
         {location.state?.from ? (
           <p className="auth-card__lede muted">Sign in to open that page.</p>
         ) : (
-          <p className="auth-card__lede muted">Research, Scanner, Short Kings and My Bot need a free account.</p>
+          <p className="auth-card__lede muted">Research, Scanner and My Bot need a free account.</p>
         )}
 
         {!configured ? (

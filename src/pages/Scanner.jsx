@@ -135,9 +135,11 @@ function cellOrEllipsis(loaded, formatted) {
   return '—';
 }
 
-export default function Scanner() {
+/** `lane` + `embedded`: driven by the unified Scanner presets (ScannerHub); standalone otherwise. */
+export default function Scanner({ lane = null, embedded = false } = {}) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState('momentum');
+  const [tabState, setTab] = useState('momentum');
+  const tab = lane ?? tabState;
   const [rawRows, setRawRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
@@ -279,12 +281,16 @@ export default function Scanner() {
   const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
 
   return (
-    <main className="scanner">
+    <main className={`scanner${embedded ? ' scanner--embedded' : ''}`}>
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__kicker muted">Scanner</p>
-            <h1>Stock Scanner</h1>
+            {embedded ? null : (
+              <>
+                <p className="scanner__kicker muted">Scanner</p>
+                <h1>Stock Scanner</h1>
+              </>
+            )}
             <p className="scanner__subtitle muted">{activeTab.blurb}</p>
           </div>
           <div className="scanner__controls">
@@ -303,6 +309,7 @@ export default function Scanner() {
           </div>
         </div>
 
+        {embedded ? null : (
         <div className="scanner__tabs" role="tablist" aria-label="Scanner lane">
           {TABS.map((t) => (
             <button
@@ -317,6 +324,7 @@ export default function Scanner() {
             </button>
           ))}
         </div>
+        )}
 
         <p className="scanner__note muted">
           Floor: prefer <strong>~{MIN_VOLUME.toLocaleString('en-US')}+</strong>{' '}

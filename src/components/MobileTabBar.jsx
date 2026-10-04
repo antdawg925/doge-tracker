@@ -20,7 +20,6 @@ const TABS = [
   { to: '/home', label: 'Home', icon: I.home, match: ['/', '/home'] },
   { to: '/research', label: 'Research', icon: I.research },
   { to: '/scanner', label: 'Scanner', icon: I.scanner },
-  { to: '/short-kings', label: 'Shorts', icon: I.shorts },
   { to: '/bot', label: 'My Bot', icon: I.bot },
 ];
 

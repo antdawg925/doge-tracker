@@ -17,8 +17,8 @@ const CAPABILITIES = [
     tone: 'lime',
   },
   {
-    to: '/short-kings',
-    kicker: 'Short Kings',
+    to: '/scanner?mode=short-hunt',
+    kicker: 'Scanner · Short presets',
     title: 'Float & short interest',
     body: 'My Shorts (seeded watchlist) plus Hunt for float / short-interest research.',
     tone: 'rose',

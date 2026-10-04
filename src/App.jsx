@@ -6,8 +6,7 @@ import { HomeGate, RequireAuth, RequireBot, RequireOwner } from './components/au
 import Home from './pages/Home';
 import Research from './pages/Research';
 import Positions from './pages/Positions';
-import Scanner from './pages/Scanner';
-import ShortKings from './pages/ShortKings';
+import ScannerHub from './pages/ScannerHub';
 import Alerts from './pages/Alerts';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -15,6 +14,13 @@ import AdminLayout from './pages/admin/AdminLayout';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminBeta from './pages/admin/AdminBeta';
 import AdminSystem from './pages/admin/AdminSystem';
+
+/** Old Short Kings URLs → Scanner presets (?tab=my-shorts / ?mode=my-shorts keep My shorts). */
+function ShortKingsRedirect() {
+  const q = new URLSearchParams(window.location.search);
+  const want = q.get('mode') || q.get('tab');
+  return <Navigate to={`/scanner?mode=${want === 'my-shorts' ? 'my-shorts' : 'short-hunt'}`} replace />;
+}
 
 export default function App() {
   return (
@@ -30,12 +36,15 @@ export default function App() {
               <Route path="/signup" element={<Signup />} />
               {/* Legacy route: the bot now lives at /bot. */}
               <Route path="/alerts" element={<Navigate to="/bot" replace />} />
+              {/* Short Kings merged into Scanner presets */}
+              <Route path="/short-kings" element={<ShortKingsRedirect />} />
+              <Route path="/short-kings/*" element={<ShortKingsRedirect />} />
+              <Route path="/shorts" element={<Navigate to="/scanner?mode=my-shorts" replace />} />
               {/* Signed in (free members) */}
               <Route element={<RequireAuth />}>
                 <Route path="/research" element={<Research />} />
                 <Route path="/positions" element={<Positions />} />
-                <Route path="/scanner" element={<Scanner />} />
-                <Route path="/short-kings" element={<ShortKings />} />
+                <Route path="/scanner" element={<ScannerHub />} />
                 {/* Trade Smart Bot tier; others see the locked screen with Request access */}
                 <Route element={<RequireBot />}>
                   <Route path="/bot" element={<Alerts />} />
