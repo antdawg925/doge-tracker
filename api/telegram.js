@@ -47,13 +47,28 @@ export function parsePrice(arg) {
   return m ? Number(m[1]) : null
 }
 
+/** Free text about setting / moving a stop (without a usable price)? */
+export function isStopIntent(text) {
+  const t = String(text || '').toLowerCase()
+  if (/\bstop[\s-]*loss\b/.test(t)) return true
+  return /\b(set|setting|move|moving|raise|raising|change|changing|place|placing|put|update|adjust|tighten)\b[\s\S]*\bstop/.test(t) || /^\/?stop\b/.test(t.trim())
+}
+
+/** % the stop sits below the price, as a share of the price. */
+export const pctBelow = (price, stop) => (price > 0 && stop > 0 ? ((price - stop) / price) * 100 : null)
+
+export function stopPromptText({ stop, price }) {
+  const d = pctBelow(price, stop)
+  return `Current stop: ${px(stop)} (price ${px(price)}${d != null ? `, ${d.toFixed(1)}% below` : ''}). Give me your stop price as: /stop 0.____`
+}
+
 export function statusText({ plan, price }) {
   if (!plan) return 'No DOGE plan yet. Open My Bot → DOGE to set your bottom stop.'
   const s = plan.snapshot || {}
   const st = plan.state || {}
   const stop = st.stopPx ?? s.bottom?.price ?? null
   const p = price ?? s.price
-  const dist = stop && p ? ((p / stop - 1) * 100).toFixed(1) : null
+  const dist = stop && p ? pctBelow(p, stop).toFixed(1) : null
   const mode = s.mode === 'live' ? 'LIVE' : 'dry-run'
   const buys = (s.userBuys || []).map((o) => `${q0(o.qty)} @ ${px(o.price)} (${o.distPct >= 0 ? '+' : ''}${Number(o.distPct).toFixed(1)}%)`)
   const lines = [
@@ -84,9 +99,16 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
     return { handled: true, reply: text }
   }
   const c = parseCommand(msg.text)
-  if (!c) return reply(`Unknown command.\n${HELP}`)
   const userId = prof.id
   const isOwner = prof.role === 'owner'
+  const promptStop = async () => {
+    const [{ data: plan }, m] = await Promise.all([
+      sb.from('doge_live_plans').select('snapshot, state').eq('user_id', userId).maybeSingle(),
+      fetchLiveMarket().catch(() => null),
+    ])
+    return reply(stopPromptText({ stop: plan?.state?.stopPx ?? plan?.snapshot?.bottom?.price ?? null, price: m?.price ?? plan?.snapshot?.price ?? null }))
+  }
+  if (!c) return isStopIntent(msg.text) ? promptStop() : reply(HELP)
 
   if (c.cmd === 'help' || c.cmd === 'start') return reply(HELP)
 
@@ -100,7 +122,7 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
 
   if (c.cmd === 'stop') {
     const price = parsePrice(c.arg)
-    if (price == null) return reply('Usage: /stop 0.092 (raises the bottom stop; it only moves up)')
+    if (price == null) return promptStop()
     const r = await changeDogeStop(sb, { userId, isOwner, price, source: 'telegram', notify: false })
     if (!r.ok) return reply(`Not changed: ${r.error}`)
     const s = r.plan?.snapshot || {}

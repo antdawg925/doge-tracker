@@ -11,7 +11,7 @@ import {
 import { createKrakenTrader, krakenTradeCredsFor, bookFromBalance, splitOpenOrders } from '../api/_krakenTrade.js'
 import { executeLive, dogeTelegramLines } from '../api/_dogeLive.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
-import { parseCommand, parsePrice, statusText, handleUpdate, HELP } from '../api/telegram.js'
+import { parseCommand, parsePrice, statusText, handleUpdate, HELP, isStopIntent, stopPromptText } from '../api/telegram.js'
 import { cryptoUncovered, krakenAlt, remindFor, stockReminderWindow } from '../api/_stopReminders.js'
 
 let n = 0
@@ -404,10 +404,14 @@ await okA('telegram: parse commands, ignore unknown chats silently, dedupe updat
   assert.equal(r.ignored, 'duplicate')
   r = await handleUpdate(sb, { update_id: 3, message: { chat: { id: 8500354525 }, text: '/pause' } }, { send })
   assert.ok(/pause yes/.test(r.reply) && /protective stop/.test(r.reply), 'pause asks to confirm and warns')
-  r = await handleUpdate(sb, { update_id: 4, message: { chat: { id: 8500354525 }, text: '/stop abc' } }, { send })
-  assert.ok(/Usage/.test(r.reply))
+  r = await handleUpdate(sb, { update_id: 5, message: { chat: { id: 8500354525 }, text: 'what is up' } }, { send })
+  assert.equal(r.reply, HELP, 'other text → command list')
+  for (const t of ['I want to set a stop', 'move my stop', 'stop loss', '/stop', 'Stop-loss please', 'can you raise the stop?', 'place a stop loss', '/stop abc'])
+    assert.ok(isStopIntent(t) || parseCommand(t)?.cmd === 'stop', t)
+  for (const t of ['hello', 'what is the price', 'unstoppable']) assert.ok(!isStopIntent(t), t)
+  assert.equal(stopPromptText({ stop: 0.089, price: 0.0928 }), 'Current stop: $0.0890 (price $0.0928, 4.1% below). Give me your stop price as: /stop 0.____')
   const txt = statusText({ plan: { snapshot: { mode: 'dry', stop: { qty: 1032.3 }, lockActivatesAt: 28500, userBuys: [] }, state: { stopPx: 0.089, stopSetAt: '2026-10-04T01:10:01Z', stopReason: 'Bottom stop (your choice)' }, status: 'active' }, price: 0.0928 })
-  assert.ok(txt.includes('Bottom stop $0.0890 (4.3% below price)') && txt.includes('Covers 1,032 DOGE') && txt.includes('dry-run'), txt)
+  assert.ok(txt.includes('Bottom stop $0.0890 (4.1% below price)') && txt.includes('Covers 1,032 DOGE') && txt.includes('dry-run'), txt)
 })
 
 console.log(`check:doge-live OK (${n} checks; bottom stop $0.089 × 1,032.3 DOGE; HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)
