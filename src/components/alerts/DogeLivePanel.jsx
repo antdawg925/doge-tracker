@@ -120,6 +120,55 @@ function Settings({ config, isOwner, busy, onSave, fresh }) {
   );
 }
 
+const hourLabel = (h) => `${((Number(h) + 11) % 12) + 1} ${Number(h) < 12 ? 'AM' : 'PM'}`;
+
+/** Telegram quiet hours (notify_prefs): non-urgent messages wait for a morning digest. */
+function QuietHours({ userId }) {
+  const [q, setQ] = useState(null);
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    if (!supabase || !userId) return;
+    supabase
+      .from('notify_prefs')
+      .select('quiet_enabled, quiet_start, quiet_end')
+      .eq('user_id', userId)
+      .maybeSingle()
+      .then(({ data }) => setQ(data || { quiet_enabled: true, quiet_start: 21, quiet_end: 6 }));
+  }, [userId]);
+  if (!q) return null;
+  const save = async (next) => {
+    setQ(next);
+    const r = await supabase.from('notify_prefs').upsert({ user_id: userId, ...next, tz: 'America/Los_Angeles', updated_at: new Date().toISOString() });
+    setNote(r.error ? r.error.message : 'Saved');
+    setTimeout(() => setNote(''), 1500);
+  };
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  return (
+    <div className="dl-quiet small" title="Non-urgent Telegram messages (stop raises, dry-run notices, coaching, reminders) wait and arrive as one digest when quiet hours end. Urgent ones (fills, missing stop, price at/near the stop, errors, kill switch, −8% in 1h) always go through.">
+      <label className="dl-check">
+        <input type="checkbox" checked={q.quiet_enabled} onChange={(e) => save({ ...q, quiet_enabled: e.target.checked })} /> Telegram quiet hours
+      </label>
+      <select aria-label="Quiet from" value={q.quiet_start} disabled={!q.quiet_enabled} onChange={(e) => save({ ...q, quiet_start: Number(e.target.value) })}>
+        {hours.map((h) => (
+          <option key={h} value={h}>
+            {hourLabel(h)}
+          </option>
+        ))}
+      </select>
+      –
+      <select aria-label="Quiet until" value={q.quiet_end} disabled={!q.quiet_enabled} onChange={(e) => save({ ...q, quiet_end: Number(e.target.value) })}>
+        {hours.map((h) => (
+          <option key={h} value={h}>
+            {hourLabel(h)}
+          </option>
+        ))}
+      </select>
+      <span className="muted">PT · urgent alerts always go through</span>
+      {note ? <span className="muted"> · {note}</span> : null}
+    </div>
+  );
+}
+
 export default function DogeLivePanel({ refreshKey }) {
   const { user, isOwner } = useAuth();
   const [row, setRow] = useState(undefined);
@@ -386,6 +435,7 @@ export default function DogeLivePanel({ refreshKey }) {
               </button>
             </div>
           ) : null}
+          <QuietHours userId={user?.id} />
           {showSettings ? <Settings key={JSON.stringify(row.config)} config={row.config} isOwner={isOwner} busy={busy} fresh={false} onSave={async (config) => (await call('save', { config })) && setShowSettings(false)} /> : null}
         </>
       )}

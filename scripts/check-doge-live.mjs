@@ -9,9 +9,10 @@ import {
   dryExecute, initLiveState, lockFor, lockStopPrice, normalizeLiveConfig, potMult, priceStr, stepDogeLive, volStr,
 } from '../shared/dogeLive.js'
 import { createKrakenTrader, krakenTradeCredsFor, bookFromBalance, splitOpenOrders } from '../api/_krakenTrade.js'
-import { executeLive, dogeTelegramLines } from '../api/_dogeLive.js'
+import { executeLive, dogeTelegramLines, priceFlags } from '../api/_dogeLive.js'
+import { inQuiet, notifyLines, flushDigests } from '../api/_notify.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
-import { parseCommand, parsePrice, statusText, handleUpdate, HELP, isStopIntent, stopPromptText } from '../api/telegram.js'
+import { parseCommand, parsePrice, statusText, handleUpdate, HELP, isStopIntent, stopPromptText, parseStopArgs, stopListText } from '../api/telegram.js'
 import { cryptoUncovered, krakenAlt, remindFor, stockReminderWindow } from '../api/_stopReminders.js'
 
 let n = 0
@@ -108,7 +109,7 @@ ok('bottom stop $0.089 on the real Kraken book: would place stop-loss 0.089 for 
   const r2 = step(r.state, 0.0929, T0 + 300000)
   assert.equal(r2.intents.length, 0)
   const lines = dogeTelegramLines({ logs: r.rows.map((x) => ({ mode: 'dry', ...x })), events: r.events, state: r.state, snapshot: r.snapshot, mode: 'dry' })
-  assert.ok(lines.some((l) => l === 'Would place stop-loss $0.0890 for 1,032 DOGE'), lines.join(' | '))
+  assert.ok(lines.some((l) => l.text === 'Would place stop-loss $0.0890 for 1,032 DOGE' && !l.urgent), JSON.stringify(lines))
 })
 ok('trail raises the stop (hc − 3×ATR), never lowers it; < 0.5% skipped; > 15% capped; raise at/above bid skipped', () => {
   const c0 = normalizeLiveConfig(bcfg, T0)
@@ -412,6 +413,56 @@ await okA('telegram: parse commands, ignore unknown chats silently, dedupe updat
   assert.equal(stopPromptText({ stop: 0.089, price: 0.0928 }), 'Current stop: $0.0890 (price $0.0928, 4.1% below). Give me your stop price as: /stop 0.____')
   const txt = statusText({ plan: { snapshot: { mode: 'dry', stop: { qty: 1032.3 }, lockActivatesAt: 28500, userBuys: [] }, state: { stopPx: 0.089, stopSetAt: '2026-10-04T01:10:01Z', stopReason: 'Bottom stop (your choice)' }, status: 'active' }, price: 0.0928 })
   assert.ok(txt.includes('Bottom stop $0.0890 (4.1% below price)') && txt.includes('Covers 1,032 DOGE') && txt.includes('dry-run'), txt)
+})
+
+ok('telegram: /stop SYMBOL PRICE parsing + "which stop?" list', () => {
+  assert.deepEqual(parseStopArgs('SPY 745.50'), { symbol: 'SPY', price: 745.5, raw: 2 })
+  assert.deepEqual(parseStopArgs('qqq 720'), { symbol: 'QQQ', price: 720, raw: 2 })
+  assert.deepEqual(parseStopArgs('.092'), { symbol: null, price: 0.092, raw: 1 })
+  assert.deepEqual(parseStopArgs('DOGE 0.095'), { symbol: null, price: 0.095, raw: 2 })
+  assert.equal(parseStopArgs('spy').price, null)
+  const doge = { stop: 0.089, price: 0.0928 }
+  const stocks = [{ symbol: 'SPY', stop: 741.2, price: 762.1 }]
+  const t = stopListText({ doge, stocks })
+  assert.ok(t.startsWith('Which stop? Reply as /stop SYMBOL PRICE\nDOGE: stop $0.0890, price $0.0928\nSPY: stop $741.20, price $762.10'), t)
+  assert.ok(/Example: \/stop SPY \d+\.\d\d/.test(t))
+  assert.ok(stopListText({ doge, stocks, only: 'SPY' }).startsWith('SPY: stop $741.20'))
+  assert.ok(stopListText({ doge, stocks, only: 'DOGE' }).startsWith('Current stop: $0.0890'))
+  const st = statusText({ plan: { snapshot: { mode: 'dry' }, state: { stopPx: 0.089 }, status: 'active' }, price: 0.0928, stocks: [{ symbol: 'SPY', side: 'long', shares: 5, stop: 741.2, price: 762.1, live: true }] })
+  assert.ok(st.includes('SPY L 5: stop $741.20, price $762.10 (2.7% away) · Schwab LIVE'), st)
+})
+await okA('quiet hours 9 PM–6 AM PT: non-urgent queued, urgent goes now, one digest after 6 AM; price flags', async () => {
+  const P = { quiet_enabled: true, quiet_start: 21, quiet_end: 6, tz: 'America/Los_Angeles' }
+  assert.equal(inQuiet(P, Date.UTC(2026, 9, 4, 6, 0)), true) // 11 PM PT
+  assert.equal(inQuiet(P, Date.UTC(2026, 9, 4, 12, 59)), true) // 5:59 AM PT
+  assert.equal(inQuiet(P, Date.UTC(2026, 9, 4, 13, 0)), false) // 6:00 AM PT
+  assert.equal(inQuiet(P, Date.UTC(2026, 9, 4, 3, 59)), false) // 8:59 PM PT
+  assert.equal(inQuiet({ ...P, quiet_enabled: false }, Date.UTC(2026, 9, 4, 6, 0)), false)
+  const queue = []
+  const sent = []
+  const sb = { from: (t) => {
+    const q = { _f: {}, select: () => q, eq: () => q, is: () => q, order: () => q, limit: async () => ({ data: queue.filter((r) => !r.sent_at) }), in: async () => {
+      for (const r of queue) r.sent_at = 'x'
+      return { error: null }
+    }, maybeSingle: async () => ({ data: t === 'notify_prefs' ? P : { telegram_chat_id: 'C' } }), insert: async (row) => (queue.push({ id: queue.length + 1, ...row }), { error: null }), update: () => q }
+    return q
+  } }
+  const send = async (c, text) => sent.push(text)
+  const night = Date.UTC(2026, 9, 4, 6, 0)
+  await notifyLines(sb, { userId: 'QU1', chatId: 'C', title: 'DOGE stop (dry-run)', lines: [{ text: 'Stop raised $0.0890 → $0.0920: ATR trail' }, { text: '🛑 Bottom stop FILLED', urgent: true }], nowMs: night, send })
+  assert.equal(sent.length, 1)
+  assert.ok(sent[0].includes('FILLED') && !sent[0].includes('Stop raised'))
+  assert.equal(queue.length, 1)
+  await flushDigests(sb, { nowMs: night + 3600000, send }) // midnight: still quiet → nothing
+  assert.equal(sent.length, 1)
+  await flushDigests(sb, { nowMs: Date.UTC(2026, 9, 4, 13, 5), send }) // 6:05 AM PT
+  assert.equal(sent.length, 2)
+  assert.ok(/Overnight digest \(1/.test(sent[1]) && sent[1].includes('Stop raised'))
+  const now = T0
+  const b5 = Array.from({ length: 12 }, (_, i) => ({ t: now - (12 - i) * 300000, high: i === 0 ? 0.1 : 0.092, low: 0.09, close: 0.091 }))
+  const fl = priceFlags({ market: { price: 0.0915, bars5m: b5 }, stopPx: 0.0910, nowMs: now })
+  assert.deepEqual(fl.map((f) => f.code).sort(), ['drop_1h', 'near_stop'])
+  assert.equal(priceFlags({ market: { price: 0.0928, bars5m: [] }, stopPx: 0.089, nowMs: now }).length, 0)
 })
 
 console.log(`check:doge-live OK (${n} checks; bottom stop $0.089 × 1,032.3 DOGE; HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)

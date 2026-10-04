@@ -4786,3 +4786,5 @@ p {
 .dl-buys { margin: 0 0 0.45rem; display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; }
 .stk-remind { background: none; border: 0; padding: 0 0.1rem; cursor: pointer; font-size: 0.8rem; opacity: 0.45; }
 .stk-remind.is-on { opacity: 0.95; }
+.dl-quiet { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.45rem; }
+.dl-quiet select { font-size: 0.78rem; padding: 0.05rem 0.2rem; }

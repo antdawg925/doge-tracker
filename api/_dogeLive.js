@@ -18,12 +18,14 @@ import { dogeFromKrakenBalance } from '../shared/botEngine.js'
 import { liveOrderCheck } from '../shared/guard.js'
 import { bookFromBalance, createKrakenTrader, krakenTradeCredsFor, newClOrdId, splitOpenOrders, tradeKeyConfigured } from './_krakenTrade.js'
 import { fetchKrakenAccount, krakenCredsFor } from './_kraken.js'
-import { sendTelegram } from './_telegram.js'
+import { notify, notifyLines } from './_notify.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
 
 const BASE = 'https://api.kraken.com'
 const LEASE_MS = 120000
-const ALERT_CODES = new Set(['stop_crossed', 'raise_crossed', 'dry_fill', 'stopped', 'kill_switch', 'step_capped', 'daily_cap', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold', 'no_stop_level', 'sell_below_min', 'sell_killed', 'no_trade_key'])
+const ALERT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'raise_crossed', 'dry_fill', 'stopped', 'kill_switch', 'step_capped', 'daily_cap', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold', 'no_stop_level', 'sell_below_min', 'sell_killed', 'no_trade_key'])
+/** Telegram: these always go out immediately (even in quiet hours). */
+export const URGENT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'dry_fill', 'stopped', 'kill_switch', 'order_gone', 'no_trade_key'])
 const clip = (s, n = 400) => (s == null ? null : String(s).slice(0, n))
 
 async function pub(fetchImpl, path) {
@@ -37,12 +39,13 @@ async function pub(fetchImpl, path) {
 /** Everything the plan needs from Kraken public data, in one go. */
 export async function fetchLiveMarket(fetchImpl = fetch) {
   const ohlc = (pair, i) => pub(fetchImpl, `OHLC?pair=${pair}&interval=${i}`).then((r) => normalizeKrakenOhlc(pickKrakenPairRows(r)))
-  const [bars4h, daily, btcDaily, tick, pairs] = await Promise.all([
+  const [bars4h, daily, btcDaily, tick, pairs, bars5m] = await Promise.all([
     ohlc('XDGUSD', 240),
     ohlc('XDGUSD', 1440),
     ohlc('XBTUSD', 1440),
     pub(fetchImpl, 'Ticker?pair=XDGUSD'),
     pub(fetchImpl, 'AssetPairs?pair=XDGUSD').catch(() => null),
+    ohlc('XDGUSD', 5).catch(() => []),
   ])
   const t = Object.values(tick || {})[0] || {}
   const price = Number(t.c?.[0])
@@ -58,7 +61,7 @@ export async function fetchLiveMarket(fetchImpl = fetch) {
         status: ap.status,
       }
     : { ...KRAKEN_XDGUSD }
-  return { price, bid: Number(t.b?.[0]) || price, ask: Number(t.a?.[0]) || price, bars4h, daily, btcDaily, rules }
+  return { price, bid: Number(t.b?.[0]) || price, ask: Number(t.a?.[0]) || price, bars4h, daily, btcDaily, bars5m, rules }
 }
 
 /**
@@ -234,7 +237,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   // ---------------- engine
   const step = stepDogeLive({ config, state, mode, market, book, fills: [], guard, killSwitch, rules, nowMs })
   state = step.state
-  const flags = [...extraFlags, ...step.snapshot.flags]
+  const flags = [...extraFlags, ...step.snapshot.flags, ...priceFlags({ market, stopPx: state.stopPx, status: state.status, nowMs })]
 
   // ---------------- execute
   if (mode === 'dry') {
@@ -247,7 +250,12 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   const prevCodes = new Set((row.snapshot?.flags || []).map((f) => f.code))
   const fresh = flags.filter((f) => !prevCodes.has(f.code))
   for (const f of fresh) logs.push({ mode, role: 'plan', action: 'flag', status: f.code, reason: f.message })
-  const alerts = fresh.filter((f) => ALERT_CODES.has(f.code))
+  const alerts = []
+  for (const f of fresh) {
+    if (!ALERT_CODES.has(f.code)) continue
+    if ((f.code === 'drop_1h' || f.code === 'near_stop') && !(await cooldownOk(sb, userId, `doge:${f.code}`, 3600000, nowMs))) continue
+    alerts.push(f)
+  }
 
   // ---------------- his buy orders: coaching (suggestions only)
   const coach = coachBuyOrders({
@@ -290,12 +298,12 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   const tg = dogeTelegramLines({ logs, events: step.events, alerts, userBuyFills, state, snapshot, mode })
   if (tg.length) {
     const title = `DOGE stop (${mode === 'live' ? 'LIVE' : 'dry-run'})`
-    await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title, message: clip(tg.join(' · '), 1000) })
-    if (profile.telegram_chat_id) await sendTelegram(profile.telegram_chat_id, `${title}\n${tg.join('\n')}`).catch(() => null)
+    await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title, message: clip(tg.map((l) => l.text).join(' · '), 1000) })
+    await notifyLines(sb, { userId, chatId: profile.telegram_chat_id, title, lines: tg, nowMs }).catch(() => null)
   }
   if (coachMsgs.length) {
     await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_buy_coach', price: market.price, title: 'Your DOGE buy orders', message: clip(coachMsgs.join(' · '), 1000) })
-    if (profile.telegram_chat_id) for (const m of coachMsgs) await sendTelegram(profile.telegram_chat_id, m).catch(() => null)
+    for (const m of coachMsgs) await notify(sb, { userId, chatId: profile.telegram_chat_id, text: m, nowMs }).catch(() => null)
   }
 
   const up = await sb
@@ -306,38 +314,53 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   return { userId, mode, intents: step.intents.length, logs: logs.length, status: state.status }
 }
 
+/** Urgent price conditions: DOGE −8% within 1h (5-min candles), price within 1% of the stop. */
+export function priceFlags({ market, stopPx, status = 'active', nowMs = Date.now() }) {
+  const out = []
+  const p = Number(market?.price)
+  if (!(p > 0)) return out
+  const recent = (market.bars5m || []).filter((b) => b.t >= nowMs - 3600000)
+  const hi = recent.length ? Math.max(...recent.map((b) => b.high)) : null
+  if (hi && p <= hi * 0.92) out.push({ code: 'drop_1h', message: `🚨 DOGE fell ${((1 - p / hi) * 100).toFixed(1)}% in the last hour: ${fmtPx(hi)} → ${fmtPx(p)}${stopPx ? ` (stop ${fmtPx(stopPx)})` : ''}` })
+  const s = Number(stopPx)
+  if (status === 'active' && s > 0 && p > s && p <= s * 1.01) out.push({ code: 'near_stop', message: `⚠️ DOGE ${fmtPx(p)} is within 1% of your stop ${fmtPx(s)} (${((p / s - 1) * 100).toFixed(2)}% above)` })
+  return out
+}
+
 /** Telegram lines for one run: stop raises, placements, resizes, fills, cancels, errors. */
 export function dogeTelegramLines({ logs, events = [], alerts = [], userBuyFills = [], state, snapshot, mode }) {
   const dry = mode !== 'live'
   const out = []
+  const add = (text, urgent = false) => out.push({ text, urgent })
+  const replacing = alerts.some((a) => a.code === 'order_gone')
   for (const e of events) {
-    if (e.type === 'raise') out.push(e.from == null ? `Stop set at ${fmtPx(e.to)}: ${e.reason}` : `Stop raised ${fmtPx(e.from)} → ${fmtPx(e.to)}: ${e.reason}`)
+    if (e.type === 'raise') add(e.from == null ? `Stop set at ${fmtPx(e.to)}: ${e.reason}` : `Stop raised ${fmtPx(e.from)} → ${fmtPx(e.to)}: ${e.reason}`)
   }
   for (const l of logs) {
     const st = String(l.status || '')
     const name = l.role === 'stop' ? 'stop-loss' : l.role === 'sell' ? 'sell (IOC limit)' : l.role === 'zone' ? 'zone sell limit' : l.role === 'pot' ? 'pot buy (IOC)' : l.role
     if (l.role === 'plan' || l.role === 'user') continue
     const amt = `${fmtQty(l.qty)} DOGE`
-    if (st === 'would_place' || st === 'placed') out.push(`${dry ? 'Would place' : '✅ Placed'} ${name} ${fmtPx(l.price)} for ${amt}`)
+    if (st === 'would_place' || st === 'placed') add(`${dry ? 'Would place' : '✅ Placed'} ${name} ${fmtPx(l.price)} for ${amt}`, replacing && l.role === 'stop')
     else if (st === 'would_amend' || st === 'amended') {
       const prev = l.details?.prev
       const pxMoved = prev && Math.abs(prev.price - l.price) > 1e-12
       const qtyMoved = prev && Math.abs(prev.qty - l.qty) > 1e-6
       if (l.role === 'stop' && pxMoved && !qtyMoved && events.some((e) => e.type === 'raise' && Math.abs(e.to - l.price) < 1e-12)) {
-        out.push(`${dry ? '(dry-run: would move the Kraken stop order)' : '✅ Kraken stop order moved'}`)
+        add(dry ? '(dry-run: would move the Kraken stop order)' : '✅ Kraken stop order moved')
         continue
       }
-      out.push(`${dry ? 'Would update' : 'Updated'} ${name}: ${pxMoved ? `${fmtPx(prev.price)} → ` : ''}${fmtPx(l.price)} for ${qtyMoved ? `${fmtQty(prev.qty)} → ` : ''}${amt}`)
-    } else if (st === 'would_cancel' || st === 'cancelled') out.push(`${dry ? 'Would cancel' : 'Cancelled'} ${name} ${fmtPx(l.price)} (${l.reason || ''})`)
-    else if (st === 'filled' || st === 'partial') out.push(l.role === 'stop' ? `🛑 Bottom stop FILLED: sold ${amt} @ ~${fmtPx(l.price)}. Waiting: no re-entry.` : `${l.role} ${st}: ${l.side} ${amt} @ ${fmtPx(l.price)}`)
-    else if (st === 'dry_fill') out.push(`Dry-run: ${l.role} would fill ${amt} @ ${fmtPx(l.price)}`)
-    else if (['error', 'refused', 'amend_failed'].includes(st)) out.push(`❗ ${name} ${st}: ${l.reason || ''}`)
+      add(`${dry ? 'Would update' : 'Updated'} ${name}: ${pxMoved ? `${fmtPx(prev.price)} → ` : ''}${fmtPx(l.price)} for ${qtyMoved ? `${fmtQty(prev.qty)} → ` : ''}${amt}`)
+    } else if (st === 'would_cancel' || st === 'cancelled') add(`${dry ? 'Would cancel' : 'Cancelled'} ${name} ${fmtPx(l.price)} (${l.reason || ''})`, l.role === 'stop')
+    else if (st === 'filled' || st === 'partial') add(l.role === 'stop' ? `🛑 Bottom stop FILLED: sold ${amt} @ ~${fmtPx(l.price)}. Waiting: no re-entry.` : `${l.role} ${st}: ${l.side} ${amt} @ ${fmtPx(l.price)}`, l.side === 'sell')
+    else if (st === 'dry_fill') add(`Dry-run: ${l.role} would fill ${amt} @ ${fmtPx(l.price)}`, l.side === 'sell')
+    else if (['error', 'refused', 'amend_failed'].includes(st)) add(`❗ ${name} ${st}: ${l.reason || ''}`, true)
   }
   for (const f of userBuyFills) {
     const sp = snapshot?.stop
-    out.push(`Your buy filled ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}. Stop now covers ${fmtQty(sp?.qty ?? 0)} DOGE at ${fmtPx(sp?.price ?? state.stopPx)}.`)
+    add(`Your buy filled ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}. Stop now covers ${fmtQty(sp?.qty ?? 0)} DOGE at ${fmtPx(sp?.price ?? state.stopPx)}.`)
   }
-  for (const a of alerts) out.push(a.message)
+  for (const a of alerts) add(a.message, URGENT_CODES.has(a.code))
   return out
 }
 

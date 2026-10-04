@@ -11,6 +11,7 @@ import { getAdminClient, readJsonBody, sendJson } from './_supabase.js'
 import { sendTelegram } from './_telegram.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { fetchLiveMarket } from './_dogeLive.js'
+import { changeStockStop, stockStopTargets } from './_stockActions.js'
 
 const px = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : `$${Number(v).toFixed(4)}`)
 const q0 = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : Math.round(Number(v)).toLocaleString('en-US'))
@@ -19,8 +20,9 @@ const pt = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'Am
 
 export const HELP = [
   'Trade Smart commands:',
-  '/status: DOGE price, bottom stop, distance, DOGE covered, mode, lock, your open buys, last raise',
-  '/stop 0.092: raise the bottom stop (only up; must be below the market)',
+  '/status: DOGE + your stocks: price, stop, distance, DOGE covered, mode, lock, open buys, last raise',
+  '/stop 0.092: raise the DOGE bottom stop (only up; below the market)',
+  '/stop SPY 745.50: raise a stock stop (Stocks-tab stop; Live Schwab order updated too)',
   '/pause: kill switch: cancels the bot\'s orders INCLUDING the protective stop (asks to confirm)',
   '/resume: turn the bot back on (asks to confirm)',
   '/help: this list',
@@ -40,6 +42,20 @@ export function parseCommand(text) {
   const m = t.match(/^\/?(status|stop|pause|resume|help|start)\b\s*(.*)$/i)
   if (!m) return null
   return { cmd: m[1].toLowerCase(), arg: m[2].trim() }
+}
+
+/** "/stop" arguments → { symbol, price } (symbol null = DOGE; price null = none given). */
+export function parseStopArgs(arg) {
+  const toks = String(arg || '').trim().split(/\s+/).filter(Boolean)
+  let symbol = null
+  let price = null
+  for (const t of toks) {
+    const pv = parsePrice(t)
+    if (pv != null && price == null) price = pv
+    else if (/^[a-z][a-z0-9.\-]{0,9}$/i.test(t) && symbol == null && !/^(loss|my|the|a|at|to|please|stop)$/i.test(t)) symbol = t.toUpperCase()
+  }
+  if (symbol === 'DOGE' || symbol === 'XDG') symbol = null
+  return { symbol, price, raw: toks.length }
 }
 
 export function parsePrice(arg) {
@@ -62,8 +78,22 @@ export function stopPromptText({ stop, price }) {
   return `Current stop: ${px(stop)} (price ${px(price)}${d != null ? `, ${d.toFixed(1)}% below` : ''}). Give me your stop price as: /stop 0.____`
 }
 
-export function statusText({ plan, price }) {
-  if (!plan) return 'No DOGE plan yet. Open My Bot → DOGE to set your bottom stop.'
+export function stopListText({ doge, stocks, only = null }) {
+  const pct = (p, st) => (p > 0 && st > 0 ? ` (${(Math.abs(p - st) / p * 100).toFixed(1)}% away)` : '')
+  const rows = []
+  if (!only || only === 'DOGE') rows.push(`DOGE: stop ${px(doge?.stop)}, price ${px(doge?.price)}`)
+  for (const s of stocks || []) if (!only || only === s.symbol) rows.push(`${s.symbol}: stop ${money(s.stop)}, price ${money(s.price)}${pct(s.price, s.stop)}`)
+  if (only && only !== 'DOGE' && rows.length === 0) return `No active ${only} position I can manage. Reply as /stop SYMBOL PRICE\n${stopListText({ doge, stocks })}`
+  if (only === 'DOGE') return stopPromptText({ stop: doge?.stop, price: doge?.price })
+  if (only) return `${rows[0]}\nReply as /stop ${only} PRICE`
+  const ex = (stocks || [])[0]
+  return ['Which stop? Reply as /stop SYMBOL PRICE', ...rows, `Example: ${ex ? `/stop ${ex.symbol} ${ex.price ? (Math.floor(ex.price * 0.98 * 100) / 100).toFixed(2) : '100'}` : '/stop 0.092'}`].join('\n')
+}
+
+const money = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : `$${Number(v).toFixed(Number(v) < 1 ? 4 : 2)}`)
+
+export function statusText({ plan, price, stocks = [] }) {
+  if (!plan) return ['No DOGE plan yet. Open My Bot → DOGE to set your bottom stop.', ...stocks.map((k) => `${k.symbol}: stop ${money(k.stop)}, price ${money(k.price)}`)].join('\n')
   const s = plan.snapshot || {}
   const st = plan.state || {}
   const stop = st.stopPx ?? s.bottom?.price ?? null
@@ -79,7 +109,17 @@ export function statusText({ plan, price }) {
     `Open buys: ${buys.length ? buys.join(', ') : 'none'}`,
     `Last set: ${pt(st.stopSetAt)}${st.stopReason ? ` · ${st.stopReason}` : ''}`,
   ]
+  for (const k of stocks) lines.push(`${k.symbol} ${k.side === 'short' ? 'S' : 'L'} ${k.shares}: stop ${money(k.stop)}, price ${money(k.price)}${k.price && k.stop ? ` (${(Math.abs(k.price - k.stop) / k.price * 100).toFixed(1)}% away)` : ''}${k.live ? ' · Schwab LIVE' : ''}`)
   return lines.join('\n')
+}
+
+/** A symbol he holds (or DOGE) named in free text, e.g. "move my SPY stop". */
+export async function mentionedSymbol(sb, userId, text) {
+  const t = String(text || '').toUpperCase()
+  if (/\b(DOGE|XDG|DOGECOIN)\b/.test(t)) return 'DOGE'
+  const { data } = await sb.from('stock_positions').select('symbol').eq('user_id', userId).eq('status', 'active')
+  for (const r of data || []) if (new RegExp(`\\b${r.symbol.replace('.', '\\.')}\\b`).test(t)) return r.symbol
+  return null
 }
 
 /** Handle one update. Returns { handled, reply?, ignored? } (exported for tests). */
@@ -101,28 +141,41 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
   const c = parseCommand(msg.text)
   const userId = prof.id
   const isOwner = prof.role === 'owner'
-  const promptStop = async () => {
-    const [{ data: plan }, m] = await Promise.all([
+  const promptStop = async (only = null) => {
+    const [{ data: plan }, m, stocks] = await Promise.all([
       sb.from('doge_live_plans').select('snapshot, state').eq('user_id', userId).maybeSingle(),
-      fetchLiveMarket().catch(() => null),
+      only && only !== 'DOGE' ? null : fetchLiveMarket().catch(() => null),
+      only === 'DOGE' ? [] : stockStopTargets(sb, userId).catch(() => []),
     ])
-    return reply(stopPromptText({ stop: plan?.state?.stopPx ?? plan?.snapshot?.bottom?.price ?? null, price: m?.price ?? plan?.snapshot?.price ?? null }))
+    const doge = plan ? { stop: plan?.state?.stopPx ?? plan?.snapshot?.bottom?.price ?? null, price: m?.price ?? plan?.snapshot?.price ?? null } : null
+    if (!stocks.length && (!only || only === 'DOGE')) return reply(stopPromptText(doge || {}))
+    return reply(stopListText({ doge, stocks, only }))
   }
-  if (!c) return isStopIntent(msg.text) ? promptStop() : reply(HELP)
+  if (!c) {
+    if (!isStopIntent(msg.text)) return reply(HELP)
+    const named = await mentionedSymbol(sb, userId, msg.text)
+    return promptStop(named)
+  }
 
   if (c.cmd === 'help' || c.cmd === 'start') return reply(HELP)
 
   if (c.cmd === 'status') {
-    const [{ data: plan }, m] = await Promise.all([
+    const [{ data: plan }, m, stocks] = await Promise.all([
       sb.from('doge_live_plans').select('snapshot, state, status, kill_switch, live_enabled').eq('user_id', userId).maybeSingle(),
       fetchLiveMarket().catch(() => null),
+      stockStopTargets(sb, userId).catch(() => []),
     ])
-    return reply(statusText({ plan, price: m?.price ?? null }))
+    return reply(statusText({ plan, price: m?.price ?? null, stocks }))
   }
 
   if (c.cmd === 'stop') {
-    const price = parsePrice(c.arg)
-    if (price == null) return promptStop()
+    const { symbol, price } = parseStopArgs(c.arg)
+    if (price == null) return promptStop(symbol ?? (c.arg && /doge/i.test(c.arg) ? 'DOGE' : null))
+    if (symbol) {
+      const r = await changeStockStop(sb, { userId, symbol, price })
+      if (!r.ok) return reply(`Not changed: ${r.error}`)
+      return reply(`✅ ${r.symbol} stop raised ${money(r.from)} → ${money(r.to)} (price ${money(r.price)}).${r.schwab ? ` ${r.schwab}` : ' Watch-only position: move your Schwab stop to match.'}`)
+    }
     const r = await changeDogeStop(sb, { userId, isOwner, price, source: 'telegram', notify: false })
     if (!r.ok) return reply(`Not changed: ${r.error}`)
     const s = r.plan?.snapshot || {}

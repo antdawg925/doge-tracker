@@ -41,6 +41,7 @@ import { paperBookValue } from '../shared/paper.js'
 import { runDogeLive, fetchLiveMarket } from './_dogeLive.js'
 import { runStopReminders } from './_stopReminders.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
+import { flushDigests } from './_notify.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
@@ -115,6 +116,13 @@ export default async function handler(req, res) {
         reminders = { error: String(err?.message || err).slice(0, 200) }
       }
       if (summary) summary.reminders = reminders
+      // Morning digest of messages held during quiet hours
+      try {
+        const d = await flushDigests(sb)
+        if (summary) summary.digest = d
+      } catch (err) {
+        console.error('digest failed', err?.message || err)
+      }
       let stocks
       try {
         stocks = await runStocks(sb, { source })

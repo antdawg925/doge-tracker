@@ -8,7 +8,7 @@
 import { etDate } from '../shared/marketHours.js'
 import { LIVE_RULES, OPEN_STATUSES as OPEN, connectionLive, fillFromOrder, instructionFor, planLiveAction, remindersDue, stopString } from '../shared/schwabLive.js'
 import { accessTokenFor, createSchwabBroker, schwabConfigured, schwabHttp } from './_schwab.js'
-import { sendTelegram } from './_telegram.js'
+import { notify, notifyLines } from './_notify.js'
 
 const clip = (s, n = 300) => (s == null ? null : String(s).slice(0, n))
 const money = (n) => (Number.isFinite(n) ? `$${stopString(n)}` : '—')
@@ -203,7 +203,8 @@ async function persist(sb, { upserts, events, alerts, uid, iso, profileBy }) {
       const a = await sb.from('stock_alert_log').insert(alerts.map((x) => ({ user_id: uid, fired_at: iso, level: x.level ?? null, price: x.price ?? null, ...x })))
       if (a.error) console.error('live alerts insert', a.error.message)
       const chat = profileBy?.get(uid)?.telegram_chat_id
-      if (chat) await sendTelegram(chat, ['Trade Smart · Schwab LIVE', ...alerts.map((x) => `${x.title}. ${x.message}`)].join('\n'))
+      const URG = new Set(['live_stop_crossed', 'live_gone', 'live_error', 'live_not_found', 'live_filled'])
+      if (chat) await notifyLines(sb, { userId: uid, chatId: chat, title: 'Trade Smart · Schwab LIVE', lines: alerts.map((x) => ({ text: `${x.title}. ${x.message}`, urgent: URG.has(x.kind) })) }).catch(() => null)
     }
   } catch (err) {
     console.error('live persist', err?.message || err)
@@ -235,7 +236,7 @@ export async function schwabHousekeeping(sb, { nowMs = Date.now() } = {}) {
     await sb.from('broker_connections').update({ ...patch, updated_at: new Date().toISOString() }).eq('user_id', c.user_id).eq('broker', 'schwab')
     await sb.from('stock_alert_log').insert({ user_id: c.user_id, symbol: 'SCHWAB', fired_at: new Date(nowMs).toISOString(), ...alert })
     const { data: prof } = await sb.from('profiles').select('telegram_chat_id').eq('id', c.user_id).maybeSingle()
-    if (prof?.telegram_chat_id) await sendTelegram(prof.telegram_chat_id, `Trade Smart · ${alert.title}. ${alert.message}`)
+    if (prof?.telegram_chat_id) await notify(sb, { userId: c.user_id, chatId: prof.telegram_chat_id, text: `Trade Smart · ${alert.title}. ${alert.message}` }).catch(() => null)
   }
   return { reminders, expired }
 }

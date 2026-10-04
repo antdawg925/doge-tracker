@@ -16,7 +16,7 @@
  * Reads only. Never places, edits or cancels anything.
  */
 import { createKrakenTrader, krakenTradeCredsFor } from './_krakenTrade.js'
-import { sendTelegram } from './_telegram.js'
+import { notify } from './_notify.js'
 import { cooldownOk } from './_dogeLive.js'
 import { accessTokenFor, createSchwabBroker, schwabConfigured, schwabHttp } from './_schwab.js'
 import { findOwnStops } from '../shared/schwabLive.js'
@@ -102,7 +102,7 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
   for (const prof of users) {
     const send = async (key, cooldownMs, text) => {
       if (!(await cooldownOk(sb, prof.id, key, cooldownMs, nowMs))) return false
-      await sendTelegram(prof.telegram_chat_id, text).catch(() => null)
+      await notify(sb, { userId: prof.id, chatId: prof.telegram_chat_id, text, nowMs }).catch(() => null)
       await sb.from('alert_log').insert({ user_id: prof.id, fired_at: new Date(nowMs).toISOString(), kind: 'no_stop', title: 'Missing stop', message: text.slice(0, 1000) })
       return true
     }

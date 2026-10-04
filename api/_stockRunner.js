@@ -15,7 +15,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { fetchYahooUpstream } from './_yahooUpstream.js'
-import { sendTelegram } from './_telegram.js'
+import { notifyLines } from './_notify.js'
 import { runLive } from './_schwabLive.js'
 import { etDate, stockPassFor } from '../shared/marketHours.js'
 import { barsFromYahooChart, evaluateStockPosition, infoFromQuoteSummary } from '../shared/stockEngine.js'
@@ -375,7 +375,8 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
   // Optional Telegram (no-op unless TELEGRAM_BOT_TOKEN + profiles.telegram_chat_id exist).
   for (const [uid, fired] of firedByUser) {
     const chat = profileBy.get(uid)?.telegram_chat_id
-    if (chat) await sendTelegram(chat, ['Trade Smart · Stocks (watch-only)', ...fired.map((f) => `${f.title}. ${f.body}`)].join('\n'))
+    const urgentF = (f) => f.kind === 'stop_hit' || (f.kind === 'near_stop' && Number(f.price) > 0 && Math.abs(Number(f.price) - Number(f.level)) / Number(f.price) <= 0.01)
+    if (chat) await notifyLines(sb, { userId: uid, chatId: chat, title: 'Trade Smart · Stocks (watch-only)', lines: fired.map((f) => ({ text: `${f.title}. ${f.body}`, urgent: urgentF(f) })), nowMs }).catch(() => null)
   }
 
   const errors = results.filter((r) => r.decision === 'error').length

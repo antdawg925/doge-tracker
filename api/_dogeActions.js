@@ -4,7 +4,7 @@
  */
 import { fetchLiveMarket, runDogeLive } from './_dogeLive.js'
 import { setStop } from '../shared/dogeLive.js'
-import { sendTelegram } from './_telegram.js'
+import { notify } from './_notify.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 
 const fmt = (v) => (v == null ? '—' : `$${Number(v).toFixed(4)}`)
@@ -55,7 +55,7 @@ export async function changeDogeStop(sb, { userId, isOwner, price, lower = false
   await logRow(sb, row, userId, { action: 'stop', status: lower ? 'stop_lowered' : 'stop_raised', price: p, reason: `${reason}: ${cur ?? '—'} → ${p}` })
   if (notify) {
     const { data: tp } = await sb.from('profiles').select('telegram_chat_id').eq('id', userId).maybeSingle()
-    if (tp?.telegram_chat_id) await sendTelegram(tp.telegram_chat_id, `DOGE stop: ${lower ? '⚠️ Stop LOWERED' : 'Stop raised'} ${fmt(cur)} → ${fmt(p)}: ${reason.toLowerCase()}.`).catch(() => null)
+    if (tp?.telegram_chat_id) await notify(sb, { userId, chatId: tp.telegram_chat_id, text: `DOGE stop: ${lower ? '⚠️ Stop LOWERED' : 'Stop raised'} ${fmt(cur)} → ${fmt(p)}: ${reason.toLowerCase()}.` }).catch(() => null)
   }
   return { ok: true, status: 200, from: cur, to: p, ...(await rerunPlan(sb, userId, source)) }
 }

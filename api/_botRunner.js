@@ -9,7 +9,8 @@ import { BOT_SYMBOLS, dogeFromKrakenBalance, evaluateUserRun } from '../shared/b
 import { PAPER_DEFAULT_UNITS } from '../shared/paper.js'
 import { pickGuard } from '../shared/guard.js'
 import { fetchKrakenAccount, fetchMarket, krakenCredsFor } from './_kraken.js'
-import { botMessage, sendTelegram } from './_telegram.js'
+import { botMessage } from './_telegram.js'
+import { notify } from './_notify.js'
 
 const SYMBOL = 'DOGE'
 
@@ -337,7 +338,7 @@ async function runUser(sb, { runId, source, profile, planRaw, market, marketErro
       price: row.price,
       lockReason: result.lockedNow,
     })
-    if (text) await sendTelegram(profile.telegram_chat_id, text)
+    if (text) await notify(sb, { userId: profile.id, chatId: profile.telegram_chat_id, text, urgent: Boolean(result.lockedNow) }).catch(() => null)
   }
 
   return { userId, decision: row.decision, error: row.decision === 'error' ? row.error : null }
