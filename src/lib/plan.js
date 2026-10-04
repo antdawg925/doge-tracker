@@ -41,3 +41,31 @@ export function embedUrl(url) {
   }
   return null;
 }
+
+/** Short chart label: "0.20 heavy profits" (label up to the first ":" / "(", lower-case). */
+export function chartLabel(l) {
+  const p = Number(l.price);
+  const n = p >= 0.1 ? p.toFixed(3).replace(/0$/, '') : p.toFixed(4);
+  const t = String(l.label || '').split(/[:(]/)[0].trim().toLowerCase();
+  return t ? `${n} ${t}` : n;
+}
+
+/** Key resistance lines only (levels with on_chart), thin and muted. */
+export const keyLines = (levels) =>
+  (levels || []).filter((l) => l.on_chart && Number(l.price) > 0).map((l) => ({ price: Number(l.price), label: chartLabel(l), color: '#8b9bb4aa', style: 'dashed', muted: true }));
+
+/** Ladder stages sorted by `from`; current = the last stage whose `from` ≤ price. Fallback: one row per level. */
+export function ladderOf(post) {
+  const rows = Array.isArray(post?.ladder) && post.ladder.length
+    ? [...post.ladder].sort((a, b) => Number(a.from) - Number(b.from))
+    : [...(post?.levels || [])].sort((a, b) => a.price - b.price).map((l) => ({ from: Number(l.price), px: chartLabel(l).split(' ')[0], text: l.label, sub: '' }));
+  return rows;
+}
+export function currentStage(rows, price) {
+  if (!price || !rows.length) return -1;
+  let idx = 0;
+  rows.forEach((r, i) => {
+    if (Number(r.from) <= price) idx = i;
+  });
+  return idx;
+}

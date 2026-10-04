@@ -5054,3 +5054,33 @@ p {
   .plan-levels li { grid-template-columns: 4.2rem auto 1fr; font-size: 0.88rem; }
   .lchart__range { min-height: 32px; padding: 0 0.7rem; }
 }
+
+/* Plan ladder (step-by-step, current stage highlighted) */
+.plan-ladder { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.plan-ladder li { display: grid; grid-template-columns: 1.3rem 5.2rem 1fr auto; align-items: baseline; gap: 0.5rem; padding: 0.38rem 0.5rem; border-radius: 8px; font-size: 0.9rem; border: 1px solid transparent; }
+.plan-ladder li.is-past { opacity: 0.55; }
+.plan-ladder li.is-now { background: rgba(61, 156, 240, 0.1); border-color: rgba(61, 156, 240, 0.45); }
+.plan-ladder__n { color: var(--muted); font-size: 0.75rem; font-weight: 700; text-align: center; }
+.plan-ladder__px { font-weight: 600; white-space: nowrap; }
+.plan-ladder__txt { min-width: 0; }
+.plan-ladder__sub { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 0.05rem; }
+.plan-ladder__now { font-size: 0.68rem; font-weight: 700; color: #3d9cf0; border: 1px solid currentColor; border-radius: 999px; padding: 0.02rem 0.45rem; }
+.plan-form__lv { grid-template-columns: 6rem 1fr 8.5rem auto auto; align-items: center; }
+.plan-form__chk { flex-direction: row !important; align-items: center; gap: 0.25rem !important; white-space: nowrap; cursor: pointer; }
+.plan-form__ladder { font-size: 0.8rem; }
+
+/* My Bot hero: live price big, bottom stop as a labelled red line */
+.mb-hero__body { align-items: baseline; gap: 0.25rem 0.75rem; }
+.mb-hero__chg { font-size: 0.95rem; font-weight: 600; }
+.mb-hero__stop { margin: 0.3rem 0 0; font-size: 0.92rem; }
+.mb-hero__stopk { color: #f07178; font-weight: 600; }
+.mb-hero__raised { margin: 0.15rem 0 0.1rem; }
+.mb-dock__px { font-weight: 700; }
+.mb-dock__stop { color: #f07178; font-size: 0.82rem; }
+@media (max-width: 767px) {
+  .plan-ladder li { grid-template-columns: 1.1rem 4.6rem 1fr auto; gap: 0.4rem; padding: 0.36rem 0.4rem; font-size: 0.86rem; }
+  .plan-form__lv { grid-template-columns: 5.2rem 1fr auto; }
+  .plan-form__lv select { grid-column: 1 / 2; }
+  .plan-form__chk { grid-column: 2 / 4; }
+  .mb-hero__stop { font-size: 0.86rem; }
+}

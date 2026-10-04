@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/authContext.js';
 import { supabase } from '../lib/supabase.js';
-import { BIAS, LEVEL_ACTIONS, actionOf, embedUrl, fetchPlanPosts } from '../lib/plan.js';
+import { BIAS, LEVEL_ACTIONS, currentStage, embedUrl, fetchPlanPosts, keyLines, ladderOf } from '../lib/plan.js';
+import { fetchKrakenSpot } from '../lib/history.js';
 import LevelChart from '../components/plan/LevelChart.jsx';
 
 /** Plan: Anthony publishes (owner writes, RLS); every signed-in user reads. Members follow it on My Bot. */
@@ -14,28 +15,37 @@ function BiasPill({ bias }) {
   return <span className={`plan-bias plan-bias--${bias}`}>{b.label}</span>;
 }
 
-function Levels({ levels }) {
-  const sorted = [...(levels || [])].sort((a, b) => b.price - a.price);
+/** Step-by-step plan, in the order price moves; the live stage is highlighted, buy zones are small text in their rows. */
+function Ladder({ post, price }) {
+  const rows = ladderOf(post);
+  const now = currentStage(rows, price);
   return (
-    <ul className="plan-levels">
-      {sorted.map((l, i) => {
-        const a = actionOf(l.action);
-        return (
-          <li key={`${l.price}-${i}`}>
-            <span className="mono plan-levels__px">{px(l.price)}</span>
-            <span className="plan-levels__act" style={{ color: a.color, borderColor: a.color }}>
-              {a.label}
-            </span>
-            <span className="plan-levels__label">{l.label}</span>
-          </li>
-        );
-      })}
-    </ul>
+    <ol className="plan-ladder">
+      {rows.map((r, i) => (
+        <li key={i} className={i === now ? 'is-now' : i < now ? 'is-past' : ''}>
+          <span className="plan-ladder__n">{i + 1}</span>
+          <span className="mono plan-ladder__px">{r.px}</span>
+          <span className="plan-ladder__txt">
+            {r.text}
+            {r.sub ? <span className="plan-ladder__sub">{r.sub}</span> : null}
+          </span>
+          {i === now ? <span className="plan-ladder__now">Now</span> : null}
+        </li>
+      ))}
+    </ol>
   );
 }
 
+const ladderText = (rows) => (rows || []).map((r) => [r.from, r.px, r.text, r.sub || ''].join(' | ')).join('\n');
+const parseLadder = (txt) =>
+  txt
+    .split('\n')
+    .map((line) => line.split('|').map((x) => x.trim()))
+    .filter((c) => c.length >= 3 && Number.isFinite(Number(c[0])) && c[2])
+    .map(([from, px, text, sub]) => ({ from: Number(from), px, text, sub: sub || '' }));
+
 function PostForm({ base, onPosted }) {
-  const blank = { price: '', label: '', action: 'buy' };
+  const blank = { price: '', label: '', action: 'sell', on_chart: false };
   const [f, setF] = useState(() => ({
     title: '',
     video_url: '',
@@ -43,15 +53,16 @@ function PostForm({ base, onPosted }) {
     bias: base?.bias || 'neutral',
     bias_reason: base?.bias_reason || '',
     stop_note: base?.stop_note || '',
-    levels: (base?.levels || []).map((l) => ({ ...l, price: String(l.price) })),
+    levels: (base?.levels || []).map((l) => ({ ...l, price: String(l.price), on_chart: !!l.on_chart })),
+    ladder: ladderText(base?.ladder),
   }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const setLv = (i, k) => (e) => setF((x) => ({ ...x, levels: x.levels.map((l, j) => (j === i ? { ...l, [k]: e.target.value } : l)) }));
+  const setLv = (i, k) => (e) => setF((x) => ({ ...x, levels: x.levels.map((l, j) => (j === i ? { ...l, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value } : l)) }));
   const submit = async (e) => {
     e.preventDefault();
-    const levels = f.levels.filter((l) => Number(l.price) > 0).map((l) => ({ price: Number(l.price), label: l.label.trim(), action: l.action }));
+    const levels = f.levels.filter((l) => Number(l.price) > 0).map((l) => ({ price: Number(l.price), label: l.label.trim(), action: l.action, on_chart: !!l.on_chart }));
     if (!f.note.trim() && !f.video_url.trim()) return setMsg('Add a note or a video link.');
     setBusy(true);
     setMsg('');
@@ -64,6 +75,7 @@ function PostForm({ base, onPosted }) {
       bias_reason: f.bias_reason.trim(),
       stop_note: f.stop_note.trim(),
       levels,
+      ladder: parseLadder(f.ladder),
     });
     setBusy(false);
     if (error) return setMsg(error.message);
@@ -108,7 +120,7 @@ function PostForm({ base, onPosted }) {
           <span className="small muted">Stop note</span>
           <input value={f.stop_note} onChange={set('stop_note')} />
         </label>
-        <div className="small muted">Levels</div>
+        <div className="small muted">Levels · tick “chart” for key resistance (drawn on the charts); the rest are list-only zones</div>
         <div className="plan-form__levels">
           {f.levels.map((l, i) => (
             <div key={i} className="plan-form__lv">
@@ -121,6 +133,9 @@ function PostForm({ base, onPosted }) {
                   </option>
                 ))}
               </select>
+              <label className="plan-form__chk" title="Show on chart">
+                <input type="checkbox" checked={!!l.on_chart} onChange={setLv(i, 'on_chart')} /> <span className="small">chart</span>
+              </label>
               <button type="button" className="btn btn--ghost stk-btn" aria-label="Remove level" onClick={() => setF((x) => ({ ...x, levels: x.levels.filter((_, j) => j !== i) }))}>
                 ×
               </button>
@@ -130,6 +145,10 @@ function PostForm({ base, onPosted }) {
             + Level
           </button>
         </div>
+        <label>
+          <span className="small muted">Plan ladder · one stage per line: from price | price text | what to do | small text (zones)</span>
+          <textarea rows={4} className="mono plan-form__ladder" value={f.ladder} onChange={set('ladder')} placeholder="0.10 | 0.14 | Sell some | Buy the dip 0.11–0.12" />
+        </label>
         <div className="plan-form__actions">
           <button type="submit" className="btn btn--primary stk-btn" disabled={busy}>
             {busy ? 'Posting…' : 'Post update'}
@@ -154,10 +173,21 @@ export default function Plan() {
     load();
   }, [load]);
   const latest = posts?.[0] || null;
-  const lines = useMemo(
-    () => (latest?.levels || []).map((l) => ({ price: Number(l.price), label: `${px(l.price)} ${l.label}`, color: actionOf(l.action).color, style: l.action === 'stop' ? 'solid' : 'dashed', width: l.action === 'stop' ? 2 : 1 })),
-    [latest],
-  );
+  const [price, setPrice] = useState(null);
+  useEffect(() => {
+    const ac = new AbortController();
+    const tick = () =>
+      fetchKrakenSpot('XDGUSD', { signal: ac.signal })
+        .then((sp) => setPrice(sp.price))
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => {
+      ac.abort();
+      clearInterval(id);
+    };
+  }, []);
+  const lines = useMemo(() => keyLines(latest?.levels), [latest]);
   const fit = useMemo(() => lines.map((l) => l.price), [lines]);
   const stop = (latest?.levels || []).find((l) => l.action === 'stop' && /bottom/i.test(l.label || ''));
   const video = latest?.video_url ? embedUrl(latest.video_url) : null;
@@ -206,12 +236,12 @@ export default function Plan() {
           </section>
 
           <section className="card plan-chart">
-            <LevelChart lines={lines} fit={fit} log height={340} defaultRange="1d" />
+            <LevelChart lines={lines} fit={fit} log height={300} defaultRange="1d" price={price} />
           </section>
 
           <section className="card plan-lv">
-            <h2 className="plan-h2">Levels</h2>
-            <Levels levels={latest.levels} />
+            <h2 className="plan-h2">The plan, step by step</h2>
+            <Ladder post={latest} price={price} />
             <p className="small muted plan-bot">
               What the bot runs: one Kraken bottom stop under all your DOGE{stop ? ` (${px(stop.price)} now)` : ''} that only moves up: it ratchets under the
               4h high on a 3× daily-ATR trail and up to the account-lock price. Zone sells and the pot buy are off by default. {latest.stop_note}
@@ -236,7 +266,7 @@ export default function Plan() {
                     </p>
                   ) : null}
                   {p.note ? <p className="small">{p.note}</p> : null}
-                  <Levels levels={p.levels} />
+                  <Ladder post={p} price={null} />
                 </details>
               ))}
             </section>

@@ -5,10 +5,11 @@ import { supabase } from '../../lib/supabase.js';
 import { BrandMark } from '../BrandMark.jsx';
 import { LOG_COPY, QuietHours, ROLE_COPY, Settings } from '../alerts/DogeLivePanel.jsx';
 import LevelChart from '../plan/LevelChart.jsx';
-import { actionOf, fetchPlanPosts } from '../../lib/plan.js';
+import { chartLabel, fetchPlanPosts } from '../../lib/plan.js';
+import { fetchKrakenDailyBars, fetchKrakenSpot } from '../../lib/history.js';
 
 /**
- * My Bot → DOGE: one screen. Hero (bottom stop) · Position · Orders · Quick actions ·
+ * My Bot → DOGE: one screen. Hero (live price + bottom stop) · Position · Orders · Quick actions ·
  * Your settings (drawer) · Activity (drawer). Every write goes through /api/bot/doge-live/*,
  * the same server paths and checks as the Telegram commands.
  */
@@ -21,12 +22,17 @@ const pt = (iso) =>
 const LATE_MS = 15 * 60000;
 const URGENT = new Set(['stop_crossed', 'kill_switch', 'no_trade_key', 'order_gone', 'no_stop_level', 'raise_crossed', 'near_stop', 'drop_1h']);
 
-function Hero({ row, busy, call, isOwner, checkedAt }) {
+/** Stop distance as % below the live price. */
+const below = (stopPx, price) => (stopPx && price ? (1 - stopPx / price) * 100 : null);
+
+function Hero({ row, busy, call, isOwner, checkedAt, spot }) {
   const s = row.snapshot || {};
   const b = s.bottom || {};
   const live = s.mode === 'live';
   const stopPx = row.state?.stopPx ?? b.price ?? null;
-  const dist = stopPx && s.price ? (s.price / stopPx - 1) * 100 : null;
+  const price = spot?.price ?? s.price;
+  const chg = spot?.change24h;
+  const dist = below(stopPx, price);
   const stopped = row.status === 'stopped' || row.status === 'ended';
   const [raiseTo, setRaiseTo] = useState('');
   const [lowering, setLowering] = useState(false);
@@ -39,7 +45,7 @@ function Hero({ row, busy, call, isOwner, checkedAt }) {
     <section className={`card mb-hero${live ? ' mb-hero--live' : ''}${row.kill_switch ? ' mb-hero--killed' : ''}`}>
       <div className="mb-hero__top">
         <span className="small muted">
-          Bottom stop <BrandMark brand="kraken" height={11} />
+          DOGE price <BrandMark brand="kraken" height={11} />
         </span>
         <span className={`dl-mode ${live ? 'dl-mode--live' : ''}`} title={live ? 'Real Kraken orders' : 'Computes and logs orders; places nothing'}>
           {live ? 'LIVE' : 'DRY-RUN'}
@@ -54,28 +60,17 @@ function Hero({ row, busy, call, isOwner, checkedAt }) {
         </div>
       ) : null}
       <div className="mb-hero__body">
-        <div className="mb-hero__px mono">{px(stopPx)}</div>
-        <dl className="mb-facts small">
-          <div>
-            <dt>Price</dt>
-            <dd className="mono">{px(s.price)}</dd>
-          </div>
-          <div>
-            <dt>Distance</dt>
-            <dd className={dist != null && dist < 3 ? 'neg' : ''}>{dist != null ? `${dist.toFixed(1)}% above` : '—'}</dd>
-          </div>
-          <div>
-            <dt>Covers</dt>
-            <dd className="mono">{s.stop ? `${qty(s.stop.qty)} DOGE` : '—'}</dd>
-          </div>
-          <div>
-            <dt>Last raised</dt>
-            <dd title={row.state?.stopReason || ''}>
-              {pt(row.state?.stopSetAt)} <span className="muted">· {row.state?.stopReason || '—'}</span>
-            </dd>
-          </div>
-        </dl>
+        <div className="mb-hero__px mono">{px(price)}</div>
+        {chg != null && Number.isFinite(chg) ? <span className={`mb-hero__chg ${chg >= 0 ? 'pos' : 'neg'}`}>{pct(chg)} 24h</span> : null}
       </div>
+      <p className="mb-hero__stop">
+        <span className="mb-hero__stopk">Bottom stop <span className="mono">{px(stopPx)}</span></span>
+        <span className={dist != null && dist < 3 ? 'neg' : 'muted'}> · {dist != null ? `${dist.toFixed(1)}% below` : '—'}</span>
+        <span className="muted"> · covers {s.stop ? `${qty(s.stop.qty)} DOGE` : '—'}</span>
+      </p>
+      <p className="small muted mb-hero__raised" title={row.state?.stopReason || ''}>
+        Last raised {pt(row.state?.stopSetAt)} · {row.state?.stopReason || '—'}
+      </p>
       {stopped ? (
         <p className="small neg">{row.state?.endReason || 'Bottom stop filled.'} No re-entry; start a new plan in Your settings.</p>
       ) : (
@@ -136,18 +131,21 @@ const jump = (id) => {
 };
 
 /** Phones only (CSS): stop + price, with Raise / Buy / Sell shortcuts, docked above the tab bar. */
-function MobileBar({ row }) {
+function MobileBar({ row, spot }) {
   const s = row.snapshot || {};
   const stopPx = row.state?.stopPx ?? s.bottom?.price ?? null;
-  const dist = stopPx && s.price ? (s.price / stopPx - 1) * 100 : null;
+  const price = spot?.price ?? s.price;
+  const chg = spot?.change24h;
+  const dist = below(stopPx, price);
   return (
     <>
       <div className="mb-dock" role="region" aria-label="Stop and price">
         <button type="button" className="mb-dock__info" onClick={() => jump('mb-raise')} title="Raise stop">
-          <span className="mb-dock__k">Stop</span> <span className="mono">{px(stopPx)}</span>
+          <span className="mono mb-dock__px">{px(price)}</span>
+          {chg != null && Number.isFinite(chg) ? <span className={`mb-dock__d ${chg >= 0 ? 'pos' : 'neg'}`}> {pct(chg)}</span> : null}
           <span className="mb-dock__k"> · </span>
-          <span className="mono">{px(s.price)}</span>
-          {dist != null ? <span className={`mb-dock__d ${dist < 3 ? 'neg' : 'muted'}`}> {dist.toFixed(1)}%</span> : null}
+          <span className="mb-dock__stop">Stop <span className="mono">{px(stopPx)}</span></span>
+          {dist != null ? <span className={`mb-dock__d ${dist < 3 ? 'neg' : 'muted'}`}> −{dist.toFixed(1)}%</span> : null}
         </button>
         <button type="button" className="btn btn--primary mb-dock__btn" onClick={() => jump('mb-buy')}>
           Buy
@@ -162,15 +160,15 @@ function MobileBar({ row }) {
 }
 
 /** Candles + the latest plan's levels (dim), the bottom stop (red) and open orders (buy green, sell orange). */
-function BotChart({ row, plan, botBuys, onPickSell }) {
+function BotChart({ row, plan, botBuys, onPickSell, spot }) {
   const s = row.snapshot || {};
   const stopPx = row.state?.stopPx ?? s.bottom?.price ?? null;
-  const price = s.price;
+  const price = spot?.price ?? s.price;
   const { lines, fit } = useMemo(() => {
     const out = [];
     for (const l of plan?.levels || []) {
-      if (l.action === 'stop' && /bottom/i.test(l.label || '')) continue; // the live stop is drawn below
-      out.push({ price: Number(l.price), label: l.label, color: `${actionOf(l.action).color}99`, style: 'dotted', plan: true });
+      if (!l.on_chart) continue; // key resistance only; zones live in the Plan ladder
+      out.push({ price: Number(l.price), label: chartLabel(l), color: '#8b9bb4aa', style: 'dashed', plan: true, muted: true });
     }
     if (stopPx) out.push({ price: stopPx, label: 'Stop', color: '#f07178', style: 'solid', width: 2 });
     for (const o of s.userBuys || []) out.push({ price: o.price, label: 'Your buy', color: '#3ecf8e', style: 'solid' });
@@ -185,7 +183,7 @@ function BotChart({ row, plan, botBuys, onPickSell }) {
     <section className="card mb-chart">
       <LevelChart lines={lines} fit={fit} height={typeof window !== 'undefined' && window.innerWidth < 768 ? 220 : 280} defaultRange="4h" price={price} onPick={(l) => price && l.price > price && onPickSell(l.price)} />
       <p className="small muted mb-chart__note">
-        {plan ? `Levels from “${plan.title || 'latest plan'}”` : 'No plan levels yet'} · red = your stop{price ? ' · tap a level above the price to prefill a limit sell' : ''}
+        {plan ? `Key levels from “${plan.title || 'latest plan'}”` : 'No plan levels yet'} · red = your stop{price ? ' · tap a level above the price to prefill a limit sell' : ''}
       </p>
     </section>
   );
@@ -431,6 +429,36 @@ export default function MyBot({ refreshKey }) {
   const [checkedAt, setCheckedAt] = useState(0);
   const [plan, setPlan] = useState(null);
   const [sellPx, setSellPx] = useState('');
+  const [spot, setSpot] = useState(null);
+  useEffect(() => {
+    // Live price every 30 s; true rolling 24h change from the hourly close 24 h ago (Kraken's ticker open is UTC midnight).
+    const ac = new AbortController();
+    let ref = null;
+    let refAt = 0;
+    const tick = async () => {
+      try {
+        if (Date.now() - refAt > 10 * 60000) {
+          const bars = await fetchKrakenDailyBars('XDGUSD', 2, ac.signal, 60).catch(() => []);
+          const cut = Date.now() - 24 * 3600000;
+          const b = [...bars].reverse().find((x) => x.t <= cut);
+          if (b) {
+            ref = b.close;
+            refAt = Date.now();
+          }
+        }
+        const sp = await fetchKrakenSpot('XDGUSD', { signal: ac.signal });
+        setSpot({ price: sp.price, change24h: ref ? (sp.price / ref - 1) * 100 : null });
+      } catch {
+        /* keep the last spot; the snapshot price is the fallback */
+      }
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => {
+      ac.abort();
+      clearInterval(id);
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!supabase || !user) return;
@@ -486,7 +514,7 @@ export default function MyBot({ refreshKey }) {
   const flags = (row.snapshot?.flags || []).filter((f) => !['dry_fill', 'stopped'].includes(f.code));
   return (
     <div className="mb">
-      <Hero row={row} busy={busy} call={call} isOwner={isOwner} checkedAt={checkedAt} />
+      <Hero row={row} busy={busy} call={call} isOwner={isOwner} checkedAt={checkedAt} spot={spot} />
       {msg ? <p className="small neg mb-msg" role="alert">{msg}</p> : null}
       {flags.length ? (
         <ul className="dl-flags small mb-flags">
@@ -501,6 +529,7 @@ export default function MyBot({ refreshKey }) {
         row={row}
         plan={plan}
         botBuys={botBuys}
+        spot={spot}
         onPickSell={(p) => {
           setSellPx(String(Number(p)));
           jump('mb-sell');
@@ -513,7 +542,7 @@ export default function MyBot({ refreshKey }) {
       <QuickActions row={row} busy={busy} setBusy={setBusy} setMsg={setMsg} reload={load} isOwner={isOwner} sp={sellPx} setSp={setSellPx} />
       <YourSettings row={row} busy={busy} call={call} isOwner={isOwner} userId={user?.id} />
       <Activity log={log} lastRun={row.last_run_at} />
-      <MobileBar row={row} />
+      <MobileBar row={row} spot={spot} />
     </div>
   );
 }

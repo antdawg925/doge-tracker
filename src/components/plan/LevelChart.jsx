@@ -4,7 +4,7 @@ import { fetchKrakenDailyBars } from '../../lib/history.js';
 
 /**
  * DOGE candles (Kraken XDGUSD, 4h or 1d) with labelled horizontal level lines.
- * lines: [{ price, label, color, style: 'solid'|'dashed'|'dotted', width }]
+ * lines: [{ price, label, color, style: 'solid'|'dashed'|'dotted', width, muted }] (muted: no axis box, just the thin line + title)
  * fit: prices the autoscale must include (e.g. the stop); log: logarithmic price scale.
  * onPick(line): tap near a line (≤10px) — optional.
  */
@@ -111,7 +111,7 @@ export default function LevelChart({ lines = [], fit = [], log = false, height =
           color: l.color || '#8b9bb4',
           lineWidth: l.width || 1,
           lineStyle: l.style === 'solid' ? LineStyle.Solid : l.style === 'dotted' ? LineStyle.Dotted : LineStyle.Dashed,
-          axisLabelVisible: true,
+          axisLabelVisible: !l.muted,
           title: l.label || '',
         }),
       );
