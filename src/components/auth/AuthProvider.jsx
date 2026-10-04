@@ -148,8 +148,8 @@ export default function AuthProvider({ children }) {
       role,
       isOwner,
       hasBotAccess: Boolean(user && (isOwner || profile?.bot_access)),
-      // signed-in default page: My Bot for the bot tier (owner always), else Research
-      homePath: user ? (isOwner || profile?.bot_access ? '/bot' : '/research') : '/',
+      // signed-in default page: always Research (owner included); signed out: the landing page
+      homePath: user ? '/research' : '/',
       displayName:
         profile?.display_name || user?.user_metadata?.display_name || user?.email || '',
       signIn,
