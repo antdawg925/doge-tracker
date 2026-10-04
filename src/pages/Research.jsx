@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from '../components/Header';
 import SymbolSearch from '../components/SymbolSearch';
-import Watchlist from '../components/Watchlist';
 import StageBox from '../components/StageBox';
 import PumpDumpBanner from '../components/PumpDumpBanner';
-import PriceCard from '../components/PriceCard';
+import PriceStrip from '../components/PriceStrip';
 import PriceChart from '../components/PriceChart';
 import SupportPanel from '../components/SupportPanel';
 import ResistancePanel from '../components/ResistancePanel';
 import SuggestedStops from '../components/SuggestedStops';
-import PositionSummary from '../components/PositionSummary';
-import PositionEditor from '../components/PositionEditor';
+import PositionRail from '../components/PositionRail';
 import PositionSizeLine from '../components/PositionSizeLine';
 import NewsPanel from '../components/NewsPanel';
 import FundamentalsPanel from '../components/FundamentalsPanel';
@@ -22,7 +20,6 @@ import { loadAppState, positionFor, saveAppState } from '../lib/defaults';
 import { useAuth } from '../hooks/authContext.js';
 import { useDeskPosition } from '../hooks/useDeskPosition';
 import { assetKey, emptyPositionFor } from '../lib/assets';
-import { hasEnteredPosition } from '../lib/math';
 import { computeLevels } from '../lib/levels';
 import { assessPumpDump } from '../lib/pumpDump';
 import { sliceBarsLastDays } from '../lib/history';
@@ -36,7 +33,6 @@ function upsertWatchlist(list, asset) {
 export default function Research() {
   const [appState, setAppState] = useState(() => loadAppState());
   const asset = appState.selected;
-  const watchlist = appState.watchlist || [];
   const { user } = useAuth();
   // Shares + avg cost come from the user's Positions (Supabase); target stays per-browser.
   const desk = useDeskPosition(user?.id ?? null, asset);
@@ -136,21 +132,6 @@ export default function Research() {
     });
   }, []);
 
-  const onAddToWatchlist = useCallback(() => {
-    setAppState((prev) => ({
-      ...prev,
-      watchlist: upsertWatchlist(prev.watchlist || [], prev.selected),
-    }));
-  }, []);
-
-  const onRemoveFromWatchlist = useCallback((target) => {
-    const key = assetKey(target);
-    setAppState((prev) => ({
-      ...prev,
-      watchlist: (prev.watchlist || []).filter((a) => assetKey(a) !== key),
-    }));
-  }, []);
-
   const onRefreshAll = useCallback(() => {
     refresh();
     refreshHistory();
@@ -188,25 +169,10 @@ export default function Research() {
         />
       </div>
 
-      <div className="desk-workspace">
-        <aside className="desk-sidebar">
-          <Watchlist
-            items={watchlist}
-            selected={asset}
-            onSelect={onSelectAsset}
-            onAddCurrent={onAddToWatchlist}
-            onRemove={onRemoveFromWatchlist}
-          />
-        </aside>
-
+      <div className="desk-workspace desk-workspace--research">
+        {/* Watchlist UI hidden (data + upsert on symbol select kept). */}
         <main className="desk-main">
-          <PumpDumpBanner assessment={pumpDump} />
-          <StageBox
-            bars={dailyLevelBars}
-            asset={asset}
-            loading={histLoading || longLoading}
-          />
-          <PriceCard
+          <PriceStrip
             asset={asset}
             price={price}
             change24h={change24h}
@@ -228,7 +194,13 @@ export default function Research() {
             spot={price}
             tfSets={tfSets}
           />
+          <PumpDumpBanner assessment={pumpDump} />
           <NewsPanel asset={asset} />
+          <StageBox
+            bars={dailyLevelBars}
+            asset={asset}
+            loading={histLoading || longLoading}
+          />
           {asset?.type === 'stock' ? <FundamentalsPanel asset={asset} /> : null}
           <SuggestedStops
             levels={levels}
@@ -255,8 +227,8 @@ export default function Research() {
           />
         </main>
 
-        <aside className="desk-aside">
-          <PositionEditor
+        <aside className="desk-aside desk-aside--rail">
+          <PositionRail
             position={position}
             spot={price}
             asset={asset}
@@ -264,16 +236,16 @@ export default function Research() {
             loaded={desk.loaded}
             status={desk.status}
             error={desk.error}
+            levels={levels}
+            tfSets={tfSets}
             headerAction={
-              <Link to="/positions" className="btn btn--ghost">
+              <Link to="/positions" className="btn btn--ghost prail__all">
                 All positions
               </Link>
             }
-          />
-          <PositionSizeLine asset={asset} bars={longBars} spot={price} />
-          {hasEnteredPosition(position.coins, position.avgCost) ? (
-            <PositionSummary position={position} spot={price} asset={asset} />
-          ) : null}
+          >
+            <PositionSizeLine asset={asset} bars={longBars} spot={price} />
+          </PositionRail>
         </aside>
       </div>
     </div>

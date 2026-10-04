@@ -4836,3 +4836,45 @@ p {
   .mb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mb-hero__px { font-size: 2.2rem; }
 }
+
+/* ---------- Research: no watchlist column, compact price strip, sticky position rail ---------- */
+.desk-workspace--research { grid-template-columns: minmax(0, 1fr) 340px; }
+.price-strip {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.75rem;
+  padding: 0.5rem 0.8rem; background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: -0.35rem;
+}
+.price-strip__sym { font-weight: 700; }
+.price-strip__px { font-size: 1.25rem; font-weight: 700; }
+.price-strip__badge { margin-left: auto; align-self: center; }
+.price-strip__note { flex-basis: 100%; }
+.desk-aside--rail {
+  top: 3.6rem; padding-top: 0;
+  max-height: calc(100vh - 4.4rem); max-height: calc(100dvh - 4.4rem);
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+}
+.prail { padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.prail__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.prail__head h2 { font-size: 1rem; margin: 0; }
+.prail__all { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+.prail__sync { margin: -0.35rem 0 0; }
+.prail__inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.6rem; }
+.prail__field { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.prail__field input { width: 100%; padding: 0.35rem 0.5rem; font-size: 0.9rem; }
+.prail__field--ro .mono { padding: 0.35rem 0; font-size: 0.95rem; }
+.prail__kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0; }
+.prail__kpis > div { background: var(--bg-elev-2, rgba(148, 163, 184, 0.06)); border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.12)); border-radius: 8px; padding: 0.45rem 0.55rem; min-width: 0; }
+.prail__kpis dt { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prail__kpis dd { margin: 0.1rem 0 0; font-size: 1.05rem; font-weight: 700; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.35rem; }
+.prail__sub { font-size: 0.75rem; font-weight: 500; color: var(--muted); }
+.prail__sub.pos { color: var(--pos); }
+.prail__sub.neg { color: var(--neg); }
+.prail .size-line { padding: 0.5rem 0.6rem; box-shadow: none; }
+.prail__summary { border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.12)); padding-top: 0.45rem; }
+.prail__summary summary { cursor: pointer; color: var(--muted); }
+.prail__summary p { margin: 0.4rem 0 0; line-height: 1.45; }
+@media (max-width: 1100px) { .desk-workspace--research { grid-template-columns: minmax(0, 1fr) 300px; } }
+@media (max-width: 900px) {
+  .desk-workspace--research { grid-template-columns: 1fr; }
+  .desk-aside--rail { max-height: none; overflow: visible; position: static; }
+}
