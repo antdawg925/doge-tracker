@@ -157,6 +157,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   // the exact orders for what he really holds). Reads only: BalanceEx / OpenOrders / QueryOrders.
   let book = null
   let othersHold = 0
+  let openList = null // { userSells, botBuys } for the panel's Orders card
   let open = null
   let kraken = null
   const userBuyFills = []
@@ -197,6 +198,10 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     othersHold = othersSell
     if (othersSell > 0) extraFlags.push({ code: 'others_hold', message: `You have your own DOGE sell order(s) at Kraken for ${fmtQty(othersSell)} DOGE; the bot's stop covers the rest` })
     book = { doge: Math.max(0, bal.doge - othersHold), usd: bal.usd }
+    openList = {
+      userSells: open.others.filter((o) => o.type === 'sell').map((o) => ({ txid: o.txid, price: o.price, qty: Math.max(0, o.vol - o.volExec), ordertype: o.ordertype })),
+      botBuys: open.mine.filter((o) => String(o.clOrdId || '').startsWith('tsbb')).map((o) => ({ txid: o.txid, price: o.price, qty: Math.max(0, o.vol - o.volExec), ordertype: o.ordertype })),
+    }
     kraken = { doge: bal.doge, usd: bal.usd, openOrders: open.mine.length + open.others.length }
 
     // his own buy orders: track + detect fills (the bot never touches them)
@@ -284,6 +289,8 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     rules: { orderMin: rules.orderMin, costMin: rules.costMin, priceDecimals: rules.priceDecimals, volumeDecimals: rules.volumeDecimals },
     kraken,
     userBuys: Object.entries(state.userBuys || {}).map(([txid, o]) => ({ txid, price: o.price, qty: Math.max(0, o.vol - (o.volExec || 0)), ordertype: o.ordertype, distPct: o.price ? (market.price / o.price - 1) * 100 : null, since: o.firstSeen })),
+    userSells: openList?.userSells ?? [],
+    botBuys: openList?.botBuys ?? [],
     requests: reqs.length,
   }
 

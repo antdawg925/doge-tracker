@@ -49,19 +49,27 @@ async function setPending(sb, userId, kind, payload, ttlMs) {
   await sb.from('telegram_pending').upsert({ user_id: userId, kind, payload, expires_at: new Date(Date.now() + ttlMs).toISOString(), created_at: new Date().toISOString() })
 }
 
+/** The L2 buy plan for $usd (shared by Telegram "buy $X" and the panel's Buy). */
+export async function previewBuy(sb, { profile, usd, env = process.env, fetchImpl = fetch }) {
+  if (profile.role !== 'owner') return { ok: false, error: 'Buying through the bot is only available on the owner account.' }
+  if (!(usd > 0)) return { ok: false, error: 'Usage: buy $1000 DOGE (or /buy 1000)' }
+  if (usd > 100000) return { ok: false, error: 'That is over the $100,000 per-command limit.' }
+  const ctx = await context(sb, profile.id, profile, env)
+  if (ctx.killed) return { ok: false, error: '⛔ Kill switch is on: no buys. Resume first.' }
+  const [book, avail] = await Promise.all([fetchBook(fetchImpl).catch(() => null), usdAvailable(ctx.creds, fetchImpl).catch(() => null)])
+  if (!book) return { ok: false, error: 'Kraken order book unavailable; try again.' }
+  const plan = planBuy({ usd, book, usdAvailable: avail })
+  if (!plan.ok) return { ok: false, error: `Can't buy: ${plan.error}.` }
+  const { bids: _b, asks: _a, ...bookOut } = book
+  return { ok: true, dry: !ctx.live, usd, plan, book: bookOut, usdAvailable: avail, text: buyPlanText(plan, book, { usd, dry: !ctx.live }) + (avail != null ? `\nUSD available: $${avail.toFixed(2)}` : '') }
+}
+
 /** "buy $X" → plan + yes prompt. Returns the reply text. */
 export async function startBuy(sb, { profile, usd, env = process.env, fetchImpl = fetch }) {
-  if (profile.role !== 'owner') return 'Buying from Telegram is only available on the owner account.'
-  if (!(usd > 0)) return 'Usage: buy $1000 DOGE (or /buy 1000)'
-  if (usd > 100000) return 'That is over the $100,000 per-command limit.'
-  const ctx = await context(sb, profile.id, profile, env)
-  if (ctx.killed) return '⛔ Kill switch is on: no buys. /resume first.'
-  const [book, avail] = await Promise.all([fetchBook(fetchImpl).catch(() => null), usdAvailable(ctx.creds, fetchImpl).catch(() => null)])
-  if (!book) return 'Kraken order book unavailable; try again.'
-  const plan = planBuy({ usd, book, usdAvailable: avail })
-  if (!plan.ok) return `Can't buy: ${plan.error}.`
-  await setPending(sb, profile.id, 'buy', { usd, price: plan.price, qty: plan.qty, dry: !ctx.live }, BUY_RULES.confirmMs)
-  return buyPlanText(plan, book, { usd, dry: !ctx.live }) + (avail != null ? `\nUSD available: $${avail.toFixed(2)}` : '')
+  const r = await previewBuy(sb, { profile, usd, env, fetchImpl })
+  if (!r.ok) return r.error
+  await setPending(sb, profile.id, 'buy', { usd, price: r.plan.price, qty: r.plan.qty, dry: r.dry }, BUY_RULES.confirmMs)
+  return r.text
 }
 
 /** "yes" → whatever is pending (buy or stop suggestion). */
@@ -75,11 +83,15 @@ export async function confirmPending(sb, { profile, env = process.env, fetchImpl
     if (!r.ok) return `Not changed: ${r.error}`
     return `✅ Stop raised ${fmtPx(r.from)} → ${fmtPx(r.to)}${r.plan?.snapshot?.mode === 'live' ? '' : ' (dry-run)'}. Covers ${fmtQty(r.plan?.snapshot?.stop?.qty)} DOGE.`
   }
-  // buy
+  return placeBuy(sb, { profile, usd: Number(p.payload.usd), env, fetchImpl })
+}
+
+/** Place (or, dry-run, describe) the post-only buy for $usd. Returns the reply text. */
+export async function placeBuy(sb, { profile, usd, env = process.env, fetchImpl = fetch }) {
   const ctx = await context(sb, profile.id, profile, env)
   if (profile.role !== 'owner') return 'Owner only.'
   if (ctx.killed) return '⛔ Kill switch is on: no buys.'
-  const usd = Number(p.payload.usd)
+  if (!(usd > 0) || usd > 100000) return 'Amount must be $1–$100,000.'
   const [book, avail] = await Promise.all([fetchBook(fetchImpl).catch(() => null), usdAvailable(ctx.creds, fetchImpl).catch(() => null)])
   if (!book) return 'Kraken order book unavailable; nothing placed.'
   const plan = planBuy({ usd, book, usdAvailable: ctx.live ? avail : null })
@@ -204,4 +216,55 @@ export async function manageBuys(sb, { nowMs = Date.now(), env = process.env, fe
     }
   }
   return summary
+}
+
+/**
+ * Panel "Limit sell": a GTC sell limit for qty (or pct of held DOGE) at price. Live: the bot's
+ * stop is first shrunk so Kraken has DOGE free for the sell, then the plan re-runs and the stop
+ * covers the rest (his sell counts as "your own sell order"). Dry-run: describes it only.
+ */
+export async function placeLimitSell(sb, { profile, price, qty, pct, env = process.env, fetchImpl = fetch }) {
+  const ctx = await context(sb, profile.id, profile, env)
+  if (!ctx.plan) return { ok: false, error: 'Save a plan first.' }
+  if (ctx.killed) return { ok: false, error: 'Kill switch is on.' }
+  const p = Math.round(Number(price) * 1e7) / 1e7
+  if (!(p > 0)) return { ok: false, error: 'Enter a sell price.' }
+  const nowIso = new Date().toISOString()
+  const snap = ctx.plan.snapshot || {}
+  let held = Number(snap.book?.doge || 0)
+  let trader = null
+  let bal = null
+  if (ctx.live) {
+    trader = createKrakenTrader({ creds: ctx.creds, fetchImpl })
+    bal = bookFromBalance(await trader.balanceEx())
+    held = Math.max(0, bal.doge - (snap.userSells || []).reduce((a, o) => a + o.qty, 0))
+  }
+  const q = Math.floor((qty != null && qty !== '' ? Number(qty) : held * (Number(pct) / 100)) * 1e8) / 1e8
+  if (!(q >= KRAKEN_XDGUSD.orderMin)) return { ok: false, error: `Amount must be at least ${KRAKEN_XDGUSD.orderMin} DOGE.` }
+  if (q > held + 1e-8) return { ok: false, error: `You only have ${fmtQty(held)} DOGE free to sell.` }
+  const m = await fetchLiveMarket(fetchImpl).catch(() => null)
+  const bid = m?.bid ?? m?.price
+  const note = bid && p <= bid ? ` At/below the bid (${fmtPx(bid)}): it fills right away.` : ''
+  if (!ctx.live) {
+    await sb.from('doge_live_log').insert({ user_id: profile.id, plan_id: ctx.plan.state?.planId ?? null, at: nowIso, mode: 'dry', role: 'user', action: 'place', status: 'would_place', side: 'sell', ordertype: 'limit', price: p, qty: q, reason: `Your limit sell (panel)` })
+    return { ok: true, dry: true, text: `Dry-run, nothing placed. Would place a GTC limit sell ${fmtQty(q)} DOGE @ $${p.toFixed(5)}; the bottom stop would cover the other ${fmtQty(held - q)} DOGE.${note}` }
+  }
+  // make room: shrink the bot's stop to what stays (Kraken holds DOGE for open sell orders)
+  const st = ctx.plan.state?.orders?.stop
+  const keep = Math.floor((held - q) * 1e8) / 1e8
+  try {
+    if (st?.id && Number(st.qty) > keep + 1e-8) {
+      if (keep >= KRAKEN_XDGUSD.orderMin) await trader.amend({ txid: st.id, qty: keep })
+      else await trader.cancel({ txid: st.id })
+    }
+    const r = await trader.addSellLimit({ qty: q, price: p, clOrdId: `tsl${Date.now().toString(36)}` })
+    const txid = r?.txid?.[0] ?? null
+    await sb.from('doge_live_log').insert({ user_id: profile.id, plan_id: ctx.plan.state?.planId ?? null, at: nowIso, mode: 'live', role: 'user', action: 'place', status: 'placed', side: 'sell', ordertype: 'limit', price: p, qty: q, txid, reason: 'Your limit sell (panel)' })
+    const after = await rerunPlan(sb, profile.id, 'manual')
+    return { ok: true, txid, text: `Placed GTC limit sell ${fmtQty(q)} DOGE @ $${p.toFixed(5)} (${txid}). Stop now covers ${fmtQty(after.plan?.snapshot?.stop?.qty)} DOGE at ${fmtPx(after.plan?.state?.stopPx)}.${note}` }
+  } catch (e) {
+    await sb.from('doge_live_log').insert({ user_id: profile.id, at: nowIso, mode: 'live', role: 'user', action: 'place', status: 'error', side: 'sell', ordertype: 'limit', price: p, qty: q, reason: String(e.message).slice(0, 300) })
+    await rerunPlan(sb, profile.id, 'manual') // restore the full stop
+    return { ok: false, error: `Sell not placed: ${e.message}. The stop was restored on the re-run.` }
+  }
 }

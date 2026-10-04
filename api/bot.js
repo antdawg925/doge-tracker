@@ -42,14 +42,14 @@ import { runDogeLive, fetchLiveMarket } from './_dogeLive.js'
 import { runStopReminders } from './_stopReminders.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { flushDigests } from './_notify.js'
-import { manageBuys } from './_dogeBuy.js'
+import { manageBuys, placeBuy, placeLimitSell, previewBuy } from './_dogeBuy.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
 
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
-const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/run', 'doge-live/stop', 'doge-live/sell'])
+const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/run', 'doge-live/stop', 'doge-live/sell', 'doge-live/buy-plan', 'doge-live/buy', 'doge-live/limit-sell'])
 const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock'])
 
 function routeParts(req) {
@@ -483,6 +483,24 @@ async function liveRoute(sb, req, res, route) {
     if (r.error) return sendJson(res, 500, { error: 'Could not queue the sell.' })
     await log({ action: 'sell', status: 'sell_requested', reason: `Sell ${pct}% now (you)` })
     return sendJson(res, 200, { ok: true, ...(await rerun()) })
+  }
+
+  if (route === 'doge-live/buy-plan') {
+    const r = await previewBuy(sb, { profile: who.profile, usd: Number(body.usd) })
+    return sendJson(res, r.ok ? 200 : 400, r.ok ? r : { error: r.error })
+  }
+
+  if (route === 'doge-live/buy') {
+    if (body.confirm !== 'BUY') return sendJson(res, 400, { error: 'Confirm with { confirm: "BUY" }.' })
+    const text = await placeBuy(sb, { profile: who.profile, usd: Number(body.usd) })
+    const ok = /^(✅|Dry-run)/.test(text)
+    return sendJson(res, ok ? 200 : 400, ok ? { ok: true, text, ...(await rerun()) } : { error: text })
+  }
+
+  if (route === 'doge-live/limit-sell') {
+    if (body.confirm !== 'SELL') return sendJson(res, 400, { error: 'Confirm with { confirm: "SELL" }.' })
+    const r = await placeLimitSell(sb, { profile: who.profile, price: body.price, qty: body.qty ?? null, pct: body.pct ?? null })
+    return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, ...(await rerun()) } : { error: r.error })
   }
 
   // doge-live/run

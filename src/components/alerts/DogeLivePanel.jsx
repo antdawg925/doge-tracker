@@ -16,7 +16,7 @@ const pct = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : `${n >= 0
 const ptShort = (iso) =>
   iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
 
-const LOG_COPY = {
+export const LOG_COPY = {
   would_place: 'Would place',
   would_amend: 'Would move',
   would_cancel: 'Would cancel',
@@ -43,11 +43,11 @@ const LOG_COPY = {
   sell_requested: 'Sell requested',
   user_buy_filled: 'Your buy filled',
 };
-const ROLE_COPY = { stop: 'stop-loss', zone: 'zone sell', pot: 'pot buy', sell: 'sell now', orphan: 'old bot order', user: 'your order' };
+export const ROLE_COPY = { stop: 'stop-loss', zone: 'zone sell', pot: 'pot buy', sell: 'sell now', orphan: 'old bot order', user: 'your order' };
 
 const DEFAULTS = { bottomStop: '', startValue: 19000, startDate: '', startDoge: 110000, startUsd: 9000, potEnabled: false, potUsd: 9000, zonesEnabled: false, zones: [{ price: 0.2, keepPct: 40 }, { price: 0.3, keepPct: 20 }, { price: 0.4, keepPct: 10 }] };
 
-function Settings({ config, isOwner, busy, onSave, fresh }) {
+export function Settings({ config, isOwner, busy, onSave, fresh }) {
   const init = { ...DEFAULTS, ...(config || {}), bottomStop: config?.bottomStop ?? '', startDate: config?.startDate || new Date().toISOString().slice(0, 10) };
   const [f, setF] = useState(init);
   const [note, setNote] = useState(null);
@@ -72,6 +72,11 @@ function Settings({ config, isOwner, busy, onSave, fresh }) {
       startDoge: Number(f.startDoge),
       startUsd: Number(f.startUsd),
       potUsd: Number(f.potUsd),
+      trailEnabled: f.trailEnabled !== false,
+      trailAtr: { ...(f.trailAtr || {}), base: Number(f.trailAtr?.base ?? 3) },
+      maxStepPct: Number(f.maxStepPct ?? 15),
+      lockActivate: Number(f.lockActivate ?? 1.5),
+      lockKeep: Number(f.lockKeep ?? 0.7),
       zones: f.zones.map((z) => ({ price: Number(z.price), keepPct: Number(z.keepPct) })),
     });
   };
@@ -106,6 +111,24 @@ function Settings({ config, isOwner, busy, onSave, fresh }) {
           : null}
       </div>
       <div className="dl-form__row">
+        <label className="dl-check" title="Auto-raise the stop under the highest 4h close by daily ATR × the multiplier">
+          <input type="checkbox" checked={f.trailEnabled !== false} onChange={set('trailEnabled')} /> ATR auto-raise
+        </label>
+        <label>
+          Trail ATR ×
+          <input type="number" step="0.1" min="0.5" value={f.trailAtr?.base ?? 3} onChange={(e) => setF((x) => ({ ...x, trailAtr: { ...(x.trailAtr || {}), base: e.target.value } }))} />
+        </label>
+        <label title="Largest single auto-raise, % of price">
+          Max raise step %<input type="number" step="0.5" min="1" max="50" value={f.maxStepPct ?? 15} onChange={set('maxStepPct')} />
+        </label>
+        <label title="The account lock activates when the account reaches start value × this">
+          Lock at × start<input type="number" step="0.05" min="1.01" value={f.lockActivate ?? 1.5} onChange={set('lockActivate')} />
+        </label>
+        <label title="Once active, the lock keeps this share of the high-water mark">
+          Lock keeps %<input type="number" step="1" min="5" max="99" value={Math.round(Number(f.lockKeep ?? 0.7) * 100)} onChange={(e) => setF((x) => ({ ...x, lockKeep: Number(e.target.value) / 100 }))} />
+        </label>
+      </div>
+      <div className="dl-form__row">
         {isOwner ? (
           <button type="button" className="btn btn--ghost stk-btn" disabled={busy} onClick={fromKraken}>
             Use my Kraken balances
@@ -123,7 +146,7 @@ function Settings({ config, isOwner, busy, onSave, fresh }) {
 const hourLabel = (h) => `${((Number(h) + 11) % 12) + 1} ${Number(h) < 12 ? 'AM' : 'PM'}`;
 
 /** Telegram quiet hours (notify_prefs): non-urgent messages wait for a morning digest. */
-function QuietHours({ userId }) {
+export function QuietHours({ userId }) {
   const [q, setQ] = useState(null);
   const [note, setNote] = useState('');
   useEffect(() => {
