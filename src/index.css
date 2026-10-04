@@ -4998,5 +4998,7 @@ p {
   .scan-hub__bar { padding: 0.6rem 0.75rem 0; gap: 0.5rem; }
   .scan-hub__title { font-size: 1.05rem; }
   .scan-hub__presets { width: 100%; }
-  .scan-hub__preset { flex: 1 0 auto; min-height: 40px; padding: 0 0.7rem; font-size: 0.85rem; }
+  .scan-hub__preset { flex: 1 1 auto; min-height: 40px; padding: 0 0.45rem; font-size: 0.8rem; }
+  .scanner--embedded .scanner__header { padding: 0.7rem 0.8rem; }
+  .scanner--embedded .scanner__note, .scanner--embedded .scanner__source { display: none; }
 }
