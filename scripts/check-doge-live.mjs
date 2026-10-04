@@ -6,10 +6,12 @@
  */
 import assert from 'node:assert/strict'
 import {
-  dailySignal, dryExecute, initLiveState, lockFor, lockStopPrice, normalizeLiveConfig, potMult, priceStr, stepDogeLive, volStr,
+  dryExecute, initLiveState, lockFor, lockStopPrice, normalizeLiveConfig, potMult, priceStr, stepDogeLive, volStr,
 } from '../shared/dogeLive.js'
 import { createKrakenTrader, krakenTradeCredsFor, bookFromBalance, splitOpenOrders } from '../api/_krakenTrade.js'
-import { executeLive } from '../api/_dogeLive.js'
+import { executeLive, dogeTelegramLines } from '../api/_dogeLive.js'
+import { coachBuyOrders } from '../shared/buyCoach.js'
+import { cryptoUncovered, krakenAlt, remindFor, stockReminderWindow } from '../api/_stopReminders.js'
 
 let n = 0
 const ok = (name, fn) => {
@@ -67,7 +69,7 @@ ok('lock stop price', () => {
   assert.equal(lockStopPrice({ lock: 41832, usd: 43616, doge: 19915 }), null, 'cash covers the lock')
 })
 ok('pot ATR multiplier schedule', () => {
-  const pa = normalizeLiveConfig({}).potAtr
+  const pa = normalizeLiveConfig({}).trailAtr
   assert.equal(potMult(0.1, pa), 3)
   assert.equal(potMult(0.2, pa), 2)
   assert.equal(potMult(0.49, pa), 2)
@@ -79,151 +81,187 @@ ok('Kraken rounding + minimums', () => {
   assert.equal(volStr(0.1 + 0.2), '0.30000000')
 })
 
-// ------------------------------------------------------------------ walk today's plan (dry)
-const cfg = { startValue: 19000, startDoge: 199149, startUsd: 0, potUsd: 0, feePct: 0.45, zones: [{ price: 0.2, keepPct: 40 }, { price: 0.3, keepPct: 20 }, { price: 0.4, keepPct: 10 }] }
-function run(state, p, now, extra = {}) {
-  const r = stepDogeLive({ config: { ...cfg, ...(extra.config || {}) }, state, mode: 'dry', market: mkt(now, p, extra.market), nowMs: now, killSwitch: extra.kill, guard: extra.guard })
-  dryExecute(r.state, r.intents, { config: r.config, market: mkt(now, p), nowIso: new Date(now).toISOString() })
+// ------------------------------------------------------------------ bottom stop (dry)
+const REAL = { doge: 1032.30068854, usd: 0 }
+const bcfg = { bottomStop: 0.089, startValue: 19000, startDoge: 110000, startUsd: 9000 }
+const cfg = bcfg
+/** 4h bars at `close` but with a chosen highest close since the start */
+function step(state, p, now, { book = REAL, config = {}, market = {}, kill = false } = {}) {
+  const c = { ...bcfg, ...config }
+  const m = { ...mkt(now, p), ...market }
+  const r = stepDogeLive({ config: c, state, mode: 'dry', market: m, book, nowMs: now, killSwitch: kill })
+  r.rows = dryExecute(r.state, r.intents, { config: r.config, market: m, nowIso: new Date(now).toISOString(), virtualBook: !book })
   return r
 }
-ok('backtest path: 0.12 no lock, 0.15 lock 26,611 stop 0.1336, 0.1999 lock ~33.58k stop ~0.1686', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  let st = initLiveState(c0, T0)
-  let r = run(st, 0.12, T0)
-  assert.equal(r.snapshot.lockActive, false)
-  assert.equal(r.intents.length, 0)
-  near(r.snapshot.account, 23898, 1, 'account at 0.12')
-  r = run(r.state, 0.15, T0 + H4)
-  near(r.snapshot.lock, 26611, 1, 'lock at 0.15')
+ok('bottom stop $0.089 on the real Kraken book: would place stop-loss 0.089 for all 1,032.3 DOGE', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  const r = step(initLiveState(c0, T0), 0.0929, T0)
   assert.equal(r.intents.length, 1)
-  assert.equal(r.intents[0].action, 'place')
-  assert.equal(r.intents[0].ordertype, 'stop-loss')
-  near(r.intents[0].price, 0.1336, 0.0001, 'stop at 0.15')
-  near(r.intents[0].qty, 199149, 0.01, 'all DOGE')
-  // 0.15 → 0.1899: lock rises; zone not armed yet (<0.19)
-  const prevStop = r.state.orders.stop.price
-  r = run(r.state, 0.1899, T0 + 2 * H4)
-  assert.ok(!r.intents.some((i) => i.role === 'zone'))
-  const s = r.intents.find((i) => i.role === 'stop')
-  assert.equal(s.action, 'amend')
-  near(s.price, prevStop * 1.15, 1e-6, 'raise capped at +15%/step')
-  assert.ok(r.snapshot.flags.some((f) => f.code === 'step_capped'))
+  const it = r.intents[0]
+  assert.deepEqual([it.action, it.role, it.ordertype, it.side], ['place', 'stop', 'stop-loss', 'sell'])
+  assert.equal(it.price, 0.089)
+  assert.equal(volStr(it.qty), '1032.30068854')
+  assert.equal(r.rows[0].status, 'would_place')
+  assert.equal(r.snapshot.bookSource, 'kraken')
+  // idempotent: same inputs → nothing new
+  const r2 = step(r.state, 0.0929, T0 + 300000)
+  assert.equal(r2.intents.length, 0)
+  const lines = dogeTelegramLines({ logs: r.rows.map((x) => ({ mode: 'dry', ...x })), events: r.events, state: r.state, snapshot: r.snapshot, mode: 'dry' })
+  assert.ok(lines.some((l) => l === 'Would place stop-loss $0.0890 for 1,032 DOGE'), lines.join(' | '))
 })
-ok('HWM $39,830 with 199,149 DOGE + $0 → lock $33,581, stop $0.1686 (zones far away)', () => {
-  const c0 = normalizeLiveConfig({ ...cfg, zones: [{ price: 5, keepPct: 40 }] }, T0)
+ok('trail raises the stop (hc − 3×ATR), never lowers it; < 0.5% skipped; > 15% capped; raise at/above bid skipped', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0)
+  const atr = r.snapshot.signal.atr
+  // price runs to 0.13: trail = 0.13 − 3×ATR
+  r = step(r.state, 0.13, T0 + 2 * H4)
+  const trail = 0.13 - 3 * atr
+  near(r.snapshot.bottom.trail, trail, 1e-9, 'trail')
+  const want = Math.min(trail, 0.089 * 1.15)
+  near(r.state.stopPx, want, 1e-7, 'raised (capped at +15%)')
+  assert.ok(r.events.some((e) => e.type === 'raise' && e.from === 0.089))
+  const am = r.intents.find((i) => i.role === 'stop')
+  assert.equal(am.action, 'amend')
+  // price dips: stop unchanged
+  const before = r.state.stopPx
+  r = step(r.state, 0.11, T0 + 3 * H4, { market: { bars4h: bars4(T0 + 3 * H4, 0.11) } })
+  assert.equal(r.state.stopPx, before)
+  // trail anchor stays at the 0.13 high; keeps ratcheting toward it
+  for (let i = 4; i < 10; i++) r = step(r.state, 0.13, T0 + i * H4)
+  near(r.state.stopPx, Math.ceil(trail * 1e7) / 1e7, 1e-7, 'reaches the trail')
+  const n = r.state.stopHist.length
+  r = step(r.state, 0.13, T0 + 11 * H4)
+  assert.equal(r.state.stopHist.length, n, 'no churn once there')
+  // a trail above the bid (sharp drop) → raise skipped, stop kept
+  const st = structuredClone(r.state)
+  st.hc = 0.2
+  const r3 = step(st, 0.12, T0 + 12 * H4, { market: { bars4h: bars4(T0 + 12 * H4, 0.12) } })
+  assert.ok(r3.snapshot.flags.some((f) => f.code === 'raise_crossed'))
+  assert.equal(r3.state.stopPx, r.state.stopPx)
+})
+ok('lock price raises the stop for all DOGE: HWM $39,830, 199,149 DOGE + $0 → $0.1686 (via +15% steps)', () => {
+  const book = { doge: 199149, usd: 0 }
+  const c0 = normalizeLiveConfig({ ...bcfg, trailEnabled: false }, T0)
   let st = initLiveState(c0, T0)
   st.hwm = 39830
-  st.lockActive = true
-  st.lock = 33581
-  const r = stepDogeLive({ config: c0, state: st, mode: 'dry', market: mkt(T0, 0.2), nowMs: T0 })
-  near(r.snapshot.lock, 33581, 1, 'lock')
-  near(r.intents[0].price, 0.1686, 0.0001, 'stop price')
+  let r
+  for (let i = 0; i < 8; i++) {
+    r = step(st, 0.2, T0 + i * 600000, { book, config: { trailEnabled: false } })
+    st = r.state
+  }
+  near(r.state.lock, 33581, 1, 'lock')
+  near(r.snapshot.bottom.lockPx, 0.1686, 0.0001, 'lock price')
+  near(r.state.stopPx, 0.1686, 0.0001, 'stop reached the lock price')
+  near(r.snapshot.stop.qty, 199149, 1e-6, 'covers all DOGE')
 })
-
-ok('ratchet: price dips → stop unchanged; tiny raise skipped; never lowered for same qty', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  let r = run(initLiveState(c0, T0), 0.15, T0)
-  const placed = r.state.orders.stop.price
-  r = run(r.state, 0.14, T0 + H4)
+ok('DOGE sold → stop resizes, price never drops; his buy fills → stop grows at once', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0)
+  r = step(r.state, 0.0929, T0 + 300000, { book: { doge: 600, usd: 40 } })
+  const it = r.intents[0]
+  assert.deepEqual([it.action, it.qty, it.price], ['amend', 600, 0.089])
+  r = step(r.state, 0.0929, T0 + 600000, { book: { doge: 10600, usd: 0 } })
+  assert.deepEqual([r.intents[0].action, r.intents[0].qty, r.intents[0].price], ['amend', 10600, 0.089])
+})
+ok('stop at/above the market at placement: not placed, nothing sold, loud flag', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  const r = step(initLiveState(c0, T0), 0.0885, T0)
   assert.equal(r.intents.length, 0)
-  assert.equal(r.state.orders.stop.price, placed)
-  r = run(r.state, 0.1501, T0 + 2 * H4) // lock +0.7×19.9 → stop +0.00007 (<0.5%)
-  assert.equal(r.intents.length, 0, 'sub-0.5% raise skipped')
+  const f = r.snapshot.flags.find((x) => x.code === 'stop_crossed')
+  assert.ok(f && /NOT placed/.test(f.message))
 })
-
-ok('stop at/above the market is refused and flagged', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  const st = initLiveState(c0, T0)
-  st.hwm = 39830
-  st.lockActive = true
-  st.lock = 33581
-  // market crashed below the lock stop before any stop rested
-  const r = stepDogeLive({ config: c0, state: st, mode: 'dry', market: mkt(T0, 0.15), nowMs: T0 })
-  assert.equal(r.intents.length, 0)
-  assert.ok(r.snapshot.flags.some((f) => f.code === 'stop_crossed'))
-})
-
-ok('zone arms near its price: stop shrinks first, stop + limit ≤ DOGE; fills → stop re-priced ($0.1229-ish)', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  let r = run(initLiveState(c0, T0), 0.15, T0)
-  for (let i = 1; i <= 3; i++) r = run(r.state, 0.15 + i * 0.01, T0 + i * H4) // walk up so 15% caps don't bind
-  r = run(r.state, 0.195, T0 + 6 * H4)
-  const order = r.intents.map((i) => `${i.action}:${i.role}`)
-  assert.deepEqual(order.slice(0, 2), ['amend:stop', 'place:zone'], `order ${order}`)
-  const z = r.intents.find((i) => i.role === 'zone')
-  const s = r.intents.find((i) => i.role === 'stop')
-  near(z.qty, 199149 * 0.6, 1, 'zone sells down to 40% of max')
-  assert.ok(z.qty + s.qty <= 199149 + 1e-6, 'never oversell')
-  near(z.price, 0.2, 1e-9, 'limit at the zone')
-  // price reaches 0.20 → dry fill
-  r = run(r.state, 0.2, T0 + 7 * H4)
-  assert.ok(r.state.zonesDone[0])
-  near(r.state.virtual.doge, 79660, 1, 'kept 40%')
-  near(r.state.virtual.usd, 119490 * 0.2 * (1 - 0.0045), 1, 'cash after zone 1')
-  const r2 = run(r.state, 0.2, T0 + 8 * H4)
-  const st2 = r2.state.orders.stop
-  near(st2.qty, 79660, 1, 'stop now covers the remaining DOGE')
-  near(st2.price, (r2.state.lock - r2.state.virtual.usd) / 79660, 1e-6, 'lock formula on new cash')
-  assert.ok(st2.price < 0.14, `re-priced lower after the sale (${st2.price})`)
-})
-
-ok('lock stop hit (dry) → plan ENDS, zone cancelled, no re-entry', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  let r = run(initLiveState(c0, T0), 0.15, T0)
-  r = run(r.state, 0.13, T0 + H4) // below 0.1336
-  assert.equal(r.state.status, 'ended')
-  near(r.state.virtual.doge, 0, 1e-6, 'all sold')
-  const r2 = run(r.state, 0.2, T0 + 2 * H4)
+ok('dry stop fill → stopped, waits (no re-entry), alerts', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0)
+  r = step(r.state, 0.088, T0 + H4)
+  assert.equal(r.state.status, 'stopped')
+  assert.ok(r.events.some((e) => e.type === 'fill'))
+  const r2 = step(r.state, 0.095, T0 + 2 * H4)
   assert.equal(r2.intents.length, 0)
-  assert.ok(r2.snapshot.flags.some((f) => f.code === 'ended'))
 })
-
-ok('kill switch: cancels resting bot orders, places nothing', () => {
-  const c0 = normalizeLiveConfig(cfg, T0)
-  let r = run(initLiveState(c0, T0), 0.15, T0)
-  r = stepDogeLive({ config: c0, state: r.state, mode: 'dry', market: mkt(T0 + H4, 0.16), nowMs: T0 + H4, killSwitch: true })
+ok('Sell 30% now: stop shrinks first, then one IOC sell limit; stop + sell ≤ DOGE', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0, { book: { doge: 10000, usd: 0 } })
+  r.state.pendingSell = { pct: 30 }
+  r = step(r.state, 0.0929, T0 + 300000, { book: { doge: 10000, usd: 0 } })
+  assert.deepEqual(r.intents.map((i) => `${i.action}:${i.role}`), ['amend:stop', 'place:sell'])
+  const [s, sell] = r.intents
+  assert.equal(sell.qty, 3000)
+  assert.equal(sell.tif, 'IOC')
+  near(sell.price, 0.0929 * 0.995, 1e-7, 'bid − 0.5%')
+  assert.equal(s.qty, 7000)
+  assert.equal(s.price, 0.089, 'price unchanged')
+  assert.equal(r.state.pendingSell, null)
+})
+ok('kill switch: cancels the stop, places nothing', () => {
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0)
+  r = step(r.state, 0.0929, T0 + 300000, { kill: true })
   assert.deepEqual(r.intents.map((i) => i.action), ['cancel'])
 })
-
-ok('daily action cap (cancels still pass)', () => {
-  const c0 = normalizeLiveConfig({ ...cfg, dailyActionCap: 1 }, T0)
-  let r = run(initLiveState(c0, T0), 0.15, T0, { config: { dailyActionCap: 1 } })
-  for (let i = 1; i <= 3; i++) r = run(r.state, 0.15 + i * 0.01, T0 + i * 600000, { config: { dailyActionCap: 1 } })
-  assert.ok(r.snapshot.flags.some((f) => f.code === 'daily_cap'))
+ok('zones + pot are OFF by default (toggles kept)', () => {
+  const daily = dailyBars(T0, { base: 0.09, lastClose: 0.1 })
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  assert.equal(c0.zonesEnabled, false)
+  assert.equal(c0.potEnabled, false)
+  const r = step(initLiveState(c0, T0), 0.199, T0, { book: { doge: 100000, usd: 9000 }, market: { daily } })
+  assert.ok(!r.intents.some((i) => i.role === 'zone' || i.role === 'pot'))
+  const on = { ...bcfg, potEnabled: true, zonesEnabled: true }
+  const r2 = step(initLiveState(normalizeLiveConfig(on, T0), T0), 0.1, T0, { book: { doge: 100000, usd: 9000 }, config: on, market: { daily } })
+  assert.ok(r2.intents.some((i) => i.role === 'pot'))
+})
+ok('daily cap never blocks protective stop moves', () => {
+  const c0 = normalizeLiveConfig({ ...bcfg, dailyActionCap: 1 }, T0)
+  let r = step(initLiveState(c0, T0), 0.0929, T0, { config: { dailyActionCap: 1 } })
+  for (let i = 1; i < 6; i++) r = step(r.state, 0.0929, T0 + i * 60000, { config: { dailyActionCap: 1 }, book: { doge: 1000 + i * 100, usd: 0 } })
+  assert.equal(r.intents[0].action, 'amend')
+  assert.ok(!r.intents[0].skip)
 })
 
-ok('pot: breakout (close > 20d high, > SMA50, BTC > SMA50) → one IOC buy; pot stop on pot DOGE only, 4h-high − 3×ATR, ratchets', () => {
-  const c0 = normalizeLiveConfig({ startValue: 19000, startDoge: 110000, startUsd: 9000, potUsd: 9000 }, T0)
-  const daily = dailyBars(T0, { base: 0.09, lastClose: 0.1 })
-  const sig = dailySignal({ daily, btcDaily: btc(T0), config: c0, nowMs: T0 })
-  assert.ok(sig.breakout, 'fixture is a breakout')
-  let st = initLiveState(c0, T0)
-  let r = stepDogeLive({ config: c0, state: st, mode: 'dry', market: { ...mkt(T0, 0.1), daily }, nowMs: T0 })
-  const pot = r.intents.find((i) => i.role === 'pot')
-  assert.equal(pot.side, 'buy')
-  assert.equal(pot.tif, 'IOC')
-  assert.ok(pot.price > 0.1 && pot.price <= 0.1 * 1.005 + 1e-7, 'marketable limit, not a market order')
-  near(pot.qty * pot.price * 1.004, 9000, 1, 'spends the pot incl. fee')
-  dryExecute(r.state, r.intents, { config: r.config, market: mkt(T0, 0.1), nowIso: new Date(T0).toISOString() })
-  assert.equal(r.state.pot.status, 'held')
-  // same day: no second buy
-  const again = stepDogeLive({ config: c0, state: r.state, mode: 'dry', market: { ...mkt(T0 + 600000, 0.1), daily }, nowMs: T0 + 600000 })
-  assert.ok(!again.intents.some((i) => i.role === 'pot'))
-  // next 4h bar closes higher → pot stop = hc − 3×ATR on pot qty only
-  const later = T0 + 2 * H4
-  const r2 = stepDogeLive({ config: c0, state: again.state, mode: 'dry', market: { ...mkt(later, 0.105), daily }, nowMs: later })
-  const s = r2.intents.find((i) => i.role === 'stop')
-  near(s.qty, r.state.pot.qty, 1e-6, 'pot DOGE only')
-  near(s.price, 0.105 - 3 * sig.atr, 1e-6, 'hc − 3×ATR')
-  assert.equal(s.kind, 'pot')
+// ------------------------------------------------------------------ his buy orders: coaching
+function coachBars(now, closes, vols) {
+  const end = Math.floor(now / H4) * H4
+  return closes.map((c, i) => ({ t: end - (closes.length - i) * H4, open: c * 1.002, high: c * 1.006, low: c * 0.994, close: c, volume: vols?.[i] ?? 1000 }))
+}
+ok('buy coach: approach / missed (too low) / falling in on heavy volume (too high) / under entry', () => {
+  const closes = Array.from({ length: 40 }, (_, i) => 0.095 - 0.0001 * Math.sin(i))
+  let m = { price: 0.0912, bars4h: coachBars(T0, closes) }
+  let c = coachBuyOrders({ orders: [{ txid: 'O1', price: 0.09, vol: 5000, volExec: 0, firstSeen: new Date(T0).toISOString() }], market: m, nowMs: T0 })
+  assert.ok(c.messages.some((x) => x.condition === 'approach' && /\+1\.3%/.test(x.text) && /vol .*avg/.test(x.text)), JSON.stringify(c.messages))
+  // came within 0.5% then ran +4% without filling
+  c = coachBuyOrders({ orders: [{ txid: 'O1', price: 0.09, vol: 5000, volExec: 0, minDistPct: 0.5, firstSeen: new Date(T0 - 10 * H4).toISOString() }], market: { price: 0.0936, bars4h: coachBars(T0, closes) }, nowMs: T0 })
+  assert.ok(c.messages.some((x) => x.condition === 'too_low'))
+  // heavy red volume into the order, swing support well below
+  const cl2 = [...Array.from({ length: 30 }, (_, i) => 0.09 + 0.004 * Math.sin(i / 2)), 0.087, 0.086, 0.088, 0.093, 0.095, 0.096, 0.094, 0.093, 0.092, 0.0915]
+  const vols = cl2.map((_, i) => (i === cl2.length - 1 ? 4000 : 1000))
+  const bars = coachBars(T0, cl2, vols)
+  bars[bars.length - 1] = { ...bars[bars.length - 1], open: 0.093, close: 0.0915 }
+  c = coachBuyOrders({ orders: [{ txid: 'O2', price: 0.0905, vol: 5000, volExec: 0, firstSeen: new Date(T0).toISOString() }], market: { price: 0.0915, bars4h: bars }, nowMs: T0 })
+  assert.ok(c.messages.some((x) => x.condition === 'too_high' && /Consider lowering/.test(x.text)), JSON.stringify(c.messages.map((x) => x.condition)))
+  c = coachBuyOrders({ orders: [], fills: [{ txid: 'F1', qty: 5000, price: 0.093, at: new Date(T0).toISOString() }], market: m, stopPx: 0.089, nowMs: T0 })
+  assert.ok(c.messages.some((x) => x.condition === 'under_entry' && /Bottom stop \$0\.0890 is 2\.5% below/.test(x.text)), JSON.stringify(c.messages))
 })
 
-ok('pot buy blocked while paused (stops still allowed)', () => {
-  const c0 = normalizeLiveConfig({ startValue: 19000, startDoge: 110000, startUsd: 9000, potUsd: 9000 }, T0)
-  const daily = dailyBars(T0, { base: 0.09, lastClose: 0.1 })
-  const r = stepDogeLive({ config: c0, state: initLiveState(c0, T0), mode: 'dry', market: { ...mkt(T0, 0.1), daily }, nowMs: T0, guard: { paused: true } })
-  assert.ok(!r.intents.some((i) => i.role === 'pot'))
-  assert.ok(r.snapshot.flags.some((f) => f.code === 'pot_paused'))
+// ------------------------------------------------------------------ missing-stop reminders
+ok('missing-stop reminders: Kraken assets, coverage, $50 floor, TSLA off by default, session windows', () => {
+  assert.equal(krakenAlt('XXDG'), 'XDG')
+  assert.equal(krakenAlt('XXBT'), 'XBT')
+  assert.equal(krakenAlt('SOL'), 'SOL')
+  assert.equal(krakenAlt('DOT.S'), null)
+  const u = cryptoUncovered({
+    balances: { XXDG: '1032.3', XXBT: '0.0001', ZUSD: '20', SOL: '2' },
+    prices: { XDG: 0.093, XBT: 84000, SOL: 150 },
+    openOrders: { A: { descr: { pair: 'SOLUSD', type: 'sell', ordertype: 'stop-loss' }, vol: '2', vol_exec: '0' } },
+  })
+  assert.deepEqual(u.map((x) => x.name), ['DOGE'])
+  near(u[0].value, 96, 0.1, 'DOGE value')
+  assert.equal(remindFor(new Map(), 'TSLA'), false)
+  assert.equal(remindFor(new Map([['TSLA', true]]), 'TSLA'), true)
+  assert.equal(remindFor(new Map(), 'SPY'), true)
+  assert.equal(stockReminderWindow(Date.UTC(2026, 9, 5, 14, 0)), 'session') // Mon 10:00 ET
+  assert.equal(stockReminderWindow(Date.UTC(2026, 9, 5, 13, 16)), 'preopen') // 9:16 ET
+  assert.equal(stockReminderWindow(Date.UTC(2026, 9, 5, 21, 0)), null) // 17:00 ET
+  assert.equal(stockReminderWindow(Date.UTC(2026, 9, 3, 15, 0)), null) // Saturday
 })
 
 ok('trade creds: owner + env only; read-only key never used', () => {
@@ -313,4 +351,23 @@ await okA('live executor: amend keeps txid; kill switch only lets cancels throug
   assert.equal(k.calls.filter((c) => c.ep === 'AddOrder').at(-1).body.timeinforce, 'IOC')
 })
 
-console.log(`check:doge-live OK (${n} checks; backtest: HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)
+await okA('live executor: Sell now = IOC sell limit with fciq, fill recorded; refused under kill switch', async () => {
+  const k = mockKraken()
+  const trader = createKrakenTrader({ creds: { key: 'K', secret: Buffer.from('s').toString('base64') }, fetchImpl: k.fetchImpl })
+  const c0 = normalizeLiveConfig(bcfg, T0)
+  const state = initLiveState(c0, T0)
+  state.ordersMode = 'live'
+  state.pendingSell = { pct: 30 }
+  const logs = []
+  const it = { action: 'place', role: 'sell', side: 'sell', ordertype: 'limit', tif: 'IOC', price: 0.0924, qty: 300 }
+  await executeLive({ trader, state, intents: [it], market: { price: 0.0929, bid: 0.0929 }, book: { doge: 1000, usd: 0 }, config: c0, logs, nowIso: 'x' })
+  const add = k.calls.find((c) => c.ep === 'AddOrder').body
+  assert.deepEqual([add.type, add.ordertype, add.timeinforce, add.oflags, add.price], ['sell', 'limit', 'IOC', 'fciq', '0.0924000'])
+  assert.ok(logs.some((l) => l.status === 'filled'))
+  assert.equal(state.pendingSell, null)
+  const logs2 = []
+  await executeLive({ trader, state, intents: [it], market: { price: 0.0929, bid: 0.0929 }, book: { doge: 1000, usd: 0 }, killSwitch: true, config: c0, logs: logs2, nowIso: 'x' })
+  assert.equal(logs2[0].status, 'refused')
+})
+
+console.log(`check:doge-live OK (${n} checks; bottom stop $0.089 × 1,032.3 DOGE; HWM 39,830→lock 33,581, 199,149 DOGE/$0 → stop $0.1686)`)

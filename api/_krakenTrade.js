@@ -99,6 +99,9 @@ export function createKrakenTrader({ creds, fetchImpl = fetch, log = () => {}, r
     /** Zone sale: resting GTC sell limit. */
     addSellLimit: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'sell', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'GTC', oflags: 'fciq', cl_ord_id: clOrdId }),
+    /** "Sell N% now": marketable IOC sell limit (bounded slippage, never a market order). */
+    addSellIoc: ({ qty, price, clOrdId }) =>
+      call('AddOrder', { pair: rules.pair, type: 'sell', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'IOC', oflags: 'fciq', cl_ord_id: clOrdId }),
     /** Pot buy: marketable IOC buy limit (never a market order). */
     addBuyIoc: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'buy', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'IOC', cl_ord_id: clOrdId }),

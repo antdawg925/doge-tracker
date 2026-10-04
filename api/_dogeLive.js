@@ -19,10 +19,11 @@ import { liveOrderCheck } from '../shared/guard.js'
 import { bookFromBalance, createKrakenTrader, krakenTradeCredsFor, newClOrdId, splitOpenOrders, tradeKeyConfigured } from './_krakenTrade.js'
 import { fetchKrakenAccount, krakenCredsFor } from './_kraken.js'
 import { sendTelegram } from './_telegram.js'
+import { coachBuyOrders } from '../shared/buyCoach.js'
 
 const BASE = 'https://api.kraken.com'
 const LEASE_MS = 120000
-const ALERT_CODES = new Set(['stop_crossed', 'dry_fill', 'ended', 'kill_switch', 'step_capped', 'daily_cap', 'below_min', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold'])
+const ALERT_CODES = new Set(['stop_crossed', 'raise_crossed', 'dry_fill', 'stopped', 'kill_switch', 'step_capped', 'daily_cap', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold', 'no_stop_level', 'sell_below_min', 'sell_killed', 'no_trade_key'])
 const clip = (s, n = 400) => (s == null ? null : String(s).slice(0, n))
 
 async function pub(fetchImpl, path) {
@@ -149,42 +150,85 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   }
 
   // ---------------- book + reconcile
+  // Real balances whenever a key can read them (live always; dry too, so the dry-run log shows
+  // the exact orders for what he really holds). Reads only: BalanceEx / OpenOrders / QueryOrders.
   let book = null
   let othersHold = 0
-  if (mode === 'live') {
+  let open = null
+  let kraken = null
+  const userBuyFills = []
+  if (trader) {
     const bal = bookFromBalance(await trader.balanceEx())
-    const open = splitOpenOrders(await trader.openOrders())
-    for (const role of ['stop', 'zone']) {
-      const o = state.ordersMode === 'live' ? state.orders[role] : null
-      if (!o?.id) continue
-      if (open.mine.some((x) => x.txid === o.id)) continue
-      const r = (await trader.queryOrders([o.id]))?.[o.id]
-      const exec = Number(r?.vol_exec || 0)
-      const full = r?.status === 'closed'
-      if (exec > 0) {
-        const fill = { role, kind: o.kind, side: 'sell', qty: exec, price: Number(r.price) || o.price, full }
-        applyFill(state, fill, { config, dry: false, nowIso })
-        logs.push({ mode, role, action: 'fill', status: full ? 'filled' : 'partial', side: 'sell', ordertype: o.ordertype, price: fill.price, qty: exec, txid: o.id, cl_ord_id: o.clOrdId, reason: o.kind ? `${o.kind} stop` : 'zone sale' })
+    open = splitOpenOrders(await trader.openOrders())
+    if (mode === 'live') {
+      for (const role of ['stop', 'zone']) {
+        const o = state.ordersMode === 'live' ? state.orders[role] : null
+        if (!o?.id) continue
+        if (open.mine.some((x) => x.txid === o.id)) continue
+        const r = (await trader.queryOrders([o.id]))?.[o.id]
+        const exec = Number(r?.vol_exec || 0)
+        const full = r?.status === 'closed'
+        if (exec > 0) {
+          const fill = { role, kind: o.kind, side: 'sell', qty: exec, price: Number(r.price) || o.price, full }
+          applyFill(state, fill, { config, dry: false, nowIso })
+          logs.push({ mode, role, action: 'fill', status: full ? 'filled' : 'partial', side: 'sell', ordertype: o.ordertype, price: fill.price, qty: exec, txid: o.id, cl_ord_id: o.clOrdId, reason: role === 'stop' ? 'bottom stop' : 'zone sale' })
+        }
+        if (!exec) extraFlags.push({ code: 'order_gone', message: `Bot ${role} order ${o.id} is no longer open at Kraken (${r?.status || 'unknown'}${r?.reason ? `: ${r.reason}` : ''}) and did not fill: re-placing it now` })
+        if (state.orders[role]?.id === o.id) state.orders[role] = null
       }
-      if (!exec) extraFlags.push({ code: 'order_gone', message: `Bot ${role} order ${o.id} is no longer open at Kraken (${r?.status || 'unknown'}) and did not fill: re-placing` })
-      if (state.orders[role]?.id === o.id) state.orders[role] = null
-    }
-    // orphans: our prefix, not tracked → cancel (e.g. after "Start new plan" or a crash)
-    const tracked = new Set([state.orders.stop?.id, state.orders.zone?.id].filter(Boolean))
-    for (const o of open.mine) {
-      if (tracked.has(o.txid)) continue
-      try {
-        await trader.cancel({ txid: o.txid })
-        logs.push({ mode, role: 'orphan', action: 'cancel', status: 'cancelled', side: o.type, ordertype: o.ordertype, price: o.price, qty: o.vol - o.volExec, txid: o.txid, cl_ord_id: o.clOrdId, reason: 'untracked bot order' })
-      } catch (e) {
-        logs.push({ mode, role: 'orphan', action: 'cancel', status: 'error', txid: o.txid, reason: clip(e.message) })
+      // orphans: our prefix, not tracked → cancel (e.g. after "Start new plan" or a crash)
+      const trackedNow = new Set([state.orders.stop?.id, state.orders.zone?.id].filter(Boolean))
+      for (const o of open.mine) {
+        if (trackedNow.has(o.txid)) continue
+        try {
+          await trader.cancel({ txid: o.txid })
+          logs.push({ mode, role: 'orphan', action: 'cancel', status: 'cancelled', side: o.type, ordertype: o.ordertype, price: o.price, qty: o.vol - o.volExec, txid: o.txid, cl_ord_id: o.clOrdId, reason: 'untracked bot order' })
+        } catch (e) {
+          logs.push({ mode, role: 'orphan', action: 'cancel', status: 'error', txid: o.txid, reason: clip(e.message) })
+        }
       }
     }
-    // DOGE the bot may use = balance − holds of the user's OWN (non-bot) open orders
-    const mineOpenQty = open.mine.filter((o) => tracked.has(o.txid) && o.type === 'sell').reduce((a, o) => a + (o.vol - o.volExec), 0)
-    othersHold = Math.max(0, bal.dogeHold - mineOpenQty)
-    if (open.others.some((o) => o.type === 'sell')) extraFlags.push({ code: 'others_hold', message: `You have your own DOGE sell order(s) at Kraken holding ${fmtQty(othersHold)} DOGE; the bot protects the rest` })
+    // DOGE the bot may protect = balance − DOGE held by his OWN (non-bot) open sell orders
+    const othersSell = open.others.filter((o) => o.type === 'sell').reduce((a, o) => a + (o.vol - o.volExec), 0)
+    othersHold = othersSell
+    if (othersSell > 0) extraFlags.push({ code: 'others_hold', message: `You have your own DOGE sell order(s) at Kraken for ${fmtQty(othersSell)} DOGE; the bot's stop covers the rest` })
     book = { doge: Math.max(0, bal.doge - othersHold), usd: bal.usd }
+    kraken = { doge: bal.doge, usd: bal.usd, openOrders: open.mine.length + open.others.length }
+
+    // his own buy orders: track + detect fills (the bot never touches them)
+    const prevBuys = state.userBuys || {}
+    const nextBuys = {}
+    for (const o of open.others.filter((x) => x.type === 'buy')) {
+      const p = prevBuys[o.txid]
+      nextBuys[o.txid] = { price: o.price, vol: o.vol, volExec: o.volExec, ordertype: o.ordertype, firstSeen: p?.firstSeen || nowIso, minDistPct: p?.minDistPct ?? null }
+      if (p && o.volExec > (p.volExec || 0) + 1e-9) userBuyFills.push({ txid: o.txid, qty: o.volExec - (p.volExec || 0), price: o.price, partial: true })
+    }
+    const gone = Object.keys(prevBuys).filter((id) => !nextBuys[id])
+    if (gone.length) {
+      const q = await trader.queryOrders(gone).catch(() => null)
+      for (const id of gone) {
+        const r = q?.[id]
+        const exec = Number(r?.vol_exec || 0) - (prevBuys[id].volExec || 0)
+        if (exec > 1e-9) userBuyFills.push({ txid: id, qty: exec, price: Number(r.price) || prevBuys[id].price, partial: false })
+      }
+    }
+    state.userBuys = nextBuys
+    if (userBuyFills.length) {
+      const all = [...(state.userFills || []), ...userBuyFills.map((f) => ({ ...f, at: nowIso }))]
+      state.userFills = all.filter((f) => Date.parse(f.at) > nowMs - 3 * 86400000).slice(-10)
+      for (const f of userBuyFills) logs.push({ mode, role: 'user', action: 'fill', status: 'user_buy_filled', side: 'buy', ordertype: 'limit', price: f.price, qty: f.qty, txid: f.txid, reason: 'Your own Kraken buy order filled' })
+    }
+  } else if (mode === 'dry') {
+    const ro = krakenCredsFor(profile)
+    if (ro) {
+      const a = await fetchKrakenAccount(ro).catch(() => null)
+      if (a?.balances) {
+        const u = Number(a.balances.ZUSD || 0) + Number(a.balances.USD || 0)
+        const d = dogeFromKrakenBalance(a.balances).total
+        book = { doge: d, usd: Number.isFinite(u) ? u : 0 }
+        kraken = { doge: d, usd: Number.isFinite(u) ? u : null, openOrders: a.dogeOpenOrders }
+      }
+    }
   }
 
   // ---------------- engine
@@ -194,7 +238,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
 
   // ---------------- execute
   if (mode === 'dry') {
-    for (const r of dryExecute(state, step.intents, { config, market, nowIso })) logs.push({ mode, ...pickLog(r) })
+    for (const r of dryExecute(state, step.intents, { config, market, nowIso, virtualBook: !book })) logs.push({ mode, ...pickLog(r) })
   } else {
     await executeLive({ trader, state, intents: step.intents, market, book: step.snapshot.book, killSwitch, config, logs, nowIso })
   }
@@ -204,23 +248,18 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   const fresh = flags.filter((f) => !prevCodes.has(f.code))
   for (const f of fresh) logs.push({ mode, role: 'plan', action: 'flag', status: f.code, reason: f.message })
   const alerts = fresh.filter((f) => ALERT_CODES.has(f.code))
-  const fills = logs.filter((l) => l.action === 'fill')
-  const placedLive = logs.filter((l) => l.mode === 'live' && ['placed', 'amended', 'cancelled'].includes(l.status))
-  // Dry-run "would place / amend / cancel" notices also go to alert_log + Telegram.
-  const wouldDry = logs.filter((l) => l.mode === 'dry' && /^would_/.test(String(l.status || '')))
 
-  // real (read-only) Kraken balances for display while in dry-run (owner key)
-  let kraken = null
-  if (mode === 'dry') {
-    const ro = krakenCredsFor(profile)
-    if (ro) {
-      const a = await fetchKrakenAccount(ro).catch(() => null)
-      if (a?.balances) {
-        const u = Number(a.balances.ZUSD || 0) + Number(a.balances.USD || 0)
-        kraken = { doge: dogeFromKrakenBalance(a.balances).total, usd: Number.isFinite(u) ? u : null, openOrders: a.dogeOpenOrders }
-      }
-    }
-  }
+  // ---------------- his buy orders: coaching (suggestions only)
+  const coach = coachBuyOrders({
+    orders: Object.entries(state.userBuys || {}).map(([txid, o]) => ({ txid, ...o })),
+    fills: state.userFills || [],
+    market,
+    stopPx: state.stopPx,
+    nowMs,
+  })
+  for (const [id, m] of Object.entries(coach.minDist)) if (state.userBuys?.[id]) state.userBuys[id].minDistPct = m
+  const coachMsgs = []
+  for (const m of coach.messages) if (await cooldownOk(sb, userId, `buycoach:${m.key}`, 4 * 3600000, nowMs)) coachMsgs.push(m.text)
 
   const snapshot = {
     ...step.snapshot,
@@ -235,6 +274,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     zones: config.zones.map((z, i) => ({ ...z, done: Boolean(state.zonesDone[i]) })),
     rules: { orderMin: rules.orderMin, costMin: rules.costMin, priceDecimals: rules.priceDecimals, volumeDecimals: rules.volumeDecimals },
     kraken,
+    userBuys: Object.entries(state.userBuys || {}).map(([txid, o]) => ({ txid, price: o.price, qty: Math.max(0, o.vol - (o.volExec || 0)), ordertype: o.ordertype, distPct: o.price ? (market.price / o.price - 1) * 100 : null, since: o.firstSeen })),
     requests: reqs.length,
   }
 
@@ -247,10 +287,15 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     await sb.from('doge_live_log').insert({ user_id: userId, plan_id: state.planId, at: nowIso, mode, role: 'plan', action: 'request', status: 'error', reason: clip(reqs.find((r) => !r.ok)?.error), details: { requests: reqs.slice(0, 30) } })
   }
 
-  if (alerts.length || fills.length || placedLive.length || wouldDry.length) {
-    const lines = [...wouldDry.map((l) => `Would ${String(l.status).slice(6)} ${l.role} ${l.side || ''} ${l.ordertype || ''} ${fmtQty(l.qty)} @ ${fmtPx(l.price)}${l.reason ? ` (${l.reason})` : ''}`.replace(/ +/g, ' ')), ...fills.map((f) => `${f.mode === 'dry' ? 'Dry-run ' : ''}${f.role} fill: ${f.side} ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}`), ...placedLive.map((l) => `LIVE ${l.status} ${l.role} ${l.ordertype || ''} ${fmtQty(l.qty)} @ ${fmtPx(l.price)}`), ...alerts.map((a) => a.message)]
-    await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title: `DOGE plan (${mode === 'live' ? 'LIVE' : 'dry-run'})`, message: clip(lines.join(' · '), 1000) })
-    if (profile.telegram_chat_id) await sendTelegram(profile.telegram_chat_id, `DOGE plan (${mode === 'live' ? 'LIVE' : 'dry-run'})\n${lines.join('\n')}`).catch(() => null)
+  const tg = dogeTelegramLines({ logs, events: step.events, alerts, userBuyFills, state, snapshot, mode })
+  if (tg.length) {
+    const title = `DOGE stop (${mode === 'live' ? 'LIVE' : 'dry-run'})`
+    await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title, message: clip(tg.join(' · '), 1000) })
+    if (profile.telegram_chat_id) await sendTelegram(profile.telegram_chat_id, `${title}\n${tg.join('\n')}`).catch(() => null)
+  }
+  if (coachMsgs.length) {
+    await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_buy_coach', price: market.price, title: 'Your DOGE buy orders', message: clip(coachMsgs.join(' · '), 1000) })
+    if (profile.telegram_chat_id) for (const m of coachMsgs) await sendTelegram(profile.telegram_chat_id, m).catch(() => null)
   }
 
   const up = await sb
@@ -259,6 +304,49 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     .eq('user_id', userId)
   if (up.error) throw new Error(`save: ${up.error.message}`)
   return { userId, mode, intents: step.intents.length, logs: logs.length, status: state.status }
+}
+
+/** Telegram lines for one run: stop raises, placements, resizes, fills, cancels, errors. */
+export function dogeTelegramLines({ logs, events = [], alerts = [], userBuyFills = [], state, snapshot, mode }) {
+  const dry = mode !== 'live'
+  const out = []
+  for (const e of events) {
+    if (e.type === 'raise') out.push(e.from == null ? `Stop set at ${fmtPx(e.to)}: ${e.reason}` : `Stop raised ${fmtPx(e.from)} → ${fmtPx(e.to)}: ${e.reason}`)
+  }
+  for (const l of logs) {
+    const st = String(l.status || '')
+    const name = l.role === 'stop' ? 'stop-loss' : l.role === 'sell' ? 'sell (IOC limit)' : l.role === 'zone' ? 'zone sell limit' : l.role === 'pot' ? 'pot buy (IOC)' : l.role
+    if (l.role === 'plan' || l.role === 'user') continue
+    const amt = `${fmtQty(l.qty)} DOGE`
+    if (st === 'would_place' || st === 'placed') out.push(`${dry ? 'Would place' : '✅ Placed'} ${name} ${fmtPx(l.price)} for ${amt}`)
+    else if (st === 'would_amend' || st === 'amended') {
+      const prev = l.details?.prev
+      const pxMoved = prev && Math.abs(prev.price - l.price) > 1e-12
+      const qtyMoved = prev && Math.abs(prev.qty - l.qty) > 1e-6
+      if (l.role === 'stop' && pxMoved && !qtyMoved && events.some((e) => e.type === 'raise' && Math.abs(e.to - l.price) < 1e-12)) {
+        out.push(`${dry ? '(dry-run: would move the Kraken stop order)' : '✅ Kraken stop order moved'}`)
+        continue
+      }
+      out.push(`${dry ? 'Would update' : 'Updated'} ${name}: ${pxMoved ? `${fmtPx(prev.price)} → ` : ''}${fmtPx(l.price)} for ${qtyMoved ? `${fmtQty(prev.qty)} → ` : ''}${amt}`)
+    } else if (st === 'would_cancel' || st === 'cancelled') out.push(`${dry ? 'Would cancel' : 'Cancelled'} ${name} ${fmtPx(l.price)} (${l.reason || ''})`)
+    else if (st === 'filled' || st === 'partial') out.push(l.role === 'stop' ? `🛑 Bottom stop FILLED: sold ${amt} @ ~${fmtPx(l.price)}. Waiting: no re-entry.` : `${l.role} ${st}: ${l.side} ${amt} @ ${fmtPx(l.price)}`)
+    else if (st === 'dry_fill') out.push(`Dry-run: ${l.role} would fill ${amt} @ ${fmtPx(l.price)}`)
+    else if (['error', 'refused', 'amend_failed'].includes(st)) out.push(`❗ ${name} ${st}: ${l.reason || ''}`)
+  }
+  for (const f of userBuyFills) {
+    const sp = snapshot?.stop
+    out.push(`Your buy filled ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}. Stop now covers ${fmtQty(sp?.qty ?? 0)} DOGE at ${fmtPx(sp?.price ?? state.stopPx)}.`)
+  }
+  for (const a of alerts) out.push(a.message)
+  return out
+}
+
+/** Per-user notification cooldown (notify_cooldowns): true = send now (and stamps it). */
+export async function cooldownOk(sb, userId, key, ms, nowMs = Date.now()) {
+  const { data } = await sb.from('notify_cooldowns').select('sent_at').eq('user_id', userId).eq('key', key).maybeSingle()
+  if (data?.sent_at && Date.parse(data.sent_at) > nowMs - ms) return false
+  const r = await sb.from('notify_cooldowns').upsert({ user_id: userId, key, sent_at: new Date(nowMs).toISOString() })
+  return !r.error
 }
 
 function pickLog(r) {
@@ -277,11 +365,11 @@ export async function executeLive({ trader, state, intents, market, book, killSw
     }
     const kind = it.action === 'cancel' ? 'cancel_stop' : it.role === 'pot' ? 'entry' : it.action === 'place' ? 'place_stop' : 'tighten_stop'
     const gate = liveOrderCheck(null, { kind, killSwitch: killSwitch && it.action !== 'cancel' })
-    if (!gate.allowed && it.role !== 'pot') {
+    if (!gate.allowed && it.role !== 'pot' && it.role !== 'sell') {
       logs.push({ ...base, status: 'refused', reason: gate.reason })
       continue
     }
-    if (it.role === 'pot' && killSwitch) {
+    if ((it.role === 'pot' || it.role === 'sell') && killSwitch) {
       logs.push({ ...base, status: 'refused', reason: 'kill switch' })
       continue
     }
@@ -326,15 +414,15 @@ export async function executeLive({ trader, state, intents, market, book, killSw
         }
       } else {
         const r = await place(trader, it, nowIso)
-        if (it.role === 'pot') {
+        if (it.role === 'pot' || it.role === 'sell') {
           const q = (await trader.queryOrders([r.id]).catch(() => null))?.[r.id]
           const exec = Number(q?.vol_exec || 0)
           logs.push({ ...base, status: 'placed', txid: r.id, cl_ord_id: r.clOrdId, reason: it.reason })
           commitIntent(state, it, r)
           if (exec > 0) {
-            applyFill(state, { role: 'pot', side: 'buy', qty: exec, price: Number(q.price) || it.price }, { config, dry: false, nowIso })
+            applyFill(state, { role: it.role, side: it.side, qty: exec, price: Number(q.price) || it.price }, { config, dry: false, nowIso })
             logs.push({ ...base, action: 'fill', status: 'filled', qty: exec, price: Number(q.price) || it.price, txid: r.id })
-          } else logs.push({ ...base, action: 'fill', status: 'unfilled', txid: r.id, reason: 'IOC pot buy did not fill; waits for the next breakout day' })
+          } else logs.push({ ...base, action: 'fill', status: 'unfilled', txid: r.id, reason: it.role === 'pot' ? 'IOC pot buy did not fill; waits for the next breakout day' : 'IOC sell did not fill (price moved); press Sell again or sell at Kraken' })
         } else {
           commitIntent(state, it, r)
           logs.push({ ...base, status: 'placed', txid: r.id, cl_ord_id: r.clOrdId, reason: it.reason })
@@ -349,7 +437,14 @@ export async function executeLive({ trader, state, intents, market, book, killSw
 /** AddOrder with an idempotent cl_ord_id; a timeout is resolved by looking the id up. */
 async function place(trader, it, nowIso) {
   const clOrdId = newClOrdId(it.role)
-  const send = () => (it.role === 'stop' ? trader.addStop({ qty: it.qty, price: it.price, clOrdId }) : it.role === 'zone' ? trader.addSellLimit({ qty: it.qty, price: it.price, clOrdId }) : trader.addBuyIoc({ qty: it.qty, price: it.price, clOrdId }))
+  const send = () =>
+    it.role === 'stop'
+      ? trader.addStop({ qty: it.qty, price: it.price, clOrdId })
+      : it.role === 'zone'
+        ? trader.addSellLimit({ qty: it.qty, price: it.price, clOrdId })
+        : it.role === 'sell'
+          ? trader.addSellIoc({ qty: it.qty, price: it.price, clOrdId })
+          : trader.addBuyIoc({ qty: it.qty, price: it.price, clOrdId })
   try {
     const r = await send()
     return { id: r?.txid?.[0] ?? null, clOrdId, at: nowIso }

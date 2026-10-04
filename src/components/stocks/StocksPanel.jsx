@@ -47,13 +47,14 @@ const TONE = { stop_raised: 'pos', stop_lowered: 'pos', stop_set: 'pos', stop_hi
 const EMPTY = { symbol: '', side: 'long', shares: '', entry_price: '', entry_date: '', risk_usd: '100', notes: '' };
 
 async function loadStocks(userId) {
-  const [pos, stops, alerts, orders, guard, live] = await Promise.all([
+  const [pos, stops, alerts, orders, guard, live, prefs] = await Promise.all([
     supabase.from('stock_positions').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
     supabase.from('stock_stops').select('position_id, stop, initial_stop, data, updated_at').eq('user_id', userId),
     supabase.from('stock_alert_log').select('id, symbol, fired_at, kind, title, message').eq('user_id', userId).order('fired_at', { ascending: false }).limit(20),
     supabase.from('stock_paper_orders').select('*').eq('user_id', userId),
     supabase.from('stock_guard').select('*').eq('user_id', userId).eq('book', 'stocks').maybeSingle(),
     supabase.from('stock_live_orders').select('*').eq('user_id', userId),
+    supabase.from('stop_reminder_prefs').select('symbol, remind').eq('user_id', userId),
   ]);
   const err = [pos, stops, alerts, orders, guard, live].find((r) => r.error)?.error;
   if (err) throw new Error(err.message);
@@ -65,8 +66,13 @@ async function loadStocks(userId) {
     tally: paperTally(orders.data),
     guard: guard.data,
     live: new Map((live.data || []).map((o) => [o.position_id, o])),
+    prefs: new Map((prefs.data || []).map((r) => [r.symbol, r.remind])),
   };
 }
+
+/** Missing-stop reminders: TSLA (long-term hold) is off by default; everything else on. */
+const REMIND_OFF_BY_DEFAULT = new Set(['TSLA']);
+const remindOn = (prefs, symbol) => (prefs?.has(symbol) ? Boolean(prefs.get(symbol)) : !REMIND_OFF_BY_DEFAULT.has(symbol));
 
 function Flags({ f }) {
   if (!f) return <span className="muted">—</span>;
@@ -301,7 +307,7 @@ function PaperCell({ o }) {
   return <span className="small muted">Closed</span>;
 }
 
-function Row({ p, s, o, lo, conn, liveActions, onEdit }) {
+function Row({ p, s, o, lo, conn, liveActions, onEdit, remind, onRemind }) {
   const [open, setOpen] = useState(false);
   const d = s?.data;
   const isLong = p.side === 'long';
@@ -324,7 +330,16 @@ function Row({ p, s, o, lo, conn, liveActions, onEdit }) {
           <button type="button" className="stk-sym" onClick={() => setOpen((o) => !o)} aria-expanded={open} title="Decision log">
             {p.symbol}
           </button>{' '}
-          <span className={`stk-side stk-side--${p.side}`}>{isLong ? 'L' : 'S'}</span>
+          <span className={`stk-side stk-side--${p.side}`}>{isLong ? 'L' : 'S'}</span>{' '}
+          <button
+            type="button"
+            className={`stk-remind${remind ? ' is-on' : ''}`}
+            onClick={() => onRemind?.(p.symbol, !remind)}
+            title={remind ? 'Telegram reminds you if there is no stop order on these shares (click to turn off)' : 'No missing-stop reminders for this symbol (click to remind me)'}
+            aria-pressed={remind}
+          >
+            {remind ? '🔔' : '🔕'}
+          </button>
         </td>
         <td className="num mono">{shares.toLocaleString('en-US')}</td>
         <td className="num mono">{px(entry)}</td>
@@ -633,7 +648,22 @@ export default function StocksPanel() {
             </thead>
             <tbody>
               {active.map((p) => (
-                <Row key={p.id} p={p} s={data.stops.get(p.id)} o={data.orders.get(p.id)} lo={data.live.get(p.id)} conn={schwab.status?.connection} liveActions={liveActions} onEdit={openEdit} />
+                <Row
+                  key={p.id}
+                  p={p}
+                  s={data.stops.get(p.id)}
+                  o={data.orders.get(p.id)}
+                  lo={data.live.get(p.id)}
+                  conn={schwab.status?.connection}
+                  liveActions={liveActions}
+                  onEdit={openEdit}
+                  remind={remindOn(data.prefs, p.symbol)}
+                  onRemind={async (symbol, on) => {
+                    const r = await supabase.from('stop_reminder_prefs').upsert({ user_id: user.id, symbol, remind: on, updated_at: new Date().toISOString() });
+                    if (r.error) setError(r.error.message);
+                    await load();
+                  }}
+                />
               ))}
             </tbody>
           </table>

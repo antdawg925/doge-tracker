@@ -4771,3 +4771,18 @@ p {
 .dl-zone { font-size: 0.78rem; color: var(--muted); display: inline-flex; align-items: center; gap: 0.3rem; }
 .dl-zone input { width: 4.6rem; }
 @media (max-width: 640px) { .dl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dl-hero { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 0.55rem 0.7rem; margin: 0.2rem 0 0.5rem; border-radius: 10px; background: rgba(56, 189, 248, 0.07); border: 1px solid rgba(56, 189, 248, 0.25); }
+.dl-hero__px { font-size: 1.9rem; font-weight: 750; line-height: 1.1; letter-spacing: -0.01em; }
+.dl-hero__facts { display: grid; gap: 0.2rem; margin: 0; min-width: 14rem; flex: 1; max-width: 26rem; }
+.dl-hero__facts div { display: flex; gap: 0.5rem; }
+.dl-hero__facts dt { color: var(--muted); min-width: 5.5rem; }
+.dl-hero__facts dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-raise input { width: 7rem; }
+.dl-lower { margin-left: auto; opacity: 0.75; }
+.dl-confirm input { width: 6.5rem; }
+.dl-stats--small dd { font-size: 0.85rem; font-weight: 600; }
+.dl-check { display: inline-flex !important; grid-auto-flow: column; align-items: center; gap: 0.3rem; }
+.dl-check input { width: auto !important; }
+.dl-buys { margin: 0 0 0.45rem; display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; }
+.stk-remind { background: none; border: 0; padding: 0 0.1rem; cursor: pointer; font-size: 0.8rem; opacity: 0.45; }
+.stk-remind.is-on { opacity: 0.95; }

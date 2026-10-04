@@ -235,6 +235,21 @@ Rule: **the bot must never leave a user below their starting amount while unatte
 
 ## DOGE live plan on Kraken (My Bot → DOGE, top panel)
 
+**Bottom stop (main job, Oct 2026).** One real Kraken stop-loss always covers all the DOGE you hold
+(minus your own / the bot's resting sells). It starts at your bottom stop (e.g. $0.089) and only
+moves up: effective = max(current, ATR trail = highest 4h close since start − 3/2/1.5 × daily ATR,
+account-lock price). DOGE sold → the stop resizes, the price stays. Raise it from the panel; lowering
+needs "Lower stop" + typing LOWER (owner). A stop at/above the market is never placed (loud Telegram
+alert, nothing sold). Stop fills → plan "stopped", no re-entry. Zone sells and the breakout pot buy
+are toggles, OFF by default. "Sell 30% now" = one IOC sell limit 0.5% under the bid (stop shrinks
+first). Dry-run uses your real Kraken balances when the trade key can read them.
+Telegram: every raise ("Stop raised $X → $Y: reason"), placement, resize, fill, external cancel /
+re-place and error. Your own DOGE buy orders are shown and coached on Telegram (approach / likely too
+high / likely too low / back under entry; one message per order per condition per 4h); the bot never
+edits them. Missing-stop reminders (api/_stopReminders.js): crypto at Kraken > $50 without a stop
+order (every 4h; DOGE skipped while the plan is LIVE), stocks without a stop order at Schwab (regular
+session + once 15 min before the open, every 2h per symbol; TSLA off by default, 🔔 toggle per symbol).
+
 Round 4 backtest rules (`doge-backtest/protect.py`, `today_plan.py`) as Kraken orders on **XDGUSD**.
 Engine: `shared/dogeLive.js` (pure). Runner: `api/_dogeLive.js` (every 5 min from `/api/bot/run`).
 Trading client: `api/_krakenTrade.js`. Checks: `npm run check:doge-live`.
