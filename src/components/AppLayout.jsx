@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import DogePlanProvider from './DogePlanProvider.jsx';
+import MobileTabBar from './MobileTabBar.jsx';
 import { useAuth } from '../hooks/authContext.js';
 import { supabase } from '../lib/supabase.js';
 import { createSupabasePlanBackend } from '../lib/planStoreSupabase.js';
@@ -105,6 +106,7 @@ export default function AppLayout() {
       ) : (
         <Outlet />
       )}
+      <MobileTabBar />
     </div>
   );
 }

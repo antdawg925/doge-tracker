@@ -77,14 +77,14 @@ function Hero({ row, busy, call, isOwner, checkedAt }) {
       {stopped ? (
         <p className="small neg">{row.state?.endReason || 'Bottom stop filled.'} No re-entry; start a new plan in Your settings.</p>
       ) : (
-        <div className="mb-row">
-          <input type="number" step="0.0001" min="0" placeholder={stopPx ? (stopPx * 1.02).toFixed(4) : '0.0890'} value={raiseTo} onChange={(e) => setRaiseTo(e.target.value)} aria-label="New stop price" />
+        <div className="mb-row mb-row--raise">
+          <input id="mb-raise" inputMode="decimal" type="number" step="0.0001" min="0" placeholder={stopPx ? (stopPx * 1.02).toFixed(4) : '0.0890'} value={raiseTo} onChange={(e) => setRaiseTo(e.target.value)} aria-label="New stop price" />
           <button type="button" className="btn btn--primary stk-btn" disabled={busy || !raiseOk} title={raiseTo !== '' && !raiseOk ? 'Above the current stop and below the market' : ''} onClick={async () => (await call('stop', { price: rv })) && setRaiseTo('')}>
             Raise stop
           </button>
           <button
             type="button"
-            className="btn btn--ghost stk-btn"
+            className="btn btn--ghost stk-btn mb-sell30"
             disabled={busy || row.kill_switch}
             onClick={() => window.confirm(`Sell 30% of your DOGE now${live ? ' (REAL order at Kraken' : ' (dry-run'}: IOC limit 0.5% under the bid)? The stop resizes to the rest.`) && call('sell', { pct: 30, confirm: 'SELL' })}
           >
@@ -123,6 +123,39 @@ function Hero({ row, busy, call, isOwner, checkedAt }) {
         {b.lockPx ? ` · lock ${px(b.lockPx)}` : ''}
       </p>
     </section>
+  );
+}
+
+const jump = (id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => el.focus({ preventScroll: true }), 350);
+};
+
+/** Phones only (CSS): stop + price, with Raise / Buy / Sell shortcuts, docked above the tab bar. */
+function MobileBar({ row }) {
+  const s = row.snapshot || {};
+  const stopPx = row.state?.stopPx ?? s.bottom?.price ?? null;
+  const dist = stopPx && s.price ? (s.price / stopPx - 1) * 100 : null;
+  return (
+    <>
+      <div className="mb-dock" role="region" aria-label="Stop and price">
+        <button type="button" className="mb-dock__info" onClick={() => jump('mb-raise')} title="Raise stop">
+          <span className="mb-dock__k">Stop</span> <span className="mono">{px(stopPx)}</span>
+          <span className="mb-dock__k"> · </span>
+          <span className="mono">{px(s.price)}</span>
+          {dist != null ? <span className={`mb-dock__d ${dist < 3 ? 'neg' : 'muted'}`}> {dist.toFixed(1)}%</span> : null}
+        </button>
+        <button type="button" className="btn btn--primary mb-dock__btn" onClick={() => jump('mb-buy')}>
+          Buy
+        </button>
+        <button type="button" className="btn btn--ghost mb-dock__btn" onClick={() => jump('mb-sell')}>
+          Sell
+        </button>
+      </div>
+      <div className="mb-dock-spacer" aria-hidden="true" />
+    </>
   );
 }
 
@@ -237,18 +270,18 @@ function QuickActions({ row, busy, setBusy, setMsg, reload, isOwner }) {
   return (
     <section className="card mb-card">
       <h2 className="mb-card__title">Quick actions</h2>
-      <div className="mb-qa">
+      <div className="mb-qa mb-qa--stack">
         <div className="mb-qa__col">
           <div className="small muted">Buy (post-only limit at the best bid)</div>
-          <div className="mb-row">
+          <div className="mb-row mb-row--buy">
             <span className="mb-unit">$</span>
-            <input type="number" min="1" step="1" placeholder="1000" value={amt} onChange={(e) => (setAmt(e.target.value), setPlan(null))} aria-label="Buy amount in dollars" />
+            <input id="mb-buy" inputMode="decimal" type="number" min="1" step="1" placeholder="1000" value={amt} onChange={(e) => (setAmt(e.target.value), setPlan(null))} aria-label="Buy amount in dollars" />
             <button type="button" className="btn btn--ghost stk-btn" disabled={busy || !(Number(amt) > 0) || !isOwner || row.kill_switch} title={!isOwner ? 'Owner account only' : ''} onClick={preview}>
               Preview
             </button>
           </div>
           {plan ? (
-            <div className="mb-plan small">
+            <div className="mb-plan small mb-plan--btns">
               <pre>{plan.text.replace(/\n?Dry-run: reply.*$|\n?Reply "yes".*$/m, '')}</pre>
               <button type="button" className="btn btn--primary stk-btn" disabled={busy} onClick={buy}>
                 {plan.dry ? 'Confirm (dry-run)' : `Confirm buy ${qty(plan.plan.qty)} DOGE`}
@@ -261,10 +294,10 @@ function QuickActions({ row, busy, setBusy, setMsg, reload, isOwner }) {
         </div>
         <div className="mb-qa__col">
           <div className="small muted">Limit sell</div>
-          <div className="mb-row">
+          <div className="mb-row mb-row--sell">
             <span className="mb-unit">$</span>
-            <input type="number" min="0" step="0.0001" placeholder={s.price ? (s.price * 1.05).toFixed(4) : 'price'} value={sp} onChange={(e) => setSp(e.target.value)} aria-label="Sell price" />
-            <input type="number" min="0" step="any" placeholder={unit === 'pct' ? '30' : 'DOGE'} value={sAmt} onChange={(e) => setSAmt(e.target.value)} aria-label={unit === 'pct' ? 'Percent of DOGE' : 'DOGE amount'} />
+            <input id="mb-sell" inputMode="decimal" type="number" min="0" step="0.0001" placeholder={s.price ? (s.price * 1.05).toFixed(4) : 'price'} value={sp} onChange={(e) => setSp(e.target.value)} aria-label="Sell price" />
+            <input inputMode="decimal" type="number" min="0" step="any" placeholder={unit === 'pct' ? '30' : 'DOGE'} value={sAmt} onChange={(e) => setSAmt(e.target.value)} aria-label={unit === 'pct' ? 'Percent of DOGE' : 'DOGE amount'} />
             <select value={unit} onChange={(e) => setUnit(e.target.value)} aria-label="Amount unit">
               <option value="pct">% of DOGE</option>
               <option value="qty">DOGE</option>
@@ -433,6 +466,7 @@ export default function MyBot({ refreshKey }) {
       <QuickActions row={row} busy={busy} setBusy={setBusy} setMsg={setMsg} reload={load} isOwner={isOwner} />
       <YourSettings row={row} busy={busy} call={call} isOwner={isOwner} userId={user?.id} />
       <Activity log={log} lastRun={row.last_run_at} />
+      <MobileBar row={row} />
     </div>
   );
 }
