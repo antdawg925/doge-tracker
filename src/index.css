@@ -4790,7 +4790,7 @@ p {
 .dl-quiet select { font-size: 0.78rem; padding: 0.05rem 0.2rem; }
 
 /* ---------- My Bot (DOGE) one-screen layout ---------- */
-.mb-page .mb-header { padding-bottom: 0.6rem; }
+.mb-page .mb-header { padding-bottom: 0.6rem; max-width: 980px; }
 .mb { display: flex; flex-direction: column; gap: 0.75rem; max-width: 980px; }
 .mb-card, .mb-hero { padding: 0.9rem 1rem; }
 .mb-card__title { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.55rem; display: flex; align-items: baseline; gap: 0.5rem; }
