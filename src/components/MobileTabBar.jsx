@@ -27,7 +27,8 @@ const TABS = [
 export default function MobileTabBar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { user, displayName, isOwner, signOut, pendingRequests } = useAuth();
+  const { user, loading, displayName, isOwner, signOut, pendingRequests } = useAuth();
+  const tabs = user || loading ? TABS.filter((t) => t.to !== '/home') : TABS;
   const [open, setOpen] = useState(false);
   const moreActive = ['/positions', '/admin'].some((p) => pathname.startsWith(p));
   return (
@@ -66,7 +67,7 @@ export default function MobileTabBar() {
         </div>
       ) : null}
       <nav className="tabbar" aria-label="Primary (mobile)">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const active = t.match ? t.match.includes(pathname) : pathname.startsWith(t.to);
           return (
             <NavLink key={t.to} to={t.to} className={`tabbar__tab${active ? ' is-active' : ''}`} onClick={() => setOpen(false)}>

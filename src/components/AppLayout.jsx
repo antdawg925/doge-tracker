@@ -53,19 +53,21 @@ function AccountMenu() {
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const { user, isOwner, hasBotAccess, pendingRequests } = useAuth();
+  const { user, loading, isOwner, hasBotAccess, pendingRequests, homePath } = useAuth();
   // DOGE plan storage + polling only for the Trade Smart Bot tier.
   const botUserId = hasBotAccess ? (user?.id ?? null) : null;
   const planBackend = useMemo(
     () => (botUserId && supabase ? createSupabasePlanBackend(supabase, botUserId) : null),
     [botUserId],
   );
-  const links = isOwner ? [...NAV, ...OWNER_NAV] : NAV;
+  // Home is only for signed-out visitors (hidden while the session check runs, to avoid a flash)
+  const base = user || loading ? NAV.filter((n) => n.to !== '/home') : NAV;
+  const links = isOwner ? [...base, ...OWNER_NAV] : base;
 
   return (
     <div className="desk-shell">
       <header className="desk-nav">
-        <NavLink to="/" className="desk-nav__brand" end>
+        <NavLink to={user ? homePath : '/'} className="desk-nav__brand" end>
           <img
             className="desk-nav__mark-img"
             src="/favicon.svg"

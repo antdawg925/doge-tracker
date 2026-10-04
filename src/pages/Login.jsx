@@ -3,9 +3,10 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/authContext.js';
 
 export default function Login() {
-  const { user, loading, configured, signIn } = useAuth();
+  const { user, loading, configured, signIn, homePath } = useAuth();
   const location = useLocation();
-  const from = location.state?.from === '/alerts' ? '/bot' : location.state?.from || '/research';
+  const asked = location.state?.from === '/alerts' ? '/bot' : location.state?.from;
+  const from = asked && asked !== '/' && asked !== '/home' ? asked : homePath;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);

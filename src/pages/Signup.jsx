@@ -3,7 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/authContext.js';
 
 export default function Signup() {
-  const { user, loading, configured, signUp } = useAuth();
+  const { user, loading, configured, signUp, homePath } = useAuth();
   const [form, setForm] = useState({
     displayName: '',
     email: '',
@@ -12,7 +12,7 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  if (!loading && user) return <Navigate to="/research" replace />;
+  if (!loading && user) return <Navigate to={homePath} replace />;
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 

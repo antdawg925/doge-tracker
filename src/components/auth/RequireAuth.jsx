@@ -10,6 +10,14 @@ function Checking() {
   );
 }
 
+/** "/" and "/home": landing page when signed out; signed in → the user's default page. Waits for the session check. */
+export function HomeGate({ children }) {
+  const { user, loading, homePath } = useAuth();
+  if (loading) return <Checking />;
+  if (user) return <Navigate to={homePath} replace />;
+  return children;
+}
+
 /** Signed-in only; otherwise bounce to /login and come back after. */
 export function RequireAuth() {
   const { user, loading } = useAuth();

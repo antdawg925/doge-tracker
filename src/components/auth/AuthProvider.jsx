@@ -130,6 +130,9 @@ export default function AuthProvider({ children }) {
 
   const signOut = useCallback(async () => {
     await supabase?.auth.signOut();
+    // clear now so navigating to "/" shows the landing page (not a signed-in redirect)
+    setSession(null);
+    setProfile(null);
   }, []);
 
   const value = useMemo(() => {
@@ -145,6 +148,8 @@ export default function AuthProvider({ children }) {
       role,
       isOwner,
       hasBotAccess: Boolean(user && (isOwner || profile?.bot_access)),
+      // signed-in default page: My Bot for the bot tier (owner always), else Research
+      homePath: user ? (isOwner || profile?.bot_access ? '/bot' : '/research') : '/',
       displayName:
         profile?.display_name || user?.user_metadata?.display_name || user?.email || '',
       signIn,

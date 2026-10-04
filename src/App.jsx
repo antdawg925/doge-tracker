@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import AuthProvider from './components/auth/AuthProvider.jsx';
 import FeatureFlagsProvider from './components/FeatureFlagsProvider.jsx';
-import { RequireAuth, RequireBot, RequireOwner } from './components/auth/RequireAuth.jsx';
+import { HomeGate, RequireAuth, RequireBot, RequireOwner } from './components/auth/RequireAuth.jsx';
 import Home from './pages/Home';
 import Research from './pages/Research';
 import Positions from './pages/Positions';
@@ -24,8 +24,8 @@ export default function App() {
           <Routes>
             <Route element={<AppLayout />}>
               {/* Public */}
-              <Route path="/" element={<Home />} />
-              <Route path="/home" element={<Home />} />
+              <Route path="/" element={<HomeGate><Home /></HomeGate>} />
+              <Route path="/home" element={<HomeGate><Home /></HomeGate>} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               {/* Legacy route: the bot now lives at /bot. */}
