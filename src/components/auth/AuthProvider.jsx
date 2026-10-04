@@ -129,10 +129,11 @@ export default function AuthProvider({ children }) {
   }, [refreshProfile]);
 
   const signOut = useCallback(async () => {
-    await supabase?.auth.signOut();
-    // clear now so navigating to "/" shows the landing page (not a signed-in redirect)
+    // clear first (synchronously) so a navigate('/') in the same tick shows the landing page,
+    // not a signed-in redirect or a RequireAuth bounce to /login
     setSession(null);
     setProfile(null);
+    await supabase?.auth.signOut();
   }, []);
 
   const value = useMemo(() => {

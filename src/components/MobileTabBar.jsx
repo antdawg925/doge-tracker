@@ -52,8 +52,9 @@ export default function MobileTabBar() {
                     type="button"
                     className="btn btn--ghost msheet__btn"
                     onClick={async () => {
-                      await signOut();
+                      const done = signOut();
                       navigate('/', { replace: true });
+                      await done;
                     }}
                   >
                     Sign out

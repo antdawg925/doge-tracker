@@ -41,8 +41,9 @@ function AccountMenu() {
         type="button"
         className="btn btn--ghost"
         onClick={async () => {
-          await signOut();
+          const done = signOut();
           navigate('/', { replace: true });
+          await done;
         }}
       >
         Sign out
