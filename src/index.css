@@ -5183,3 +5183,7 @@ p {
   .desk-top .desk-toolbar .btn { min-height: 32px; padding: 0 0.7rem; }
   .desk-top .symbol-search__label { display: none; }
 }
+@media (max-width: 767px) {
+  .lvt__nm { white-space: normal; line-height: 1.15; font-size: 0.8rem; }
+  .lvt__act { display: block; font-size: 0.7rem; }
+}
