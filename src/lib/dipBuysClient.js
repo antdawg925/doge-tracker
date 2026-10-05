@@ -43,6 +43,10 @@ export async function enrichDipRow(row, { signal } = {}) {
       earningsAt: row.earningsAt ?? null,
     });
     if (!plan) return null;
+    // Liquid swing names only: ≥ $10, dip of at least 0.5% and at most 25% away.
+    if (!(spot >= 10)) return null;
+    if (!(plan.awayPct <= -0.5 && plan.awayPct >= -25)) return null;
+    if (!(plan.rr >= 1.2)) return null;
     return {
       ...row,
       symbol: sym,
@@ -90,10 +94,11 @@ export async function fetchDipBuys({ signal, onProgress } = {}) {
     return r;
   });
   const rows = enriched.filter(Boolean).sort((a, b) => {
-    // Closer dips first, then better R:R
+    // Prefer closer dips, then better R:R, then larger caps
     const away = Math.abs(a.awayPct) - Math.abs(b.awayPct);
-    if (Math.abs(away) > 0.05) return away;
-    return b.rr - a.rr;
+    if (Math.abs(away) > 0.15) return away;
+    if (Math.abs(b.rr - a.rr) > 0.15) return b.rr - a.rr;
+    return (b.marketCap || 0) - (a.marketCap || 0);
   });
   return { rows, warnings: universe.warnings, updatedAt: Date.now() };
 }
