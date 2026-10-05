@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-/** Quiet tabs under the Research chart: one section open at a time, one-line summary per tab. */
+/** Segmented pill buttons under the Research chart: one section open at a time. */
 const KEY = 'tsb.research.tab';
 export default function ResearchTabs({ tabs, active, onChange }) {
   const [own, setOwn] = useState(() => {
@@ -27,7 +27,6 @@ export default function ResearchTabs({ tabs, active, onChange }) {
         {tabs.map((t) => (
           <button key={t.id} type="button" role="tab" aria-selected={t.id === tab.id} className={`rtabs__tab${t.id === tab.id ? ' is-active' : ''}${t.alert ? ' rtabs__tab--alert' : ''}`} onClick={() => pick(t.id)}>
             <span className="rtabs__label">{t.label}</span>
-            {t.summary ? <span className="rtabs__sum">{t.summary}</span> : null}
           </button>
         ))}
       </div>

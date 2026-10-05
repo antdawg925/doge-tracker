@@ -5187,3 +5187,23 @@ p {
   .lvt__nm { white-space: normal; line-height: 1.15; font-size: 0.8rem; }
   .lvt__act { display: block; font-size: 0.7rem; }
 }
+
+/* Research tabs as segmented pill buttons (v2) */
+.rtabs__bar { gap: 0.35rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
+.rtabs__tab { min-height: 36px; padding: 0 0.95rem; margin: 0; align-items: center; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 999px; background: rgba(148, 163, 184, 0.06); color: #c6d2e3; transition: background 0.12s, border-color 0.12s, color 0.12s; flex: none; }
+.rtabs__tab:hover { background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.6); color: var(--text); }
+.rtabs__tab:focus-visible { outline: 2px solid #3d9cf0; outline-offset: 2px; }
+.rtabs__tab.is-active { background: #3d9cf0; border-color: #3d9cf0; color: #04111f; }
+.rtabs__tab.is-active:hover { background: #5aacf3; }
+.rtabs__tab--alert:not(.is-active) { border-color: rgba(245, 165, 36, 0.6); color: #f5a524; }
+.rtabs__label { font-size: 0.85rem; font-weight: 600; }
+/* Levels: one stop line, ladder on demand */
+.mlv__stop { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem 0.8rem; font-size: 0.88rem; }
+.mlv__stopline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; }
+.mlv__stopk { color: #f07178; font-weight: 600; font-family: var(--mono, ui-monospace, monospace); }
+.mlv__toggle { background: none; border: 0; padding: 0; color: #3d9cf0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font: inherit; font-size: 0.78rem; }
+@media (max-width: 767px) {
+  .rtabs__bar { padding: 0.55rem 0.6rem; }
+  .rtabs__tab { min-height: 38px; padding: 0 0.85rem; }
+  .mlv__stop { font-size: 0.84rem; }
+}
