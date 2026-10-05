@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { fetchYahooUpstream } from './_yahooUpstream.js'
 import { notifyLines } from './_notify.js'
 import { runLive } from './_schwabLive.js'
+import { runStockPlans } from './_stockPlans.js'
 import { etDate, stockPassFor } from '../shared/marketHours.js'
 import { barsFromYahooChart, evaluateStockPosition, infoFromQuoteSummary } from '../shared/stockEngine.js'
 import { brokerFor } from '../shared/broker/index.js'
@@ -127,7 +128,7 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
   }
   const runId = randomUUID()
 
-  let q = sb.from('profiles').select('id, role, bot_access, telegram_chat_id').or('bot_access.eq.true,role.eq.owner')
+  let q = sb.from('profiles').select('id, role, bot_access, telegram_chat_id, stocks_live').or('bot_access.eq.true,role.eq.owner')
   if (userIds?.length) q = q.in('id', userIds)
   const profiles = must(await q, 'profiles')
   const profileBy = new Map(profiles.map((p) => [p.id, p]))
@@ -138,9 +139,15 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
       )
     : []
 
-  const symbols = [...new Set(positions.map((p) => p.symbol))]
+  const { data: activePlans } = await sb
+    .from('stock_plans')
+    .select('id, user_id, symbol, status')
+    .in('user_id', profiles.map((p) => p.id))
+    .in('status', ['pending', 'working', 'filled'])
+  const planSymbols = (activePlans || []).map((p) => p.symbol)
+  const symbols = [...new Set([...positions.map((p) => p.symbol), ...planSymbols])]
   const markets = new Map()
-  const range = rangeFor(positions.map((p) => p.entry_date), nowMs)
+  const range = rangeFor(positions.map((p) => p.entry_date).concat([etDate(nowMs)]), nowMs)
   await pool(symbols, 4, async (sym) => {
     try {
       markets.set(sym, { ok: true, ...(await fetchDailyMarket(sym, range)) })
@@ -372,6 +379,19 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
     live = { error: clip(err?.message || err) }
   }
 
+  // ---- Dip-buy stock_plans (limit buy → protective stop → ratchet). Default dry-run.
+  let plans = null
+  try {
+    const mkt = new Map()
+    for (const [sym, m] of markets) {
+      if (m?.ok) mkt.set(sym, { price: m.price, bars: m.bars })
+    }
+    plans = await runStockPlans(sb, { profiles, markets: mkt, nowMs, force })
+  } catch (err) {
+    console.error('stock plans pass failed', err?.message || err)
+    plans = { error: clip(err?.message || err) }
+  }
+
   // Optional Telegram (no-op unless TELEGRAM_BOT_TOKEN + profiles.telegram_chat_id exist).
   for (const [uid, fired] of firedByUser) {
     const chat = profileBy.get(uid)?.telegram_chat_id
@@ -391,6 +411,7 @@ export async function runStocks(sb, { source = 'cron', userIds = null, force = f
     paperErrors,
     paperEvents: [...books.values()].reduce((a, b) => a + b.events.length, 0),
     live,
+    plans,
     durationMs: Date.now() - started,
     results: results.map(({ symbol, decision, error }) => ({ symbol, decision, error: error ? 'yes' : null })),
   }

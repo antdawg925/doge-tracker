@@ -7,6 +7,7 @@ import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
 import PlanTrade from './PlanTrade.jsx';
 import PaperBar from './PaperBar.jsx';
 import SchwabPanel, { LiveCell } from './SchwabPanel.jsx';
+import DipPlansPanel from './DipPlansPanel.jsx';
 import useSchwabStatus from './useSchwabStatus.js';
 import { paperTally } from '../../../shared/stockPaper.js';
 
@@ -562,6 +563,8 @@ export default function StocksPanel() {
       </div>
 
       <SchwabPanel schwab={schwab} onChanged={load} onError={setError} />
+
+      <DipPlansPanel />
 
       {data && (data.tally.orders || data.guard) ? (
         <PaperBar key={`${data.guard?.max_loss_usd ?? 1}`} tally={data.tally} guard={data.guard} onChanged={refreshServer} onError={setError} />

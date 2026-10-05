@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { buildMultiTfResistance, resolveCoins } from '../lib/levels';
 import { hasEnteredPosition } from '../lib/math';
@@ -13,7 +13,6 @@ const day = (t) => (t ? new Date(t).toLocaleDateString('en-US', { month: 'short'
  * (weekly + monthly pivots, see lib/majorLevels.js). Compact rows, details on hover / tap.
  */
 export default function MajorLevelsPanel({ major, spot, position, tfSets, source, note = null }) {
-  const [showLadder, setShowLadder] = useState(false);
   const coins = useMemo(() => resolveCoins(position, spot), [position, spot]);
   const has = hasEnteredPosition(coins, position.avgCost);
   const { comparison } = useMemo(() => buildMultiTfResistance(tfSets, spot, coins, position.avgCost, position.targetPrice), [tfSets, spot, coins, position.avgCost, position.targetPrice]);
@@ -23,49 +22,30 @@ export default function MajorLevelsPanel({ major, spot, position, tfSets, source
   const info = `Major levels from ${source === 'weekly' ? `${major.weeks} weekly candles (since ${day(major.since)})` : 'daily history rolled up into weeks'} plus monthly candles: prices where swings reversed more than once, weighted by touches and recency. Levels closer than ${(major.tol * 100).toFixed(0)}% (max of 10% and 1 weekly ATR) are merged. Holding stop = nearest major support minus 1 weekly ATR (${formatPrice(major.atrW)}, ${atrPct.toFixed(1)}%), so normal weekly swings don't hit it. Ladder: when a week closes above a resistance, move the stop up to that level minus 1 weekly ATR. ${has ? 'Dollars are vs your average cost for the whole holding.' : 'No holding entered: percent only.'}`;
 
   const hs = major.holdingStop;
-  const stopRows = [
-    ...(hs
-      ? [{
-          id: 'hold',
-          rank: '◆',
-          name: 'Holding stop',
-          tag: 'main',
-          tagCls: 'lvt__tag--main',
-          act: hs.under ? `under ${formatPrice(hs.under)}` : '2 wk ATR',
-          price: formatPrice(hs.price),
-          pct: formatPct(hs.distPct, 1),
-          pctCls: 'neg',
-          usd: usd(hs.riskVsCost, has),
-          usdCls: tone(hs.riskVsCost),
-          detail: [`Nearest major support ${hs.under ? formatPrice(hs.under) : '—'} minus 1 weekly ATR (${formatPrice(major.atrW)}).`, has && hs.riskVsCost != null ? `If hit: ${formatUsd(hs.riskVsCost, { sign: true, decimals: 0 })} vs your average cost.` : ''],
-        }]
-      : []),
-    ...major.ladder.map((l, i) => ({
-      id: `lad${i}`,
-      rank: `↑${i + 1}`,
-      name: `Wk close > ${formatPrice(l.trigger)}`,
-      act: 'stop to',
-      price: formatPrice(l.stop),
-      pct: formatPct((l.stop / spot - 1) * 100, 1),
-      pctCls: l.stop >= spot ? 'pos' : 'neg',
-      usd: usd(l.lockVsCost, has),
-      usdCls: tone(l.lockVsCost),
-      detail: [`If a week closes above ${formatPrice(l.trigger)}, move the stop to ${formatPrice(l.stop)} (that level minus 1 weekly ATR)${l.stepPct != null ? `: +${l.stepPct.toFixed(1)}% vs the previous stop` : ''}.`, has && l.lockVsCost != null ? `Stop out there: ${formatUsd(l.lockVsCost, { sign: true, decimals: 0 })} vs your average cost.` : ''],
-    })),
-  ];
   const ladderFor = (price) => major.ladder.find((l) => Math.abs(l.trigger - price) < 1e-12);
   const lvDetail = (l) => `${l.touches} weekly touch${l.touches === 1 ? '' : 'es'}${l.monthly ? ' + monthly pivot' : ''} · last ${day(l.lastT)}`;
   const supRows = major.supports.map((l, i) => ({
     id: `s${i}`,
     rank: `S${i + 1}`,
     name: i === 0 ? 'Major support' : 'Support',
-    act: i === 0 ? 'stop goes under' : 'next floor',
+    act: i === 0 && hs ? `stop ${formatPrice(hs.price)}` : i === 0 ? 'stop under' : 'next floor',
+    tag: i === 0 && hs ? 'stop below' : null,
+    tagCls: i === 0 && hs ? 'lvt__tag--stop' : undefined,
     price: formatPrice(l.price),
     pct: formatPct(l.distPct, 1),
     pctCls: 'neg',
     usd: usd(l.usdVsCost, has),
     usdCls: tone(l.usdVsCost),
-    detail: [lvDetail(l), i === 0 && hs ? `Holding stop ${formatPrice(hs.price)} sits 1 weekly ATR below.` : 'Next floor if the one above breaks.'],
+    detail: [
+      lvDetail(l),
+      i === 0 && hs
+        ? `Holding stop ${formatPrice(hs.price)} sits 1 weekly ATR (${formatPrice(major.atrW)}) below. Ladder: ${
+            major.ladder[0]
+              ? `raise to ${formatPrice(major.ladder[0].stop)} on a weekly close above ${formatPrice(major.ladder[0].trigger)}`
+              : 'no resistance above to ratchet from yet'
+          }. ${info}`
+        : 'Next floor if the one above breaks.',
+    ],
   }));
   const resRows = major.resistances.map((l, i) => {
     const step = ladderFor(l.price);
@@ -87,32 +67,7 @@ export default function MajorLevelsPanel({ major, spot, position, tfSets, source
   return (
     <div className="mlv">
       {note ? <p className="muted small mlv__note">{note}</p> : null}
-      <div className="mlv__stop">
-        <span className="mlv__stopline">
-          {hs ? (
-            <>
-              <span className="mlv__stopk">Stop {formatPrice(hs.price)}</span>
-              {major.ladder[0] ? (
-                <span className="muted">
-                  {' '}
-                  · raise to <span className="mono">{formatPrice(major.ladder[0].stop)}</span> on a weekly close above <span className="mono">{formatPrice(major.ladder[0].trigger)}</span>
-                </span>
-              ) : (
-                <span className="muted"> · no resistance above to ratchet from yet</span>
-              )}
-            </>
-          ) : (
-            <span className="muted">No holding stop: no major support below price.</span>
-          )}
-          <InfoTip text={info} />
-        </span>
-        {stopRows.length > 1 ? (
-          <button type="button" className="mb-link mlv__toggle small" aria-expanded={showLadder} onClick={() => setShowLadder((v) => !v)}>
-            {showLadder ? 'hide ladder' : 'show ladder'}
-          </button>
-        ) : null}
-      </div>
-      {showLadder ? <LevelTable rows={stopRows} label="Holding stop and ladder" /> : null}
+      <p className="small muted mlv__atr">wk ATR {formatPrice(major.atrW)} ({atrPct.toFixed(1)}%) · {source === 'weekly' ? `${major.weeks} weeks` : 'from daily history'} <InfoTip text={info} /></p>
       <div className="sr-pair mlv__pair">
         <div>
           <h3 className="mlv__h">Support</h3>

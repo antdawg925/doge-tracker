@@ -15,7 +15,8 @@
     "check:stocks": "node scripts/check-stocks.mjs",
     "check:schwab": "node scripts/check-schwab.mjs",
     "check:doge-live": "node scripts/check-doge-live.mjs",
-    "check:levels": "node scripts/check-levels.mjs"
+    "check:levels": "node scripts/check-levels.mjs",
+    "check:dip-buys": "node scripts/check-dip-buys.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

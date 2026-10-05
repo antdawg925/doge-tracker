@@ -19,7 +19,7 @@
  * only ever driven by api/_schwabLive.js, which gates every action through shared/guard.js.
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { buildStopOrder, fillFromOrder, holdingsFromAccount, LIVE_RULES } from '../shared/schwabLive.js'
+import { buildLimitBuyOrder, buildStopOrder, fillFromOrder, holdingsFromAccount, LIVE_RULES } from '../shared/schwabLive.js'
 
 export const SCHWAB_API = 'https://api.schwabapi.com'
 export const AUTHORIZE_URL = `${SCHWAB_API}/v1/oauth/authorize`
@@ -224,7 +224,7 @@ export async function fetchAccounts(call) {
 
 /**
  * Schwab broker adapter (same method names as the paper adapter). Orders are protective
- * STOP orders only; it has no way to send market / limit / opening orders.
+ * Protective STOPs for held shares, plus LIMIT BUY for dip plans (stock_plans).
  */
 export function createSchwabBroker({ call, accountHash, nowMs = Date.now() }) {
   if (!accountHash) throw new Error('No Schwab account selected')
@@ -250,6 +250,12 @@ export function createSchwabBroker({ call, accountHash, nowMs = Date.now() }) {
     },
     async placeStop({ symbol, positionSide, qty, stopPrice }) {
       const r = await call('POST', `${base}/orders`, { body: buildStopOrder({ symbol, side: positionSide, qty, stopPrice }) })
+      if (!r.orderId) throw new SchwabError(502, 'order placed but no order id in Location header')
+      return { orderId: r.orderId, status: r.status }
+    },
+    /** Equity LIMIT BUY (dip plans). RTH only at the caller; never TSLA. */
+    async placeLimitBuy({ symbol, qty, limitPrice, duration = 'GOOD_TILL_CANCEL' }) {
+      const r = await call('POST', `${base}/orders`, { body: buildLimitBuyOrder({ symbol, qty, limitPrice, duration }) })
       if (!r.orderId) throw new SchwabError(502, 'order placed but no order id in Location header')
       return { orderId: r.orderId, status: r.status }
     },

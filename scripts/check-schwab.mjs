@@ -43,6 +43,16 @@ await ok('tick rounding: $0.01 ≥ $1, $0.0001 < $1, protective direction (long 
   assert.equal(L.tickSize(0.5), 0.0001);
 });
 
+await ok('LIMIT BUY JSON: LIMIT, GTC/DAY, NORMAL, BUY; never TSLA; whole shares only', () => {
+  assert.deepEqual(L.buildLimitBuyOrder({ symbol: 'nvda', qty: 15, limitPrice: 218.927 }), {
+    orderType: 'LIMIT', session: 'NORMAL', duration: 'GOOD_TILL_CANCEL', orderStrategyType: 'SINGLE', price: '218.92',
+    orderLegCollection: [{ instruction: 'BUY', quantity: 15, instrument: { symbol: 'NVDA', assetType: 'EQUITY' } }],
+  });
+  assert.equal(L.buildLimitBuyOrder({ symbol: 'AMD', qty: 4, limitPrice: 500, duration: 'DAY' }).duration, 'DAY');
+  assert.throws(() => L.buildLimitBuyOrder({ symbol: 'TSLA', qty: 1, limitPrice: 200 }));
+  assert.throws(() => L.buildLimitBuyOrder({ symbol: 'NVDA', qty: 1.5, limitPrice: 200 }));
+});
+
 await ok('order JSON: STOP, GTC, NORMAL, SINGLE; SELL for long, BUY_TO_COVER for short; whole shares only', () => {
   assert.deepEqual(L.buildStopOrder({ symbol: 'spy', side: 'long', qty: 5, stopPrice: 748.95 }), {
     orderType: 'STOP', session: 'NORMAL', duration: 'GOOD_TILL_CANCEL', orderStrategyType: 'SINGLE', stopPrice: '748.95',

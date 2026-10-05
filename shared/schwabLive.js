@@ -59,6 +59,24 @@ export function roundStop(price, side) {
 }
 export const stopString = (p) => (p >= 1 ? p.toFixed(2) : p.toFixed(4));
 
+/** Equity LIMIT BUY (Trader API). Duration DAY or GOOD_TILL_CANCEL. Never TSLA. */
+export function buildLimitBuyOrder({ symbol, qty, limitPrice, duration = 'GOOD_TILL_CANCEL' }) {
+  if (!(qty > 0) || !Number.isInteger(qty)) throw new Error('quantity must be a whole number > 0');
+  if (!(limitPrice > 0)) throw new Error('limitPrice must be > 0');
+  const sym = String(symbol || '').toUpperCase();
+  if (!sym || sym === 'TSLA') throw new Error('symbol not allowed');
+  const tick = tickSize(limitPrice);
+  const price = Number((Math.floor(limitPrice / tick + 1e-7) * tick).toFixed(tick >= 0.01 ? 2 : 4));
+  return {
+    orderType: 'LIMIT',
+    session: 'NORMAL',
+    duration: duration === 'DAY' ? 'DAY' : 'GOOD_TILL_CANCEL',
+    orderStrategyType: 'SINGLE',
+    price: stopString(price),
+    orderLegCollection: [{ instruction: 'BUY', quantity: qty, instrument: { symbol: sym, assetType: 'EQUITY' } }],
+  };
+}
+
 /** Schwab equity STOP order JSON (Trader API order schema; GTC, NORMAL session). */
 export function buildStopOrder({ symbol, side, qty, stopPrice }) {
   if (!(qty > 0) || !Number.isInteger(qty)) throw new Error('quantity must be a whole number > 0');

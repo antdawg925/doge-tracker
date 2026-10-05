@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Scanner from './Scanner';
 import ShortKings from './ShortKings';
+import DipBuys from './DipBuys';
 
 /**
  * One Scanner page with screen presets (former Scanner lanes + Short Kings modes).
@@ -11,6 +12,7 @@ import ShortKings from './ShortKings';
 const PRESETS = [
   { id: 'momentum', label: 'Momentum' },
   { id: 'investable', label: 'Investable' },
+  { id: 'dip-buys', label: 'Dip buys' },
   { id: 'short-hunt', label: 'Short hunt' },
   { id: 'my-shorts', label: 'My shorts' },
 ];
@@ -40,6 +42,7 @@ export default function ScannerHub() {
 
   const pick = (id) => setParams({ mode: id }, { replace: true });
   const shorts = mode === 'short-hunt' || mode === 'my-shorts';
+  const dips = mode === 'dip-buys';
 
   return (
     <div className="scan-hub">
@@ -53,7 +56,7 @@ export default function ScannerHub() {
           ))}
         </div>
       </div>
-      {shorts ? <ShortKings embedded mode={mode === 'short-hunt' ? 'hunt' : 'my-shorts'} /> : <Scanner embedded lane={mode} />}
+      {dips ? <DipBuys /> : shorts ? <ShortKings embedded mode={mode === 'short-hunt' ? 'hunt' : 'my-shorts'} /> : <Scanner embedded lane={mode} />}
     </div>
   );
 }
