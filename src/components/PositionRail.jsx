@@ -17,15 +17,20 @@ const tone = (n) => (n == null || !Number.isFinite(Number(n)) ? '' : n >= 0 ? 'p
  * Inputs in a 2-column grid, key outputs as whole dollars, and the old
  * "What this position looks like" folded into a short summary at the bottom.
  */
-export default function PositionRail({ position, spot, asset, onChange, loaded = true, status = 'idle', error = null, headerAction = null, levels = null, tfSets = null, children = null }) {
+export default function PositionRail({ position, spot, asset, onChange, loaded = true, status = 'idle', error = null, headerAction = null, levels = null, tfSets = null, major = null, children = null }) {
   const sym = displaySymbol(asset);
   const units = unitLabel(asset);
   const m = useMemo(() => positionMetrics(position.coins, position.avgCost, spot, position.targetPrice), [position.coins, position.avgCost, position.targetPrice, spot]);
   const stop = useMemo(() => {
     const coins = resolveCoins(position, spot);
+    if (major?.holdingStop && spot > 0) {
+      // v2: the wide holding stop (nearest major support − 1 weekly ATR)
+      const px = major.holdingStop.price;
+      return { price: px, riskVsSpot: coins > 0 ? coins * (px - spot) : null, distPct: (px / spot - 1) * 100 };
+    }
     const { candidates, primaryId } = suggestStops(levels, spot, coins, position.avgCost, tfSets);
     return candidates.find((c) => c.id === primaryId) || null;
-  }, [levels, spot, position, tfSets]);
+  }, [levels, spot, position, tfSets, major]);
   const has = hasEnteredPosition(position.coins, position.avgCost);
   const handle = (key, raw) => {
     const n = parseFloat(raw);
@@ -80,7 +85,7 @@ export default function PositionRail({ position, spot, asset, onChange, loaded =
             {m.atTargetPnl != null ? <span className={`prail__sub ${tone(m.atTargetPnl)}`}>{usd0(m.atTargetPnl, true)}</span> : null}
           </dd>
         </div>
-        <div title="Loss from today's price if the suggested stop (nearest meaningful Top support) is hit">
+        <div title={major ? "Loss from today's price if the holding stop (nearest major support minus 1 weekly ATR) is hit" : "Loss from today's price if the suggested stop (nearest meaningful Top support) is hit"}>
           <dt>Risk {stop ? <span className="mono">to {formatPrice(stop.price)}</span> : null}</dt>
           <dd className="mono neg">
             {stop && stop.riskVsSpot != null ? usd0(stop.riskVsSpot) : '—'}

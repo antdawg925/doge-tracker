@@ -14,7 +14,8 @@
     "check:bot": "node scripts/check-bot.mjs",
     "check:stocks": "node scripts/check-stocks.mjs",
     "check:schwab": "node scripts/check-schwab.mjs",
-    "check:doge-live": "node scripts/check-doge-live.mjs"
+    "check:doge-live": "node scripts/check-doge-live.mjs",
+    "check:levels": "node scripts/check-levels.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

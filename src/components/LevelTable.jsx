@@ -32,9 +32,12 @@ export default function LevelTable({ rows, label }) {
         return (
           <li key={r.id} className={`lvt__row${r.tag ? ' lvt__row--tag' : ''}${isOpen ? ' is-open' : ''}`}>
             <button type="button" className="lvt__btn" title={detail.join('\n')} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : r.id)}>
-              <span className="lvt__rank">{i + 1}</span>
+              <span className="lvt__rank">{r.rank ?? i + 1}</span>
               <span className="lvt__name">
-                <span className="lvt__nm">{r.name}</span>
+                <span className="lvt__nm">
+                  {r.name}
+                  {r.act ? <span className="lvt__act"> · {r.act}</span> : null}
+                </span>
                 {r.tag ? <span className={`lvt__tag ${r.tagCls || ''}`}>{r.tag}</span> : null}
               </span>
               <span className="lvt__px mono">{r.price}</span>

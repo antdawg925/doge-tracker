@@ -186,6 +186,7 @@ export default function PriceChart({
   warning,
   spot,
   tfSets = null,
+  major = null,
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -254,6 +255,14 @@ export default function PriceChart({
   }, [candleBars.length, hasVolumePane, warning]);
 
   const refLevels = useMemo(() => {
+    if (major) {
+      // v2: a few major weekly/monthly levels + the holding stop (quiet chart)
+      return [
+        ...major.supports.map((l, i) => ({ id: `ms${i}`, price: l.price, type: 'support', label: i === 0 ? 'Major support' : `S${i + 1}` })),
+        ...major.resistances.map((l, i) => ({ id: `mr${i}`, price: l.price, type: 'resistance', label: i === 0 ? 'Major resistance' : `R${i + 1}` })),
+        ...(major.holdingStop ? [{ id: 'hstop', price: major.holdingStop.price, type: 'stop', label: 'Holding stop' }] : []),
+      ];
+    }
     const supports = pickKeySupports(levels, spot, tfSets).slice(0, 5);
     const chartResists = resistanceLevels(levels, spot);
     const multiResists = pickTopResistances(
@@ -288,7 +297,7 @@ export default function PriceChart({
       })),
       ...resists,
     ];
-  }, [levels, spot, tfSets]);
+  }, [levels, spot, tfSets, major]);
 
   candleBarsRef.current = candleBars;
   refLevelsRef.current = refLevels;
@@ -387,15 +396,17 @@ export default function PriceChart({
         continue;
       }
       const color =
-        lvl.type === 'support'
-          ? 'rgba(62, 207, 142, 0.85)'
-          : 'rgba(240, 113, 120, 0.85)';
+        lvl.type === 'stop'
+          ? 'rgba(240, 113, 120, 0.95)'
+          : lvl.type === 'support'
+            ? 'rgba(62, 207, 142, 0.7)'
+            : 'rgba(245, 165, 36, 0.7)';
       priceLinesRef.current.push(
         series.createPriceLine({
           price: lvl.price,
           color,
           lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          lineStyle: lvl.type === 'stop' ? LineStyle.Solid : LineStyle.Dashed,
           axisLabelVisible: true,
           title: lvl.label || '',
         }),
@@ -706,10 +717,7 @@ export default function PriceChart({
               )}
             </>
           ) : (
-            <span className="muted small">
-              Hover a candle for open / high / low / close
-              {hasVolumePane ? ' / volume' : ''}
-            </span>
+            <span className="muted small chart-ohlc__hint">{sym} · {tfLabel}</span>
           )}
         </div>
         <div ref={containerRef} className="chart-canvas" />
@@ -717,14 +725,11 @@ export default function PriceChart({
           metrics={volMetrics}
           softNote={volumeSoftNote}
         />
-        <p className="muted small chart-legend">
-          Candles = {tfLabel} OHLC · green/blue up · red down
-          {hasVolumePane
-            ? ` · bars below = ${tfLabel} volume (dashed = 20-bar avg)`
-            : ''}{' '}
-          · green dashed = key support · red dashed = nearby resistance · white =
-          spot
-        </p>
+        <p
+          className="muted small chart-legend chart-legend--quiet"
+          title={`Candles = ${tfLabel} OHLC · green/blue up · red down${hasVolumePane ? ` · bars below = ${tfLabel} volume (dashed = 20-bar avg)` : ''} · ${major ? 'green dashed = major support · orange dashed = major resistance · red = holding stop' : 'green dashed = key support · red dashed = nearby resistance'} · white = spot. Hover a candle for open / high / low / close.`}
+        >
+          ⓘ Legend        </p>
       </div>
     </section>
   );
