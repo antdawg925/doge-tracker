@@ -36,9 +36,9 @@ export default function LevelTable({ rows, label }) {
               <span className="lvt__name">
                 <span className="lvt__nm">
                   {r.name}
+                  {r.tag ? <span className={`lvt__tag ${r.tagCls || ''}`}>{r.tag}</span> : null}
                   {r.act ? <span className="lvt__act"> · {r.act}</span> : null}
                 </span>
-                {r.tag ? <span className={`lvt__tag ${r.tagCls || ''}`}>{r.tag}</span> : null}
               </span>
               <span className="lvt__px mono">{r.price}</span>
               <span className={`lvt__pct mono ${r.pctCls || ''}`}>{r.pct}</span>
