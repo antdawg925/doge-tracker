@@ -208,6 +208,7 @@ export default function Research() {
             position={position}
             tfSets={tfSets}
           />
+          <div className="sr-pair">
           <SupportPanel
             levels={levels}
             spot={price}
@@ -225,6 +226,7 @@ export default function Research() {
             warning={longWarning}
             chartLevels={levels}
           />
+          </div>
         </main>
 
         <aside className="desk-aside desk-aside--rail">

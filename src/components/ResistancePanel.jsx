@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { formatPct, formatPrice, formatUsd } from '../lib/format';
 import { upsideFromHereCopy } from '../lib/levelCopy';
+import LevelTable, { InfoTip } from './LevelTable';
 import { hasEnteredPosition } from '../lib/math';
 import {
   buildMultiTfResistance,
@@ -67,33 +68,42 @@ export default function ResistancePanel({
   const primaryId = primary?.id ?? topLevels[0]?.id ?? null;
   const hasAnyAbove = topLevels.length > 0;
 
-  return (
-    <section className="card">
-      <div className="card__head">
-        <h2>Resistance</h2>
-        <span className="muted">
-          Top {topLevels.length || 5} ceilings · 6M / 1Y / max · trim zones
-        </span>
-      </div>
+  const info = `Resistance = prices where sellers often show up and rallies stall: natural places to trim or take profit on ${sym}. Showing the 5 most important ceilings: nearest structural, short-term, and longer 6M / 1Y / max highs when available. ${
+    hasPos
+      ? 'Upside dollars are vs your average cost for the whole holding (total gain/loss vs what you paid if that ceiling hits).'
+      : 'No holding entered: showing percent from today only (no made-up dollar amounts).'
+  } Hover or tap a row for details.`;
 
-      <p className="hint">
-        <strong>Resistance</strong> = prices where sellers often show up and
-        rallies stall — natural places to trim or take profit on {sym}. Showing
-        the <strong>5 most important</strong> ceilings (nearest structural,
-        short-term, and longer 6M / 1Y / max highs when available).{' '}
-        {hasPos ? (
-          <>
-            Upside dollars are vs <strong>your average cost</strong> for the
-            whole holding (total gain/loss vs what you paid if that ceiling
-            hits).
-          </>
-        ) : (
-          <>
-            No holding entered — showing <strong>percent from today</strong>{' '}
-            only (no made-up dollar amounts).
-          </>
-        )}
-      </p>
+  const table = topLevels.map((level) => {
+    const isPrimary = level.id === primaryId;
+    const usdVsCost = hasPos ? level.upsideVsCost : null;
+    const pctVsCost =
+      hasPos && usdVsCost != null && coins > 0 && Number.isFinite(position.avgCost) && position.avgCost > 0
+        ? (usdVsCost / (coins * position.avgCost)) * 100
+        : null;
+    const copy = upsideFromHereCopy({ hasPosition: hasPos, usdVsCost, pctVsCost, pctFromSpot: level.distPct });
+    return {
+      id: level.id,
+      name: level.friendlyLabel || level.name,
+      tag: isPrimary ? 'trim' : null,
+      tagCls: 'lvt__tag--trim',
+      price: formatPrice(level.price),
+      pct: formatPct(level.distPct, 1),
+      pctCls: 'pos',
+      usd: hasPos && usdVsCost != null ? formatUsd(usdVsCost, { sign: true, decimals: 0 }) : null,
+      usdCls: usdVsCost == null ? 'muted' : usdVsCost >= 0 ? 'pos' : 'neg',
+      detail: [level.why, copy, isPrimary ? 'Primary trim level.' : ''],
+    };
+  });
+
+  return (
+    <section className="card lv-card">
+      <div className="card__head lv-card__head">
+        <h2>
+          Resistance <InfoTip text={info} />
+        </h2>
+        <span className="muted small">Top {topLevels.length || 5} ceilings · 6M / 1Y / max</span>
+      </div>
 
       {warning && <p className="warn-banner">{warning}</p>}
       {error && !hasAnyAbove && (
@@ -131,66 +141,7 @@ export default function ResistancePanel({
         </p>
       )}
 
-      {topLevels.length > 0 && (
-        <ol className="sr-list">
-          {topLevels.map((level) => {
-            const isPrimary = level.id === primaryId;
-            const usdVsCost = hasPos ? level.upsideVsCost : null;
-            const pctVsCost =
-              hasPos &&
-              usdVsCost != null &&
-              coins > 0 &&
-              Number.isFinite(position.avgCost) &&
-              position.avgCost > 0
-                ? (usdVsCost / (coins * position.avgCost)) * 100
-                : null;
-            const copy = upsideFromHereCopy({
-              hasPosition: hasPos,
-              usdVsCost,
-              pctVsCost,
-              pctFromSpot: level.distPct,
-            });
-            const toneClass =
-              hasPos && usdVsCost != null
-                ? usdVsCost >= 0
-                  ? 'pos'
-                  : 'neg'
-                : level.distPct == null
-                  ? 'muted'
-                  : 'pos';
-            return (
-              <li
-                key={level.id}
-                className={`sr-item sr-item--resist ${
-                  isPrimary ? 'sr-item--primary' : ''
-                }`}
-              >
-                <div className="sr-item__top">
-                  <div>
-                    <strong className="sr-item__label">
-                      {level.friendlyLabel || level.name}
-                    </strong>
-                    {isPrimary && (
-                      <span className="badge badge--trim">Primary trim</span>
-                    )}
-                    <div className="sr-item__price mono">
-                      {formatPrice(level.price)}
-                    </div>
-                  </div>
-                  <div className="sr-item__dist mono pos">
-                    {formatPct(level.distPct, 1)}
-                    <span className="muted small"> above</span>
-                  </div>
-                </div>
-                <p className="sr-item__why">{level.why}</p>
-                <div className="sr-item__meta">
-                  <span className={toneClass}>{copy}</span>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      {table.length > 0 && <LevelTable rows={table} label="Resistance levels" />}
 
       {comparison.length > 1 && (
         <details className="resist-compare resist-compare--secondary">
