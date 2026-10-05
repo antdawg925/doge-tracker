@@ -33,7 +33,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
     const copy = riskFromHereCopy({ hasPosition: hasPos, usdVsCost, pctVsCost, pctFromSpot: -s.distPctBelow });
     return {
       id: s.id,
-      name: s.label,
+      name: String(s.label || '').replace(/\s*\(.*\)\s*$/, '') || s.label,
       tag: isPrimary ? 'main' : null,
       tagCls: 'lvt__tag--main',
       price: formatPrice(s.price),
@@ -41,7 +41,7 @@ export default function SuggestedStops({ levels, spot, position, tfSets }) {
       pctCls: 'neg',
       usd: hasPos && usdVsCost != null ? formatUsd(usdVsCost, { sign: true, decimals: 0 }) : null,
       usdCls: usdVsCost == null ? 'muted' : usdVsCost >= 0 ? 'pos' : 'neg',
-      detail: [s.name, s.why, copy, isPrimary ? 'Recommended: closest meaningful support (ideally ~3–5% below spot so everyday noise doesn’t stop you out).' : ''],
+      detail: [/\(/.test(s.label || '') ? `${s.label} · ${s.name}` : s.name, s.why, copy, isPrimary ? 'Recommended: closest meaningful support (ideally ~3–5% below spot so everyday noise doesn’t stop you out).' : ''],
     };
   });
 
