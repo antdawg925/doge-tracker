@@ -5207,3 +5207,5 @@ p {
   .rtabs__tab { min-height: 38px; padding: 0 0.85rem; }
   .mlv__stop { font-size: 0.84rem; }
 }
+.mlv__stopline { display: inline; line-height: 1.5; }
+.mlv__stopline .info-tip { vertical-align: -3px; margin-left: 0.3rem; }
