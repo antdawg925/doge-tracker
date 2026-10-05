@@ -5,6 +5,7 @@ import { applyInvestableProfile, applyMomentumProfile, fetchScannerUniverse } fr
 import { fetchYahooChart } from './yahoo.js';
 import { scoreMarketStage } from './marketStage.js';
 import { buildDipPlan, DIP_EXCLUDES } from '../../shared/dipBuys.js';
+import { fetchStockFundamentals } from './fundamentals.js';
 import { toPeriod } from './majorLevels.js';
 
 const ENRICH_N = 28;
@@ -37,10 +38,13 @@ export async function enrichDipRow(row, { signal } = {}) {
     const stage = scoreMarketStage(daily, { assetType: 'stock' });
     if (!stage.ok || ![1, 2].includes(stage.stage)) return null;
     const spot = row.price ?? daily?.at?.(-1)?.close;
+    const fund = await fetchStockFundamentals(sym, { signal }).catch(() => null);
+    const earnRaw = fund?.nextEarningsRaw;
+    const earningsAt = Number.isFinite(earnRaw) ? (earnRaw < 1e12 ? earnRaw * 1000 : earnRaw) : row.earningsAt ?? null;
     const plan = buildDipPlan(sym, wk, spot, {
       stage: stage.stage,
       dailyCloses: (daily || []).map((b) => b.close).filter((c) => Number.isFinite(c)),
-      earningsAt: row.earningsAt ?? null,
+      earningsAt,
     });
     if (!plan) return null;
     // Liquid swing names only: ≥ $10, dip of at least 0.5% and at most 25% away.
