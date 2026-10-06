@@ -144,7 +144,7 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   const out = await runStockPlans(sb, { profiles: [{ id: 'u1', telegram_chat_id: null, stocks_live: true }], markets: new Map([['XYZ', { price: 71 }]]), force: true });
   ok('runner short dry-run', out.dry === 1 && out.placed === 0, JSON.stringify(out));
   ok('runner logs SELL_SHORT payload', plan.data.lastDry?.action === 'place_limit_sell_short' && plan.data.lastDry.payload.orderLegCollection[0].instruction === 'SELL_SHORT');
-  const al = sb.writes.find((w) => w.t === 'bot_alerts');
+  const al = sb.writes.find((w) => w.t === 'stock_alert_log');
   ok('Sell highs alert text', al && al.payload.title.startsWith('Sell highs · XYZ: DRY-RUN short') && /SELL SHORT 28 sh/.test(al.payload.message) && al.payload.symbol === 'XYZ', JSON.stringify(al?.payload));
 
   const plan2 = { ...plan, id: 'p2', data: {}, status: 'pending' };

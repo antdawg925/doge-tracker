@@ -32,16 +32,16 @@ async function loadConns(sb, userIds) {
 async function alert(sb, { userId, chatId, kind, title, message, urgent = false, nowMs, symbol = null, short = false }) {
   // Sell highs (short) plans are tagged so Telegram + My Bot read the same way as dip buys.
   title = `${short ? 'Sell highs' : 'Buy dips'} · ${title}`
-  await sb.from('bot_alerts').insert({
+  // In-app alert log (same table the Stocks alerts + Schwab reminders use).
+  const ins = await sb.from('stock_alert_log').insert({
     user_id: userId,
-    symbol: (symbol || title.split(':')[0])?.slice(0, 12) || 'STOCK',
+    symbol: String(symbol || title.split(':')[0] || 'STOCK').slice(0, 12),
+    fired_at: new Date(nowMs || Date.now()).toISOString(),
     kind,
     title: clip(title, 120),
     message: clip(message, 500),
-    level: null,
-    price: null,
-    data: { source: 'stock_plans', side: short ? 'short' : 'long' },
-  }).then(() => {}, () => {})
+  }).then((r) => r, (e) => ({ error: e }))
+  if (ins?.error) console.error('stock_plans alert log', ins.error?.message || ins.error)
   if (chatId) await notify(sb, { userId, chatId, text: `${title}\n${message}`, urgent, nowMs }).catch(() => {})
 }
 
