@@ -214,7 +214,7 @@ async function stockRoute(sb, req, res, route) {
     const side = body.side === 'short' ? 'short' : 'long'
     const short = side === 'short'
     const symbol = String(body.symbol || '').trim().toUpperCase()
-    if (DIP_EXCLUDES.has(symbol)) return sendJson(res, 400, { error: `TSLA is excluded from ${short ? 'short' : 'dip-buy'} plans.` })
+    if (DIP_EXCLUDES.has(symbol)) return sendJson(res, 400, { error: `TSLA is excluded from ${short ? 'Sell highs' : 'Buy dips'} plans.` })
     if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return sendJson(res, 400, { error: 'Enter a stock symbol.' })
     const limit = Number(body.limit)
     const stop = Number(body.stop)

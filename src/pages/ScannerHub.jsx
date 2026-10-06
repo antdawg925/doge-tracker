@@ -1,9 +1,7 @@
 import { useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import Scanner from './Scanner';
 import ShortKings from './ShortKings';
-import DipBuys from './DipBuys';
-import SellHighs from './SellHighs';
 
 /**
  * One Scanner page with screen presets (former Scanner lanes + Short Kings modes).
@@ -13,14 +11,12 @@ import SellHighs from './SellHighs';
 const PRESETS = [
   { id: 'momentum', label: 'Momentum' },
   { id: 'investable', label: 'Investable' },
-  { id: 'dip-buys', label: 'Dip buys' },
-  { id: 'sell-highs', label: 'Sell highs' },
   { id: 'short-hunt', label: 'Short hunt' },
   { id: 'my-shorts', label: 'My shorts' },
 ];
 const KEY = 'tsb.scanner.mode';
-/** Old preset ids → current ones. */
-const ALIASES = { 'short-bounces': 'sell-highs' };
+/** Buy dips + Sell highs moved to My Bot tabs (bot access only). Old ?mode= links redirect there. */
+const MOVED_TO_BOT = { 'dip-buys': 'buy-dips', 'buy-dips': 'buy-dips', 'sell-highs': 'sell-highs', 'short-bounces': 'sell-highs' };
 const valid = (m) => PRESETS.some((p) => p.id === m);
 function stored() {
   try {
@@ -33,27 +29,23 @@ function stored() {
 
 export default function ScannerHub() {
   const [params, setParams] = useSearchParams();
-  const rawMode = params.get('mode');
-  const fromUrl = ALIASES[rawMode] || rawMode;
+  const fromUrl = params.get('mode');
+  const moved = MOVED_TO_BOT[fromUrl] || null;
   const mode = valid(fromUrl) ? fromUrl : stored() || 'momentum';
 
-  // ?mode=short-bounces → ?mode=sell-highs
   useEffect(() => {
-    if (rawMode && ALIASES[rawMode]) setParams({ mode: ALIASES[rawMode] }, { replace: true });
-  }, [rawMode, setParams]);
-
-  useEffect(() => {
+    if (moved) return;
     try {
       localStorage.setItem(KEY, mode);
     } catch {
       /* private mode */
     }
-  }, [mode]);
+  }, [mode, moved]);
 
   const pick = (id) => setParams({ mode: id }, { replace: true });
   const shorts = mode === 'short-hunt' || mode === 'my-shorts';
-  const dips = mode === 'dip-buys';
-  const sellHighs = mode === 'sell-highs';
+
+  if (moved) return <Navigate to={`/bot?tab=${moved}`} replace />;
 
   return (
     <div className="scan-hub">
@@ -67,7 +59,7 @@ export default function ScannerHub() {
           ))}
         </div>
       </div>
-      {dips ? <DipBuys /> : sellHighs ? <SellHighs /> : shorts ? <ShortKings embedded mode={mode === 'short-hunt' ? 'hunt' : 'my-shorts'} /> : <Scanner embedded lane={mode} />}
+      {shorts ? <ShortKings embedded mode={mode === 'short-hunt' ? 'hunt' : 'my-shorts'} /> : <Scanner embedded lane={mode} />}
     </div>
   );
 }

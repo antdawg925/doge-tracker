@@ -1,6 +1,6 @@
 /**
  * Dip-buy plan (pure): major support as the limit, holding stop under it, T1 = next resistance.
- * Used by the Scanner "Dip buys" preset and by stock_plans (Schwab limit + protective stop).
+ * Used by My Bot → Buy dips and by stock_plans (Schwab limit + protective stop).
  * Never touches TSLA. Default dry-run.
  */
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';

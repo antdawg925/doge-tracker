@@ -15,7 +15,7 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, busy, msg }) 
     <div className="dip-sheet" role="dialog" aria-label={`Buy ${row.symbol}`}>
       <div className="dip-sheet__card card">
         <div className="dip-sheet__head">
-          <h2>Buy {row.symbol}</h2>
+          <h2>Buy dip · {row.symbol}</h2>
           <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} aria-label="Close">
             ×
           </button>
@@ -70,7 +70,7 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, busy, msg }) 
   );
 }
 
-/** Scanner preset: liquid Momentum/Investable names in an uptrend/base with a major support to buy. */
+/** My Bot → Buy dips: liquid Momentum/Investable names in an uptrend/base with a major support to buy. */
 export default function DipBuys() {
   const { hasBotAccess, isOwner } = useAuth();
   const canBuy = hasBotAccess || isOwner;
@@ -135,11 +135,11 @@ export default function DipBuys() {
   const list = rows || [];
 
   return (
-    <main className="scanner scanner--embedded dip">
+    <div className="scanner scanner--embedded bot-scan dip">
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__subtitle muted">Uptrend / base names with a major support below. Limit at the floor, stop = support − 1 weekly ATR. TSLA excluded.</p>
+            <p className="small muted bot-scan__lead">Buy dips · Momentum + Investable names, stage 1–2.</p>
           </div>
           <div className="scanner__controls">
             <button type="button" className="btn" disabled={Boolean(progress)} onClick={() => setTick((n) => n + 1)}>
@@ -210,6 +210,6 @@ export default function DipBuys() {
         </table>
       </div>
       {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} /> : null}
-    </main>
+    </div>
   );
 }

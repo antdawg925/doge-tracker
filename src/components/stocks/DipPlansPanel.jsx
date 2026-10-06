@@ -5,7 +5,7 @@ import { formatPrice } from '../../lib/format.js';
 const px = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : formatPrice(Number(n)));
 
 /**
- * My Bot → Stocks: dip-buy (long) and Sell highs (short) plans: pending limit → filled stop → ratchet.
+ * My Bot → Stocks: Buy dips (long) and Sell highs (short) plans: pending limit → filled stop → ratchet.
  * Default dry-run; per-user Stocks Live switch (also needs Schwab Live ON to send orders).
  */
 export default function DipPlansPanel() {
@@ -49,7 +49,7 @@ export default function DipPlansPanel() {
   return (
     <div className="dip-plans">
       <div className="dip-plans__head">
-        <h3 className="mlv__h">Dip buys &amp; Sell highs</h3>
+        <h3 className="mlv__h">Buy dips &amp; Sell highs</h3>
         <label className={`stk-switch stk-switch--sm${live ? ' is-on' : ''}`} title="When ON (and Schwab Live is ON), pending plans place real LIMIT buys / SELL_SHORT limits in RTH. Default is dry-run.">
           <input
             type="checkbox"
@@ -65,7 +65,7 @@ export default function DipPlansPanel() {
           <span>Stocks Live {live ? 'ON' : 'OFF'}</span>
         </label>
       </div>
-      <p className="small muted">From Scanner → Dip buys and Sell highs. Default dry-run logs what it would do. Unfilled entries cancel after 10 days, or if price crosses the stop first.</p>
+      <p className="small muted">From My Bot → Buy dips and Sell highs. Default dry-run logs what it would do. Unfilled entries cancel after 10 days, or if price crosses the stop first.</p>
       {err ? <p className="small neg">{err}</p> : null}
       {!plans.length ? (
         <p className="muted small">No plans yet.</p>
@@ -79,7 +79,7 @@ export default function DipPlansPanel() {
               <li key={p.id} className={`dip-plans__row dip-plans__row--${p.status}`}>
                 <div className="dip-plans__sym">
                   <strong>{p.symbol}</strong>
-                  <span className={`dip-plans__side dip-plans__side--${short ? 'short' : 'long'}`}>{short ? 'Sell high' : 'Dip buy'}</span>
+                  <span className={`dip-plans__side dip-plans__side--${short ? 'short' : 'long'}`}>{short ? 'Sell high' : 'Buy dip'}</span>
                   <span className={`dip-plans__st dip-plans__st--${p.status}`}>{p.status}{p.dry_run ? ' · dry' : ''}</span>
                 </div>
                 <div className="dip-plans__nums mono small">

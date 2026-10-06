@@ -112,7 +112,7 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, busy, msg, borrow
   );
 }
 
-/** Scanner preset "Sell highs": weak names bouncing into a major resistance → short there. */
+/** My Bot → Sell highs: weak names bouncing into a major resistance → short there. */
 export default function SellHighs() {
   const { hasBotAccess, isOwner } = useAuth();
   const canTrade = hasBotAccess || isOwner;
@@ -179,14 +179,11 @@ export default function SellHighs() {
   const cols = 12;
 
   return (
-    <main className="scanner scanner--embedded dip sh">
+    <div className="scanner scanner--embedded bot-scan dip sh">
       <div className="scanner__header card">
         <div className="scanner__title-row">
           <div>
-            <p className="scanner__subtitle muted">
-              Weak names (stage 3–4, below SMA50, downtrend) bouncing toward a major resistance. Short limit just under it, cover stop = resistance + 1 weekly ATR, cover at the next support. $
-              {SHORT_RISK_USD} risk default. TSLA excluded.
-            </p>
+            <p className="small muted bot-scan__lead">Sell highs · weak names bouncing into resistance.</p>
             {data && !data.borrowAvailable ? <p className="small muted sh-note">Borrow column: connect Schwab on My Bot → Stocks to see ETB / HTB from Schwab quotes.</p> : null}
           </div>
           <div className="scanner__controls">
@@ -269,6 +266,6 @@ export default function SellHighs() {
       {sheet ? (
         <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}
-    </main>
+    </div>
   );
 }

@@ -2,7 +2,7 @@
  * "Sell highs" short plan (pure): weak name (Weinstein stage 3–4, below SMA50, downtrend) bouncing up
  * into a major resistance. Short limit at/just below the resistance, buy-to-cover stop one weekly
  * ATR above it, cover target = next major support. Stop ratchets DOWN only.
- * Never TSLA. Default dry-run. Used by Scanner "Sell highs" (?mode=sell-highs) and stock_plans side='short'.
+ * Never TSLA. Default dry-run. Used by My Bot → Sell highs (/bot?tab=sell-highs) and stock_plans side='short'.
  */
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';
 import { buildShortLimitOrder as schwabShortLimit, roundStop, tickSize } from './schwabLive.js';

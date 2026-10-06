@@ -1,5 +1,5 @@
 /**
- * Client: build Dip buys rows from the Momentum + Investable universe using major levels.
+ * Client: build Buy dips rows from the Momentum + Investable universe using major levels.
  */
 import { applyInvestableProfile, applyMomentumProfile, fetchScannerUniverse } from './scanner.js';
 import { fetchYahooChart } from './yahoo.js';

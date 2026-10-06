@@ -1,5 +1,5 @@
 /**
- * Dip-buy (long) + Sell highs short (short) stock_plans runner (called from the 5-min stocks cron).
+ * Buy dips (long) + Sell highs (short) stock_plans runner (called from the 5-min stocks cron).
  * Short: SELL_SHORT limit in RTH → on fill BUY_TO_COVER STOP above; stop ratchets DOWN only on a
  * daily close below each support rung; Schwab "not shortable" rejection → alert + cancelled.
  * Default dry-run: logs intended Schwab LIMIT BUY / STOP actions, places nothing.
@@ -31,7 +31,7 @@ async function loadConns(sb, userIds) {
 
 async function alert(sb, { userId, chatId, kind, title, message, urgent = false, nowMs, symbol = null, short = false }) {
   // Sell highs (short) plans are tagged so Telegram + My Bot read the same way as dip buys.
-  if (short) title = `Sell highs · ${title}`
+  title = `${short ? 'Sell highs' : 'Buy dips'} · ${title}`
   await sb.from('bot_alerts').insert({
     user_id: userId,
     symbol: (symbol || title.split(':')[0])?.slice(0, 12) || 'STOCK',

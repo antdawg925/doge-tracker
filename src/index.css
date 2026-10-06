@@ -5254,3 +5254,12 @@ p {
 .sh-squeeze--x { color: #f07178; border-color: rgba(240, 113, 120, 0.5); }
 .sh-note { margin: 0.25rem 0 0; }
 .sh-sheet .dip-sheet__head h2 { font-size: 1.05rem; }
+/* My Bot: Buy dips / Sell highs tabs (4 tabs scroll sideways on narrow phones) */
+.bot-tabs { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.bot-tabs::-webkit-scrollbar { display: none; }
+.bot-tabs .scanner__tab { white-space: nowrap; flex: 0 0 auto; }
+.bot-scan { padding: 0; }
+.bot-scan__lead { margin: 0; }
+@media (max-width: 640px) {
+  .mb-page .bot-tabs .scanner__tab { padding: 0 0.8rem; }
+}
