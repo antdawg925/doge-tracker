@@ -8,12 +8,20 @@
 const DAY = 86400000;
 const fin = (x) => Number.isFinite(x);
 
-/** Calendar days held from an open date ('YYYY-MM-DD' or ms/ISO) to now (borrow accrues every day). */
+/** Calendar days held (US Eastern dates) from an open date ('YYYY-MM-DD', ISO or ms) to now. */
+const etDate = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 export function daysHeld(openedAt, nowMs = Date.now()) {
   if (openedAt == null || openedAt === '') return null;
-  const t = typeof openedAt === 'number' ? openedAt : Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(String(openedAt)) ? `${openedAt}T00:00:00Z` : openedAt);
-  if (!fin(t)) return null;
-  return Math.max(0, Math.floor((nowMs - t) / DAY));
+  const raw = String(openedAt);
+  let open;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) open = raw;
+  else {
+    const t = typeof openedAt === 'number' ? openedAt : Date.parse(raw);
+    if (!fin(t)) return null;
+    open = etDate(t);
+  }
+  const d = Math.round((Date.parse(`${etDate(nowMs)}T00:00:00Z`) - Date.parse(`${open}T00:00:00Z`)) / DAY);
+  return fin(d) ? Math.max(0, d) : null;
 }
 
 export function dailyBorrow({ htbRate, shares, price }) {
