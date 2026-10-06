@@ -32,7 +32,7 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
   }, [range, daily, weekly]);
 
   useEffect(() => {
-    fitRef.current = lines.map((l) => Number(l.price)).filter((v) => Number.isFinite(v) && v > 0 && !l.muted);
+    fitRef.current = lines.filter((l) => !l.muted).map((l) => Number(l.price)).filter((v) => Number.isFinite(v) && v > 0);
   });
 
   useEffect(() => {
