@@ -287,6 +287,31 @@ await ok('adapter: POST/PUT/DELETE paths + body, order id from Location, positio
   assert.equal(S.orderIdFromLocation('https://api.schwabapi.com/trader/v1/accounts/ABC/orders/123456'), '123456');
 });
 
+await ok('SELL_SHORT JSON + adapter (mocked HTTP, no real orders): LIMIT NORMAL GTC SELL_SHORT; borrow reads only reference fields', async () => {
+  assert.deepEqual(L.buildShortLimitOrder({ symbol: 'xyz', qty: 28, limitPrice: 73.087 }), {
+    orderType: 'LIMIT', session: 'NORMAL', duration: 'GOOD_TILL_CANCEL', orderStrategyType: 'SINGLE', price: '73.08',
+    orderLegCollection: [{ instruction: 'SELL_SHORT', quantity: 28, instrument: { symbol: 'XYZ', assetType: 'EQUITY' } }],
+  });
+  assert.throws(() => L.buildShortLimitOrder({ symbol: 'TSLA', qty: 1, limitPrice: 200 }));
+  assert.throws(() => L.buildShortLimitOrder({ symbol: 'XYZ', qty: 0, limitPrice: 200 }));
+  const mock = mockSchwab();
+  const b = S.createSchwabBroker({ call: S.schwabHttp({ token: 'AT', fetchImpl: mock.fetchImpl }), accountHash: 'HASHABC', nowMs: NOW });
+  const r = await b.placeShortSell({ symbol: 'XYZ', qty: 28, limitPrice: 73.08 });
+  assert.ok(r.orderId);
+  const post = mock.calls.find((c) => c.m === 'POST');
+  assert.equal(post.path, '/trader/v1/accounts/HASHABC/orders');
+  assert.equal(post.body.orderLegCollection[0].instruction, 'SELL_SHORT');
+  assert.equal(post.body.price, '73.08');
+  const cover = await b.placeStop({ symbol: 'XYZ', positionSide: 'short', qty: 28, stopPrice: 76.62 });
+  assert.ok(cover.orderId);
+  assert.equal(mock.calls.filter((c) => c.m === 'POST')[1].body.orderLegCollection[0].instruction, 'BUY_TO_COVER');
+  const borrow = await b.getBorrow(['SPY']);
+  const q = mock.calls.find((c) => c.m === 'GET' && c.path === '/marketdata/v1/quotes');
+  assert.equal(q.query.fields, 'reference');
+  assert.equal(borrow.get('SPY')?.status ?? null, null, 'no reference block → nothing invented');
+  assert.deepEqual(L.borrowFromQuote({ reference: { isShortable: true, isHardToBorrow: true, htbRate: 8.25, htbQuantity: 1200 } }), { isShortable: true, isHardToBorrow: true, htbRate: 8.25, htbQuantity: 1200, status: 'HTB' });
+});
+
 // ---- mocked Supabase (records writes)
 function mockSb(tables) {
   const writes = [];

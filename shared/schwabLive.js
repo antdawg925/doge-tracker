@@ -77,6 +77,52 @@ export function buildLimitBuyOrder({ symbol, qty, limitPrice, duration = 'GOOD_T
   };
 }
 
+/**
+ * Equity LIMIT SELL_SHORT (Trader API). Regular session only (NORMAL); the caller places it in RTH.
+ * Price rounds DOWN to a valid tick (at or just below the resistance). Never TSLA.
+ */
+export function buildShortLimitOrder({ symbol, qty, limitPrice, duration = 'GOOD_TILL_CANCEL' }) {
+  if (!(qty > 0) || !Number.isInteger(qty)) throw new Error('quantity must be a whole number > 0');
+  if (!(limitPrice > 0)) throw new Error('limitPrice must be > 0');
+  const sym = String(symbol || '').toUpperCase();
+  if (!sym || sym === 'TSLA') throw new Error('symbol not allowed');
+  const tick = tickSize(limitPrice);
+  const price = Number((Math.floor(limitPrice / tick + 1e-7) * tick).toFixed(tick >= 0.01 ? 2 : 4));
+  return {
+    orderType: 'LIMIT',
+    session: 'NORMAL',
+    duration: duration === 'DAY' ? 'DAY' : 'GOOD_TILL_CANCEL',
+    orderStrategyType: 'SINGLE',
+    price: stopString(price),
+    orderLegCollection: [{ instruction: 'SELL_SHORT', quantity: qty, instrument: { symbol: sym, assetType: 'EQUITY' } }],
+  };
+}
+
+/**
+ * Borrow / shortability fields Schwab documents on GET /marketdata/v1/quotes?fields=reference
+ * (reference.isShortable, reference.isHardToBorrow, reference.htbRate, reference.htbQuantity).
+ * Only these four are read; anything absent stays null (no invented fields).
+ */
+export function borrowFromQuote(q) {
+  const ref = q?.reference || {};
+  const bool = (v) => (typeof v === 'boolean' ? v : null);
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const isShortable = bool(ref.isShortable);
+  const isHardToBorrow = bool(ref.isHardToBorrow);
+  return {
+    isShortable,
+    isHardToBorrow,
+    htbRate: num(ref.htbRate),
+    htbQuantity: num(ref.htbQuantity),
+    status: isShortable === false ? 'NOT_SHORTABLE' : isHardToBorrow === true ? 'HTB' : isHardToBorrow === false && isShortable !== false ? 'ETB' : null,
+  };
+}
+
+/** Does a Schwab order rejection read like "can't short this"? (status text or error body). */
+export function isNotShortableError(msg) {
+  return /not\s*(be\s*)?shortable|no\s+shares\s+available|unable\s+to\s+borrow|hard[-\s]to[-\s]borrow|short\s+sale.*(not|restricted|rejected)|cannot\s+(be\s+)?sold\s+short|locate/i.test(String(msg || ''));
+}
+
 /** Schwab equity STOP order JSON (Trader API order schema; GTC, NORMAL session). */
 export function buildStopOrder({ symbol, side, qty, stopPrice }) {
   if (!(qty > 0) || !Number.isInteger(qty)) throw new Error('quantity must be a whole number > 0');

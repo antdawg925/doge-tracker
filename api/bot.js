@@ -44,6 +44,7 @@ import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { flushDigests } from './_notify.js'
 import { manageBuys, placeBuy, placeLimitSell, previewBuy } from './_dogeBuy.js'
 import { DIP_EXCLUDES, dollarRisk, sharesForAmount } from '../shared/dipBuys.js'
+import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../shared/sellHighs.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
@@ -210,37 +211,49 @@ async function stockRoute(sb, req, res, route) {
     return sendJson(res, 200, { ok: true, stocksLive: on })
   }
   if (route === 'stocks/plans/create') {
+    const side = body.side === 'short' ? 'short' : 'long'
+    const short = side === 'short'
     const symbol = String(body.symbol || '').trim().toUpperCase()
-    if (DIP_EXCLUDES.has(symbol)) return sendJson(res, 400, { error: 'TSLA is excluded from dip-buy plans.' })
+    if (DIP_EXCLUDES.has(symbol)) return sendJson(res, 400, { error: `TSLA is excluded from ${short ? 'short' : 'dip-buy'} plans.` })
     if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return sendJson(res, 400, { error: 'Enter a stock symbol.' })
     const limit = Number(body.limit)
     const stop = Number(body.stop)
     const t1 = body.t1 != null ? Number(body.t1) : null
     const amount = Number(body.amountUsd ?? body.amount)
-    let shares = body.shares != null ? Number(body.shares) : sharesForAmount(amount, limit)
+    const riskIn = Number(body.riskUsd ?? (short ? SHORT_RISK_USD : NaN))
+    if (!(limit > 0) || !(stop > 0)) return sendJson(res, 400, { error: 'Need limit and stop > 0.' })
+    if (!short && !(stop < limit)) return sendJson(res, 400, { error: 'Need limit > stop > 0.' })
+    if (short && !(stop > limit)) return sendJson(res, 400, { error: 'Short needs stop > limit (buy-to-cover stop above the entry).' })
+    let shares = body.shares != null ? Number(body.shares) : short ? sharesForRisk(riskIn, limit, stop) : sharesForAmount(amount, limit)
     shares = Math.floor(shares)
-    if (!(shares > 0)) return sendJson(res, 400, { error: 'Shares must be a whole number > 0 (check $ to spend / limit).' })
-    if (!(limit > 0) || !(stop > 0) || !(stop < limit)) return sendJson(res, 400, { error: 'Need limit > stop > 0.' })
-    if (body.confirm !== 'BUY') return sendJson(res, 400, { error: 'Confirm BUY to place the plan.' })
+    if (!(shares > 0)) return sendJson(res, 400, { error: short ? 'Shares must be a whole number > 0 (check $ risk vs stop distance).' : 'Shares must be a whole number > 0 (check $ to spend / limit).' })
+    const want = short ? 'SHORT' : 'BUY'
+    if (body.confirm !== want) return sendJson(res, 400, { error: `Confirm ${want} to place the plan.` })
     const dry = body.dryRun !== false // default dry-run unless explicitly false AND stocks_live
     const { data: prof } = await sb.from('profiles').select('stocks_live').eq('id', who.user.id).maybeSingle()
     const dryRun = dry || !prof?.stocks_live
-    const risk = dollarRisk(shares, limit, stop)
+    const risk = short ? shortDollarRisk(shares, limit, stop) : dollarRisk(shares, limit, stop)
+    const ladder = (Array.isArray(body.ladder) ? body.ladder : [])
+      .map((r) => ({ trigger: Number(r?.trigger), stop: Number(r?.stop) }))
+      .filter((r) => r.trigger > 0 && r.stop > 0 && (short ? r.stop < stop : r.stop > stop))
+      .slice(0, 6)
     const row = {
       user_id: who.user.id,
       symbol,
+      side,
       shares,
-      amount_usd: Number.isFinite(amount) ? amount : null,
+      amount_usd: short ? Number((shares * limit).toFixed(2)) : Number.isFinite(amount) ? amount : null,
+      risk_usd: short && riskIn > 0 ? riskIn : null,
       limit_price: limit,
       stop_price: stop,
       t1_price: Number.isFinite(t1) ? t1 : null,
       status: 'pending',
       dry_run: dryRun,
       cancel_days: Number(body.cancelDays) > 0 ? Math.min(60, Number(body.cancelDays)) : 10,
-      ladder: Array.isArray(body.ladder) ? body.ladder : [],
-      next_rung: body.ladder?.[0] || null,
+      ladder,
+      next_rung: ladder[0] || null,
       notes: String(body.notes || '').slice(0, 300),
-      data: { riskUsd: risk, preview: true },
+      data: { riskUsd: risk, preview: true, ...(short ? { borrow: body.borrow && typeof body.borrow === 'object' ? body.borrow : null, squeeze: body.squeeze ?? null } : {}) },
     }
     const { data, error } = await sb.from('stock_plans').insert(row).select('*').single()
     if (error) return sendJson(res, 500, { error: error.message })
@@ -251,7 +264,7 @@ async function stockRoute(sb, req, res, route) {
     if (!id) return sendJson(res, 400, { error: 'Missing plan id.' })
     const { data: plan } = await sb.from('stock_plans').select('*').eq('id', id).eq('user_id', who.user.id).maybeSingle()
     if (!plan) return sendJson(res, 404, { error: 'Plan not found.' })
-    if (!['pending', 'working'].includes(plan.status)) return sendJson(res, 400, { error: 'Only pending/working buys can be cancelled here.' })
+    if (!['pending', 'working'].includes(plan.status)) return sendJson(res, 400, { error: 'Only pending/working entries can be cancelled here.' })
     const { error } = await sb.from('stock_plans').update({ status: 'cancelled', last_error: 'cancelled by user' }).eq('id', id)
     if (error) return sendJson(res, 500, { error: error.message })
     return sendJson(res, 200, { ok: true })
@@ -259,11 +272,12 @@ async function stockRoute(sb, req, res, route) {
   if (route === 'stocks/plans/raise') {
     const id = body.id || body.planId
     const to = Number(body.price)
-    if (!id || !(to > 0)) return sendJson(res, 400, { error: 'Need plan id and a higher stop price.' })
+    if (!id || !(to > 0)) return sendJson(res, 400, { error: 'Need plan id and a tighter stop price.' })
     const { data: plan } = await sb.from('stock_plans').select('*').eq('id', id).eq('user_id', who.user.id).maybeSingle()
-    if (!plan || plan.status !== 'filled') return sendJson(res, 400, { error: 'Raise only applies to filled plans.' })
+    if (!plan || plan.status !== 'filled') return sendJson(res, 400, { error: 'Moving the stop only applies to filled plans.' })
     const cur = Number(plan.last_stop_price || plan.stop_price)
-    if (!(to > cur)) return sendJson(res, 400, { error: `New stop must be above the current ${cur}.` })
+    // Stops only tighten: long → up, short → down.
+    if (plan.side === 'short' ? !(to < cur) : !(to > cur)) return sendJson(res, 400, { error: `New stop must be ${plan.side === 'short' ? 'below' : 'above'} the current ${cur}.` })
     const { error } = await sb.from('stock_plans').update({ last_stop_price: to, stop_price: plan.stop_price }).eq('id', id)
     if (error) return sendJson(res, 500, { error: error.message })
     return sendJson(res, 200, { ok: true, stop: to })

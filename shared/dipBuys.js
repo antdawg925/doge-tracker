@@ -113,11 +113,17 @@ export function nextRatchetStop(currentStop, close, ladder) {
   return best ? { stop: roundStop(best.stop, 'long'), trigger: best.trigger } : null;
 }
 
-/** Cancel an unfilled buy? N days elapsed, or spot already under the planned stop. */
+/**
+ * Cancel an unfilled entry? N days elapsed, or price already through the planned stop
+ * (long: below the stop; short: above the stop). Reads DB rows (stop_price, side) or plan objects.
+ */
 export function shouldCancelPending(plan, { nowMs = Date.now(), spot = null } = {}) {
   const created = Date.parse(plan.created_at || plan.createdAt || 0);
   const days = plan.cancel_days ?? plan.cancelDays ?? DIP_CANCEL_DAYS;
+  const stop = Number(plan.stop ?? plan.stop_price);
+  const short = plan.side === 'short';
   if (created && nowMs - created > days * 86400000) return { cancel: true, reason: `unfilled after ${days} days` };
-  if (fin(spot) && fin(plan.stop) && spot < plan.stop) return { cancel: true, reason: 'price below stop before fill' };
+  if (fin(spot) && fin(stop) && !short && spot < stop) return { cancel: true, reason: 'price below stop before fill' };
+  if (fin(spot) && fin(stop) && short && spot > stop) return { cancel: true, reason: 'price above stop before fill' };
   return { cancel: false };
 }

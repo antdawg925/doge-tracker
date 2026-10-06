@@ -6,7 +6,7 @@
  * tokens). Errors are logged and flagged per position; they never fail the run.
  */
 import { etDate } from '../shared/marketHours.js'
-import { LIVE_RULES, OPEN_STATUSES as OPEN, connectionLive, fillFromOrder, instructionFor, planLiveAction, remindersDue, stopString } from '../shared/schwabLive.js'
+import { LIVE_RULES, OPEN_STATUSES as OPEN, borrowFromQuote, connectionLive, fillFromOrder, instructionFor, planLiveAction, remindersDue, stopString } from '../shared/schwabLive.js'
 import { accessTokenFor, createSchwabBroker, schwabConfigured, schwabHttp } from './_schwab.js'
 import { notify, notifyLines } from './_notify.js'
 
@@ -238,5 +238,55 @@ export async function schwabHousekeeping(sb, { nowMs = Date.now() } = {}) {
     const { data: prof } = await sb.from('profiles').select('telegram_chat_id').eq('id', c.user_id).maybeSingle()
     if (prof?.telegram_chat_id) await notify(sb, { userId: c.user_id, chatId: prof.telegram_chat_id, text: `Trade Smart · ${alert.title}. ${alert.message}` }).catch(() => null)
   }
-  return { reminders, expired }
+  let probe = null
+  try {
+    probe = await borrowProbe(sb, { nowMs })
+  } catch (err) {
+    probe = { error: String(err?.message || err).slice(0, 160) }
+  }
+  return { reminders, expired, probe }
+}
+
+const PROBE_SYMBOLS = ['AAPL', 'GME', 'BYND', 'SPY']
+const SHORT_KEY = /short|borrow|htb|etb|locate/i
+/**
+ * Read-only Schwab borrow-data probe, at most once a day per connected user, on the app's own
+ * server path (no order endpoints). Records which documented fields actually come back:
+ *   GET /marketdata/v1/quotes?fields=reference  → reference.isShortable / isHardToBorrow / htbRate / htbQuantity
+ *   GET /marketdata/v1/instruments?projection=fundamental → fundamental.shortIntToFloat / shortIntDayToCover
+ * Stores key names + those values in broker_connections.data.borrowProbe (no tokens, no account data).
+ */
+export async function borrowProbe(sb, { nowMs = Date.now() } = {}) {
+  if (!schwabConfigured()) return { skipped: 'not configured' }
+  const { data: conns } = await sb.from('broker_connections').select('*').eq('broker', 'schwab').eq('status', 'connected')
+  let ran = 0
+  for (const c of conns || []) {
+    const last = Date.parse(c.data?.borrowProbe?.at || 0)
+    if (last && nowMs - last < 24 * 3600_000) continue
+    const out = { at: new Date(nowMs).toISOString(), symbols: PROBE_SYMBOLS }
+    try {
+      const call = schwabHttp({ token: await accessTokenFor(sb, c, { nowMs }) })
+      const q = await call('GET', '/marketdata/v1/quotes', { query: { symbols: PROBE_SYMBOLS.join(','), fields: 'quote,reference' } })
+      const keys = new Set()
+      const quoteShortKeys = new Set()
+      out.reference = {}
+      for (const [sym, v] of Object.entries(q.json || {})) {
+        for (const k of Object.keys(v?.reference || {})) keys.add(k)
+        for (const k of Object.keys(v?.quote || {})) if (SHORT_KEY.test(k)) quoteShortKeys.add(k)
+        out.reference[sym] = borrowFromQuote(v)
+      }
+      out.referenceKeys = [...keys].sort()
+      out.quoteShortKeys = [...quoteShortKeys].sort()
+      const ins = await call('GET', '/marketdata/v1/instruments', { query: { symbol: 'GME', projection: 'fundamental' } })
+      const f = ins.json?.instruments?.[0]?.fundamental || {}
+      out.fundamentalShortKeys = Object.keys(f).filter((k) => SHORT_KEY.test(k)).sort()
+      out.fundamentalGME = Object.fromEntries(out.fundamentalShortKeys.map((k) => [k, f[k]]))
+    } catch (err) {
+      out.error = String(err?.message || err).slice(0, 200)
+    }
+    const { data: fresh } = await sb.from('broker_connections').select('data').eq('user_id', c.user_id).eq('broker', 'schwab').maybeSingle()
+    await sb.from('broker_connections').update({ data: { ...(fresh?.data || {}), borrowProbe: out } }).eq('user_id', c.user_id).eq('broker', 'schwab')
+    ran += 1
+  }
+  return { ran }
 }

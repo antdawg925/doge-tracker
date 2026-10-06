@@ -16,6 +16,8 @@
  *   POST /api/schwab/position-live  { positionId, live } per-position Live toggle (default off)
  *   POST /api/schwab/adopt          { positionId, orderId } "Let bot manage this order" (explicit)
  *   POST /api/schwab/cancel         { positionId } cancel the bot's Schwab order for a position
+ *   POST /api/schwab/borrow         { symbols } read-only: quotes?fields=reference → isShortable /
+ *                                   isHardToBorrow / htbRate / htbQuantity per symbol (caller's own login)
  *   POST /api/schwab/disconnect     forget tokens (orders already at Schwab stay)
  * Every route acts on the caller's own data only. Tokens never leave the server.
  */
@@ -25,7 +27,7 @@ import {
   schwabConfigured, schwabHttp, signState, tokenColumns, tokenRequest, verifyState,
 } from './_schwab.js'
 import { runStocks } from './_stockRunner.js'
-import { LIVE_RULES, OPEN_STATUSES, instructionFor } from '../shared/schwabLive.js'
+import { LIVE_RULES, OPEN_STATUSES, borrowFromQuote, instructionFor } from '../shared/schwabLive.js'
 import { liveOrderCheck } from '../shared/guard.js'
 import { etDate } from '../shared/marketHours.js'
 
@@ -34,7 +36,7 @@ const DEFAULT_ORIGIN = 'https://trade-smart-app.vercel.app'
 const STATE_TTL_MS = 10 * 60_000
 const PENDING_TTL_MS = 15 * 60_000
 const GET_ROUTES = new Set(['authorize', 'callback', 'status'])
-const POST_ROUTES = new Set(['connect', 'finish', 'account', 'live', 'kill', 'position-live', 'adopt', 'cancel', 'disconnect'])
+const POST_ROUTES = new Set(['borrow', 'connect', 'finish', 'account', 'live', 'kill', 'position-live', 'adopt', 'cancel', 'disconnect'])
 
 function routeOf(req) {
   const q = req.query?.route
@@ -101,6 +103,7 @@ function publicStatus(c, nowMs) {
     actionsToday: c.data?.actions?.day === today ? Number(c.data.actions.n) || 0 : 0,
     dailyCap: LIVE_RULES.dailyActionCap,
     watchOnly: expired || !c.account_hash || !c.live_enabled || c.kill_switch,
+    borrowProbe: c.data?.borrowProbe ?? null,
   }
 }
 
@@ -175,6 +178,22 @@ export default async function handler(req, res) {
     if (route === 'status') {
       const c = await getConn(sb, uid)
       return sendJson(res, 200, { ok: true, configured: schwabConfigured(), redirectUri: redirectUri(), connection: publicStatus(c, nowMs), rules: LIVE_RULES })
+    }
+
+    if (route === 'borrow') {
+      const syms = [...new Set((Array.isArray(body.symbols) ? body.symbols : []).map((x) => String(x || '').toUpperCase().trim()).filter((x) => /^[A-Z.\-]{1,10}$/.test(x)))].slice(0, 50)
+      const c = await getConn(sb, uid)
+      const usable = c && c.status === 'connected' && Date.parse(c.refresh_expires_at) > nowMs && schwabConfigured()
+      if (!usable || !syms.length) return sendJson(res, 200, { ok: true, available: false, reason: !usable ? 'Schwab not connected' : 'no symbols', rows: {} })
+      try {
+        const call = schwabHttp({ token: await accessTokenFor(sb, c, { nowMs }) })
+        const r = await call('GET', '/marketdata/v1/quotes', { query: { symbols: syms.join(','), fields: 'reference' } })
+        const rows = {}
+        for (const [k, v] of Object.entries(r.json || {})) rows[k.toUpperCase()] = borrowFromQuote(v)
+        return sendJson(res, 200, { ok: true, available: true, source: 'GET /marketdata/v1/quotes?fields=reference', rows })
+      } catch (err) {
+        return sendJson(res, 200, { ok: true, available: false, reason: `Schwab: ${String(err?.message || 'request failed').slice(0, 120)}`, rows: {} })
+      }
     }
 
     if (route === 'connect') {

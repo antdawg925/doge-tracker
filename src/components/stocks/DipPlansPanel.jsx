@@ -5,7 +5,7 @@ import { formatPrice } from '../../lib/format.js';
 const px = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : formatPrice(Number(n)));
 
 /**
- * My Bot → Stocks: dip-buy plans (pending limit → filled stop → ratchet).
+ * My Bot → Stocks: dip-buy (long) and Sell highs (short) plans: pending limit → filled stop → ratchet.
  * Default dry-run; per-user Stocks Live switch (also needs Schwab Live ON to send orders).
  */
 export default function DipPlansPanel() {
@@ -44,20 +44,20 @@ export default function DipPlansPanel() {
     }
   };
 
-  if (plans === null) return <p className="muted small">Loading dip plans…</p>;
+  if (plans === null) return <p className="muted small">Loading stock plans…</p>;
 
   return (
     <div className="dip-plans">
       <div className="dip-plans__head">
-        <h3 className="mlv__h">Dip-buy plans</h3>
-        <label className={`stk-switch stk-switch--sm${live ? ' is-on' : ''}`} title="When ON (and Schwab Live is ON), pending plans place real LIMIT buys in RTH. Default is dry-run.">
+        <h3 className="mlv__h">Dip buys &amp; Sell highs</h3>
+        <label className={`stk-switch stk-switch--sm${live ? ' is-on' : ''}`} title="When ON (and Schwab Live is ON), pending plans place real LIMIT buys / SELL_SHORT limits in RTH. Default is dry-run.">
           <input
             type="checkbox"
             checked={live}
             disabled={busy}
             onChange={(e) => {
               if (e.target.checked) {
-                if (!window.confirm('Turn on LIVE stock plans? Real Schwab LIMIT buys will place in regular hours for pending plans (never TSLA). Protective STOP follows each fill and only ratchets up.')) return;
+                if (!window.confirm('Turn on LIVE stock plans? Real Schwab LIMIT buys and SELL_SHORT limits will place in regular hours for pending plans (never TSLA). A protective STOP follows each fill: up-only for buys, down-only (BUY_TO_COVER) for Sell highs shorts.')) return;
                 act('/api/bot/stocks/plans/live', { enabled: true, confirm: 'LIVE' });
               } else act('/api/bot/stocks/plans/live', { enabled: false });
             }}
@@ -65,7 +65,7 @@ export default function DipPlansPanel() {
           <span>Stocks Live {live ? 'ON' : 'OFF'}</span>
         </label>
       </div>
-      <p className="small muted">From Scanner → Dip buys. Default dry-run logs what it would do. Cancel unfilled after 10 days or if price drops under the stop.</p>
+      <p className="small muted">From Scanner → Dip buys and Sell highs. Default dry-run logs what it would do. Unfilled entries cancel after 10 days, or if price crosses the stop first.</p>
       {err ? <p className="small neg">{err}</p> : null}
       {!plans.length ? (
         <p className="muted small">No plans yet.</p>
@@ -74,22 +74,31 @@ export default function DipPlansPanel() {
           {plans.map((p) => {
             const stop = Number(p.last_stop_price || p.stop_price);
             const next = p.next_rung;
+            const short = p.side === 'short';
             return (
               <li key={p.id} className={`dip-plans__row dip-plans__row--${p.status}`}>
                 <div className="dip-plans__sym">
                   <strong>{p.symbol}</strong>
+                  <span className={`dip-plans__side dip-plans__side--${short ? 'short' : 'long'}`}>{short ? 'Sell high' : 'Dip buy'}</span>
                   <span className={`dip-plans__st dip-plans__st--${p.status}`}>{p.status}{p.dry_run ? ' · dry' : ''}</span>
                 </div>
                 <div className="dip-plans__nums mono small">
-                  <span>{p.shares} sh</span>
-                  <span>L {px(p.limit_price)}</span>
-                  <span className="neg">S {px(stop)}</span>
-                  {p.t1_price ? <span className="pos">T1 {px(p.t1_price)}</span> : null}
-                  {next?.trigger ? <span className="muted">next ↑ close&gt;{px(next.trigger)} → {px(next.stop)}</span> : null}
+                  <span>{short ? `−${p.shares}` : p.shares} sh</span>
+                  <span>{short ? 'Short' : 'L'} {px(p.limit_price)}</span>
+                  <span className="neg">{short ? 'Cover stop' : 'S'} {px(stop)}</span>
+                  {p.t1_price ? <span className="pos">{short ? 'Cover' : 'T1'} {px(p.t1_price)}</span> : null}
+                  {short && p.risk_usd ? <span className="muted">risk ${Math.round(Number(p.risk_usd))}</span> : null}
+                  {next?.trigger ? (
+                    short ? (
+                      <span className="muted">next ↓ close&lt;{px(next.trigger)} → {px(next.stop)}</span>
+                    ) : (
+                      <span className="muted">next ↑ close&gt;{px(next.trigger)} → {px(next.stop)}</span>
+                    )
+                  ) : null}
                 </div>
                 <div className="dip-plans__acts">
                   {['pending', 'working'].includes(p.status) ? (
-                    <button type="button" className="stk-linkbtn" disabled={busy} onClick={() => window.confirm(`Cancel ${p.symbol} buy plan?`) && act('/api/bot/stocks/plans/cancel', { id: p.id })}>
+                    <button type="button" className="stk-linkbtn" disabled={busy} onClick={() => window.confirm(`Cancel ${p.symbol} ${short ? 'Sell highs short' : 'buy'} plan?`) && act('/api/bot/stocks/plans/cancel', { id: p.id })}>
                       Cancel
                     </button>
                   ) : null}
@@ -99,11 +108,13 @@ export default function DipPlansPanel() {
                       className="stk-linkbtn"
                       disabled={busy}
                       onClick={() => {
-                        const v = window.prompt(`Raise ${p.symbol} stop above ${px(stop)}`, String((stop * 1.02).toFixed(2)));
-                        if (v && Number(v) > stop) act('/api/bot/stocks/plans/raise', { id: p.id, price: Number(v) });
+                        const v = short
+                          ? window.prompt(`Lower ${p.symbol} cover stop below ${px(stop)}`, String((stop * 0.98).toFixed(2)))
+                          : window.prompt(`Raise ${p.symbol} stop above ${px(stop)}`, String((stop * 1.02).toFixed(2)));
+                        if (v && (short ? Number(v) < stop : Number(v) > stop)) act('/api/bot/stocks/plans/raise', { id: p.id, price: Number(v) });
                       }}
                     >
-                      Raise stop
+                      {short ? 'Lower stop' : 'Raise stop'}
                     </button>
                   ) : null}
                 </div>

@@ -19,7 +19,7 @@
  * only ever driven by api/_schwabLive.js, which gates every action through shared/guard.js.
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { buildLimitBuyOrder, buildStopOrder, fillFromOrder, holdingsFromAccount, LIVE_RULES } from '../shared/schwabLive.js'
+import { borrowFromQuote, buildLimitBuyOrder, buildShortLimitOrder, buildStopOrder, fillFromOrder, holdingsFromAccount, LIVE_RULES } from '../shared/schwabLive.js'
 
 export const SCHWAB_API = 'https://api.schwabapi.com'
 export const AUTHORIZE_URL = `${SCHWAB_API}/v1/oauth/authorize`
@@ -259,6 +259,12 @@ export function createSchwabBroker({ call, accountHash, nowMs = Date.now() }) {
       if (!r.orderId) throw new SchwabError(502, 'order placed but no order id in Location header')
       return { orderId: r.orderId, status: r.status }
     },
+    /** Equity LIMIT SELL_SHORT (Sell highs short plans). RTH only at the caller; never TSLA. */
+    async placeShortSell({ symbol, qty, limitPrice, duration = 'GOOD_TILL_CANCEL' }) {
+      const r = await call('POST', `${base}/orders`, { body: buildShortLimitOrder({ symbol, qty, limitPrice, duration }) })
+      if (!r.orderId) throw new SchwabError(502, 'order placed but no order id in Location header')
+      return { orderId: r.orderId, status: r.status }
+    },
     /** Replace = Schwab cancels the old order and creates a new one (new id in Location). */
     async modifyStop(orderId, { symbol, positionSide, qty, stopPrice }) {
       const r = await call('PUT', `${base}/orders/${encodeURIComponent(orderId)}`, { body: buildStopOrder({ symbol, side: positionSide, qty, stopPrice }) })
@@ -271,6 +277,17 @@ export function createSchwabBroker({ call, accountHash, nowMs = Date.now() }) {
     /** Execution status of one of the bot's orders. */
     async syncFills(orderId) {
       return fillFromOrder(await this.getOrder(orderId))
+    },
+    /**
+     * Shortability from GET /marketdata/v1/quotes?fields=reference → Map(symbol → borrowFromQuote()).
+     * Read-only market data; returns only reference.isShortable / isHardToBorrow / htbRate / htbQuantity.
+     */
+    async getBorrow(symbols) {
+      if (!symbols.length) return new Map()
+      const r = await call('GET', '/marketdata/v1/quotes', { query: { symbols: symbols.join(','), fields: 'reference' } })
+      const out = new Map()
+      for (const [k, v] of Object.entries(r.json || {})) out.set(k.toUpperCase(), borrowFromQuote(v))
+      return out
     },
     /** Last prices from Schwab market data → Map(symbol → lastPrice). */
     async getQuotes(symbols) {

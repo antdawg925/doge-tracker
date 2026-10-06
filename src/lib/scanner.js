@@ -88,6 +88,8 @@ export function normalizeScreenerQuote(q) {
     sector: sector ? String(sector) : null,
     netCash,
     shortPercentOfFloat,
+    fiftyDayAverage: num(q.fiftyDayAverage),
+    twoHundredDayAverage: num(q.twoHundredDayAverage),
     fundamentalsLoaded: Boolean(
       sector || netCash != null || shortPercentOfFloat != null,
     ),

@@ -5241,3 +5241,16 @@ p {
   .dip .scanner-table-wrap { overflow-x: auto; }
   .dip-sheet__facts { grid-template-columns: 1fr 1fr; }
 }
+/* Sell highs (short) preset + plans */
+.dip-plans__side { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; border-radius: 4px; padding: 0.02rem 0.35rem; }
+.dip-plans__side--long { color: #3ecf8e; background: rgba(62, 207, 142, 0.12); }
+.dip-plans__side--short { color: #f07178; background: rgba(240, 113, 120, 0.12); }
+.sh .scanner-table .sh-short { min-height: 32px; padding: 0 0.7rem; font-size: 0.8rem; }
+.sh-borrow { font-size: 0.7rem; font-weight: 700; border-radius: 4px; padding: 0.05rem 0.35rem; white-space: nowrap; }
+.sh-borrow--etb { color: #3ecf8e; background: rgba(62, 207, 142, 0.12); }
+.sh-borrow--htb { color: #f5a524; background: rgba(245, 165, 36, 0.14); }
+.sh-borrow--no { color: #f07178; background: rgba(240, 113, 120, 0.14); }
+.sh-squeeze { display: inline-block; margin-top: 0.15rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #f5a524; border: 1px solid rgba(245, 165, 36, 0.45); border-radius: 4px; padding: 0 0.3rem; }
+.sh-squeeze--x { color: #f07178; border-color: rgba(240, 113, 120, 0.5); }
+.sh-note { margin: 0.25rem 0 0; }
+.sh-sheet .dip-sheet__head h2 { font-size: 1.05rem; }
