@@ -5293,3 +5293,15 @@ p {
 .stp__facts { grid-template-columns: repeat(4, 1fr); }
 .stp__dry { margin: 0; }
 @media (max-width: 899px) { .stp__facts { grid-template-columns: repeat(3, 1fr); } }
+/* Positions → Shorts · borrow cost (estimate) */
+.pos-shorts { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.pos-shorts__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.75rem; }
+.pos-shorts__head h2 { margin: 0; font-size: 1rem; }
+.pos-shorts__cards { display: none; list-style: none; margin: 0; padding: 0; }
+.pos-shorts__line { margin: 0.2rem 0 0; }
+.pos-shorts__foot { margin: 0; }
+.chip--short { color: #f07178; background: rgba(240, 113, 120, 0.12); border-color: rgba(240, 113, 120, 0.35); }
+@media (max-width: 760px) {
+  .pos-shorts__table { display: none; }
+  .pos-shorts__cards { display: flex; flex-direction: column; gap: 0.5rem; }
+}

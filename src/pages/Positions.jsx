@@ -14,6 +14,7 @@ import {
   upsertPosition,
 } from '../lib/positionsStore';
 import { searchSymbols } from '../lib/search';
+import ShortBorrowPanel from '../components/positions/ShortBorrowPanel.jsx';
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
 const fmtShares = (row) =>
@@ -242,7 +243,7 @@ function RowActions({ row, confirming, onEdit, onAskDelete, onDelete, onCancelDe
 }
 
 export default function Positions() {
-  const { user } = useAuth();
+  const { user, hasBotAccess, isOwner } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -472,6 +473,8 @@ export default function Positions() {
           </>
         )}
       </section>
+
+      {userId && (hasBotAccess || isOwner) ? <ShortBorrowPanel userId={userId} /> : null}
     </main>
   );
 }

@@ -7,7 +7,7 @@ import { fetchScannerUniverse } from './scanner.js';
 import { fetchYahooChart } from './yahoo.js';
 import { fetchStockFundamentals } from './fundamentals.js';
 import { toPeriod } from './majorLevels.js';
-import { authedFetch } from './api.js';
+import { fetchSchwabBorrow } from './schwabBorrow.js';
 import { buildShortPlan, isBouncing, SHORT_EXCLUDES } from '../../shared/sellHighs.js';
 
 const SCREENERS = ['day_losers', 'most_actives', 'most_shorted_stocks', 'undervalued_large_caps', 'growth_technology_stocks', 'day_gainers'];
@@ -79,16 +79,6 @@ export async function enrichSellHighRow(row, { signal } = {}) {
     };
   } catch {
     return null;
-  }
-}
-
-/** Schwab borrow fields for symbols (caller's own Schwab login). { available, reason, rows }. */
-export async function fetchSchwabBorrow(symbols) {
-  if (!symbols.length) return { available: false, rows: {} };
-  try {
-    return await authedFetch('/api/schwab/borrow', { method: 'POST', body: { symbols } });
-  } catch (e) {
-    return { available: false, reason: e.message, rows: {} };
   }
 }
 

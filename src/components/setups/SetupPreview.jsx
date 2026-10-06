@@ -46,7 +46,7 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
             ×
           </button>
         </div>
-        <SetupChart symbol={row.symbol} daily={row.bars?.daily} weekly={row.bars?.weekly} lines={lines} height={desktop ? 380 : 260} />
+        <SetupChart symbol={row.symbol} spot={row.price} daily={row.bars?.daily} weekly={row.bars?.weekly} lines={lines} height={desktop ? 380 : 260} />
         <div className="stp__legend small">
           <span className="stp__key stp__key--lvl">{short ? 'Resistance' : 'Support'}</span>
           <span className="stp__key stp__key--entry">{short ? 'Short' : 'Buy'}</span>

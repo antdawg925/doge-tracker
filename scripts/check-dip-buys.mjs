@@ -172,3 +172,22 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('preview: long labels', LL.some((l) => l.label === 'S1 support') && LL.some((l) => l.label === 'Buy') && LL.some((l) => l.label === 'T1'));
   console.log(`check:dip-buys preview OK (${n} checks total)`);
 }
+
+// ---------------- short borrow-cost estimate (pure)
+{
+  const { borrowEstimate, dailyBorrow, daysHeld } = await import('../shared/borrowCost.js');
+  const now = Date.UTC(2026, 9, 5, 20);
+  ok('borrow: daily formula uses |htbRate|', Math.abs(dailyBorrow({ htbRate: -20.75, shares: 1000, price: 6 }) - (0.2075 * 6000) / 360) < 1e-9);
+  ok('borrow: days held', daysHeld('2026-09-25', now) === 10 && daysHeld(null) === null);
+  const e = borrowEstimate({ borrow: { htbRate: -20.75, isHardToBorrow: true }, shares: 1000, price: 6, entryPrice: 7, openedAt: '2026-09-25', nowMs: now });
+  ok('borrow: paid = current × days', Math.abs(e.paid - e.daily * 10) < 1e-9 && e.rate === 20.75 && e.rawRate === -20.75);
+  ok('borrow: net = pnl − paid', Math.abs(e.pnl - 1000) < 1e-9 && Math.abs(e.net - (1000 - e.paid)) < 1e-9);
+  const etb = borrowEstimate({ borrow: { htbRate: 0, isHardToBorrow: false }, shares: 100, price: 50, entryPrice: 55, openedAt: '2026-09-01', nowMs: now });
+  ok('borrow: ETB $0/day', etb.daily === 0 && etb.paid === 0 && etb.net === etb.pnl && etb.etb);
+  const unk = borrowEstimate({ borrow: null, shares: 100, price: 50, entryPrice: 55, openedAt: '2026-09-01', nowMs: now });
+  ok('borrow: unknown → no numbers', !unk.known && unk.daily === null && unk.net === null && unk.pnl === 500);
+  const closes = Array.from({ length: 12 }, (_, i) => ({ t: Date.UTC(2026, 8, 24 + i, 20), close: 10 + i }));
+  const dc = borrowEstimate({ borrow: { htbRate: -36, isHardToBorrow: true }, shares: 100, price: 21, entryPrice: 10, openedAt: '2026-09-25', closes, nowMs: now });
+  ok('borrow: daily closes method', dc.method === 'daily closes' && dc.paid > 0 && dc.paid < dc.daily * 10);
+  console.log(`check:dip-buys borrow OK (${n} checks total)`);
+}

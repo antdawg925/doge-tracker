@@ -12,7 +12,23 @@ const RANGES = [
   { id: '1w', label: '1W', bars: 156 },
 ];
 
-export default function SetupChart({ daily = [], weekly = [], lines = [], height = 260, symbol = '' }) {
+/** Yahoo often omits today's bar (null close) while the quote has the live price: add/patch it. */
+function withLive(src, spot, weekly) {
+  const bars = (src || []).filter((b) => Number.isFinite(b?.close) && Number.isFinite(b?.t));
+  if (!(spot > 0) || !bars.length) return bars;
+  const last = bars[bars.length - 1];
+  const now = Date.now();
+  const et = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const sameDay = et(last.t) === et(now);
+  const sameWeek = now - last.t < 7 * 86400000;
+  if (weekly ? sameWeek : sameDay) {
+    const patched = { ...last, close: spot, high: Math.max(last.high, spot), low: Math.min(last.low, spot) };
+    return [...bars.slice(0, -1), patched];
+  }
+  return [...bars, { t: Math.max(now - 10 * 3600000, last.t + 3600000), open: last.close, high: Math.max(last.close, spot), low: Math.min(last.close, spot), close: spot }];
+}
+
+export default function SetupChart({ daily = [], weekly = [], lines = [], height = 260, symbol = '', spot = null }) {
   const el = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
@@ -20,7 +36,7 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
   const fitRef = useRef([]);
   const [range, setRange] = useState('1d');
   const bars = useMemo(() => {
-    const src = range === '1w' ? weekly : daily;
+    const src = withLive(range === '1w' ? weekly : daily, spot, range === '1w');
     const n = RANGES.find((r) => r.id === range)?.bars || 180;
     const seen = new Set();
     return (src || [])
@@ -29,7 +45,7 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
       .map((b) => ({ time: Math.floor(b.t / 1000), open: b.open, high: b.high, low: b.low, close: b.close }))
       .filter((b) => (seen.has(b.time) ? false : seen.add(b.time)))
       .sort((a, b) => a.time - b.time);
-  }, [range, daily, weekly]);
+  }, [range, daily, weekly, spot]);
 
   useEffect(() => {
     fitRef.current = lines.filter((l) => !l.muted).map((l) => Number(l.price)).filter((v) => Number.isFinite(v) && v > 0);
