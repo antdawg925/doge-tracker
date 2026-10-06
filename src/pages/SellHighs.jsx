@@ -4,6 +4,7 @@ import { authedFetch } from '../lib/api.js';
 import { fetchSellHighs } from '../lib/sellHighsClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sellHighs.js';
+import SetupPreview from '../components/setups/SetupPreview.jsx';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
@@ -124,6 +125,7 @@ export default function SellHighs() {
   const [risk, setRisk] = useState(String(SHORT_RISK_USD));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -143,7 +145,8 @@ export default function SellHighs() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async (shares) => {
+  const confirm = async (shares, target = sheet) => {
+    const sheet = target;
     if (!sheet) return;
     setBusy(true);
     setMsg('');
@@ -166,6 +169,7 @@ export default function SellHighs() {
         },
       });
       setSheet(null);
+      setPreview(null);
       alert(`${sheet.symbol}: Sell highs short saved (dry-run). See My Bot → Stocks.`);
     } catch (e) {
       setMsg(e.message);
@@ -228,7 +232,7 @@ export default function SellHighs() {
               </tr>
             ) : (
               list.map((r) => (
-                <tr key={r.symbol}>
+                <tr key={r.symbol} className={`stp-row${preview?.symbol === r.symbol ? ' is-selected' : ''}`} onClick={() => { setPreview(r); setMsg(''); }} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setPreview(r)} title="Preview chart">
                   <td>
                     <strong>{r.symbol}</strong>
                     <div className="muted small">
@@ -250,7 +254,7 @@ export default function SellHighs() {
                   <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
                   <td>
                     {canTrade ? (
-                      <button type="button" className="btn btn--danger stk-btn dip-buy sh-short" onClick={() => { setSheet(r); setMsg(''); }}>
+                      <button type="button" className="btn btn--danger stk-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
                         Short
                       </button>
                     ) : (
@@ -263,6 +267,44 @@ export default function SellHighs() {
           </tbody>
         </table>
       </div>
+      {preview && !sheet ? (
+        <SetupPreview
+          row={preview}
+          side="short"
+          entry={preview.entry}
+          stop={preview.stop}
+          target={preview.cover}
+          amount={risk}
+          onAmount={setRisk}
+          amountLabel="$ risk (sets shares)"
+          amountStep={25}
+          shares={sharesForRisk(Number(risk), preview.entry, preview.stop)}
+          confirmLabel={canTrade ? `Short ${sharesForRisk(Number(risk), preview.entry, preview.stop) || ''} sh @ ${formatPrice(preview.entry)}` : 'Bot access needed'}
+          blocked={!canTrade || preview.borrow?.isShortable === false}
+          facts={[
+            { k: 'Shares', v: sharesForRisk(Number(risk), preview.entry, preview.stop) || '—' },
+            { k: 'Short limit', v: formatPrice(preview.entry) },
+            { k: 'Cover stop', v: formatPrice(preview.stop), cls: 'neg' },
+            { k: 'Cover target', v: formatPrice(preview.cover), cls: 'pos' },
+            { k: '$ risk', v: usd(shortDollarRisk(sharesForRisk(Number(risk), preview.entry, preview.stop), preview.entry, preview.stop)), cls: 'neg' },
+            { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
+            { k: 'Short % float', v: pct1(preview.siPct), cls: preview.squeeze?.flag ? 'neg' : '' },
+            { k: 'Days to cover', v: preview.dtc != null ? preview.dtc.toFixed(1) : '—', cls: preview.squeeze?.flag ? 'neg' : '' },
+            { k: 'Borrow', v: data?.borrowAvailable ? <BorrowTag b={preview.borrow} /> : 'Schwab off' },
+          ]}
+          note={
+            <>
+              {preview.squeeze?.flag ? <p className="warn-banner small">Squeeze risk: {pct1(preview.siPct)} of float short, {preview.dtc?.toFixed?.(1)} days to cover.</p> : null}
+              {preview.earningsWarn ? <p className="warn-banner small">Earnings {day(preview.earningsAt)} — inside the fill window. Gap risk.</p> : null}
+              {preview.borrow?.isShortable === false ? <p className="small neg">Schwab says {preview.symbol} is not shortable right now.</p> : null}
+            </>
+          }
+          onConfirm={(sh) => confirm(sh, preview)}
+          onClose={() => setPreview(null)}
+          busy={busy}
+          msg={msg}
+        />
+      ) : null}
       {sheet ? (
         <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}

@@ -5263,3 +5263,33 @@ p {
 @media (max-width: 640px) {
   .mb-page .bot-tabs .scanner__tab { padding: 0 0.8rem; }
 }
+/* Setup preview (My Bot → Buy dips / Sell highs): chart + confirm. Desktop side panel, mobile bottom sheet. */
+.stp-row { cursor: pointer; }
+.stp-row:hover td { background: rgba(61, 156, 240, 0.05); }
+.stp-row.is-selected td { background: rgba(61, 156, 240, 0.1); }
+.stp { position: fixed; z-index: 70; }
+.stp--side { top: 64px; right: 12px; bottom: 12px; width: min(500px, 42vw); }
+.stp--side .stp__card { height: 100%; overflow-y: auto; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45); }
+.stp--sheet { inset: 0; display: flex; align-items: flex-end; }
+.stp__scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); border: 0; padding: 0; cursor: default; }
+.stp--sheet .stp__card { position: relative; width: 100%; max-height: 90vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding-bottom: calc(0.9rem + env(safe-area-inset-bottom)); }
+.stp__card { padding: 0.85rem 0.95rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.stp__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.stp__head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.45rem; }
+.stp__sub { margin: 0.1rem 0 0; }
+.stp__close { min-width: 40px; min-height: 40px; font-size: 1.2rem; }
+.stp-chart__canvas { width: 100%; }
+.stp__legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.7rem; color: var(--muted); }
+.stp__key::before { content: ''; display: inline-block; width: 14px; height: 0; margin-right: 0.3rem; vertical-align: middle; border-top: 2px solid currentColor; }
+.stp__key--lvl::before { border-top-color: #f5a524; }
+.stp__key--entry::before { border-top: 2px dashed #3d9cf0; }
+.stp__key--stop::before { border-top-color: #f07178; }
+.stp__key--tgt::before { border-top-color: #3ecf8e; }
+.stp__key--muted::before { border-top: 2px dotted #4b5b74; }
+.stp__confirm { display: flex; align-items: flex-end; gap: 0.6rem; }
+.stp__amt { display: flex; flex-direction: column; gap: 0.2rem; flex: 0 0 9rem; }
+.stp__amt input { width: 100%; }
+.stp__go { flex: 1; min-height: 42px; }
+.stp__facts { grid-template-columns: repeat(4, 1fr); }
+.stp__dry { margin: 0; }
+@media (max-width: 899px) { .stp__facts { grid-template-columns: repeat(3, 1fr); } }

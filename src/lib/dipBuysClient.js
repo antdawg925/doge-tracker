@@ -70,6 +70,7 @@ export async function enrichDipRow(row, { signal } = {}) {
       earningsAt: plan.earningsAt,
       earningsWarn: plan.earningsWarn,
       plan,
+      bars: { daily: daily || [], weekly: wk || [] },
     };
   } catch {
     return null;

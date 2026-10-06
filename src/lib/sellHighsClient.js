@@ -75,6 +75,7 @@ export async function enrichSellHighRow(row, { signal } = {}) {
       earningsWarn: plan.earningsWarn,
       borrow: null,
       plan,
+      bars: { daily: daily || [], weekly: wk || [] },
     };
   } catch {
     return null;

@@ -4,6 +4,7 @@ import { authedFetch } from '../lib/api.js';
 import { fetchDipBuys } from '../lib/dipBuysClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
+import SetupPreview from '../components/setups/SetupPreview.jsx';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
@@ -83,6 +84,7 @@ export default function DipBuys() {
   const [amount, setAmount] = useState('1000');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -103,7 +105,8 @@ export default function DipBuys() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async (shares) => {
+  const confirm = async (shares, target = sheet) => {
+    const sheet = target;
     if (!sheet) return;
     setBusy(true);
     setMsg('');
@@ -123,6 +126,7 @@ export default function DipBuys() {
         },
       });
       setSheet(null);
+      setPreview(null);
       setMsg('');
       alert(`${sheet.symbol}: plan saved (dry-run). See My Bot → Stocks.`);
     } catch (e) {
@@ -180,7 +184,7 @@ export default function DipBuys() {
               </tr>
             ) : (
               list.map((r) => (
-                <tr key={r.symbol}>
+                <tr key={r.symbol} className={`stp-row${preview?.symbol === r.symbol ? ' is-selected' : ''}`} onClick={() => { setPreview(r); setMsg(''); }} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setPreview(r)} title="Preview chart">
                   <td>
                     <strong>{r.symbol}</strong>
                     <div className="muted small">
@@ -196,7 +200,7 @@ export default function DipBuys() {
                   <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
                   <td>
                     {canBuy ? (
-                      <button type="button" className="btn btn--primary stk-btn dip-buy" onClick={() => { setSheet(r); setMsg(''); }}>
+                      <button type="button" className="btn btn--primary stk-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
                         Buy
                       </button>
                     ) : (
@@ -209,6 +213,36 @@ export default function DipBuys() {
           </tbody>
         </table>
       </div>
+      {preview && !sheet ? (
+        <SetupPreview
+          row={preview}
+          side="long"
+          entry={preview.buy}
+          stop={preview.stop}
+          target={preview.t1}
+          amount={amount}
+          onAmount={setAmount}
+          amountLabel="$ to spend"
+          shares={sharesForAmount(Number(amount), preview.buy)}
+          confirmLabel={canBuy ? `Buy ${sharesForAmount(Number(amount), preview.buy) || ''} sh @ ${formatPrice(preview.buy)}` : 'Bot access needed'}
+          blocked={!canBuy}
+          facts={[
+            { k: 'Shares', v: sharesForAmount(Number(amount), preview.buy) || '—' },
+            { k: 'Buy limit', v: formatPrice(preview.buy) },
+            { k: 'Stop', v: formatPrice(preview.stop), cls: 'neg' },
+            { k: 'Target', v: formatPrice(preview.t1), cls: 'pos' },
+            { k: '$ risk', v: usd(dollarRisk(sharesForAmount(Number(amount), preview.buy), preview.buy, preview.stop)), cls: 'neg' },
+            { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
+            { k: 'Stage', v: `${preview.stage} · ${preview.stageLabel}` },
+            { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },
+          ]}
+          note={preview.earningsWarn ? <p className="warn-banner small">Earnings {day(preview.earningsAt)} — before a typical fill window. Gap risk.</p> : null}
+          onConfirm={(sh) => confirm(sh, preview)}
+          onClose={() => setPreview(null)}
+          busy={busy}
+          msg={msg}
+        />
+      ) : null}
       {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} /> : null}
     </div>
   );

@@ -158,3 +158,17 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('runner short ratchets down (dry)', plan3.last_stop_price === 63.98 && plan3.data.lastDry?.action === 'lower_stop');
   console.log(`check:dip-buys runner OK (${n} checks total; dry-run only)`);
 }
+
+// ---------------- setup preview chart lines (pure)
+{
+  const { setupLines } = await import('../src/lib/setupLines.js');
+  const L = setupLines({ side: 'short', plan: { resistance: 73.4, resistances: [73.4, 88.6], supports: [60.8, 50] }, entry: 73.08, stop: 76.62, target: 60.8 });
+  const by = (lab) => L.find((l) => l.label === lab);
+  ok('preview: driver highlighted', by('R1 resistance')?.price === 73.4 && by('R1 resistance').width === 2);
+  ok('preview: entry blue dashed', by('Short')?.color === '#3d9cf0' && by('Short').style === 'dashed');
+  ok('preview: stop red, cover green', by('Stop')?.color === '#f07178' && by('Cover')?.color === '#3ecf8e');
+  ok('preview: other levels muted, no dupes', by('R2')?.muted && by('S2')?.muted && !by('S1') && L.filter((l) => l.price === 73.4).length === 1);
+  const LL = setupLines({ side: 'long', plan: { support: 97.9, supports: [97.9, 80], resistances: [133.9] }, entry: 98.35, stop: 90.15, target: 133.9 });
+  ok('preview: long labels', LL.some((l) => l.label === 'S1 support') && LL.some((l) => l.label === 'Buy') && LL.some((l) => l.label === 'T1'));
+  console.log(`check:dip-buys preview OK (${n} checks total)`);
+}
