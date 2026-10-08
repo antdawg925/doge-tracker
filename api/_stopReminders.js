@@ -4,7 +4,8 @@
  * Crypto (owner with a Kraken key): any coin at Kraken worth > $50 whose balance is not
  * covered by open sell stop orders (his own or the bot's) → "⚠️ No stop on N DOGE ($X).
  * Suggested stop: $Y (bottom stop)." At most every 4h per coin. DOGE is skipped while the DOGE
- * plan is LIVE (the bot keeps the real stop).
+ * plan is LIVE (the bot keeps the real stop), and also while the plan is stopped/ended after a
+ * fill (flat / waiting — no missing-stop nag).
  *
  * Stocks: each active position in Positions (+ Schwab holdings when connected) with no open
  * stop order covering the shares → reminder with the Stocks tab stop (tighter of ATR and
@@ -123,10 +124,11 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
             /* no USD pair */
           }
         }
-        const plan = (dogePlans || (await sb.from('doge_live_plans').select('user_id, live_enabled, kill_switch, state, snapshot').eq('user_id', prof.id).then((r) => r.data))).find?.((p) => p.user_id === prof.id) || null
+        const plan = (dogePlans || (await sb.from('doge_live_plans').select('user_id, status, live_enabled, kill_switch, state, snapshot').eq('user_id', prof.id).then((r) => r.data))).find?.((p) => p.user_id === prof.id) || null
         const dogeLive = plan && plan.live_enabled && !plan.kill_switch && plan.snapshot?.mode === 'live'
+        const dogeStopped = plan && (plan.status === 'stopped' || plan.status === 'ended' || plan.state?.status === 'stopped' || plan.state?.status === 'ended')
         for (const c of cryptoUncovered({ balances: bal, prices, openOrders: open?.open })) {
-          if (c.alt === 'XDG' && dogeLive) continue
+          if (c.alt === 'XDG' && (dogeLive || dogeStopped)) continue
           let sug = null
           let why = ''
           if (c.alt === 'XDG' && plan?.state?.stopPx) {

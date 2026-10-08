@@ -38,8 +38,15 @@ export function krakenTradeCredsFor(profile, env = process.env) {
 }
 export const tradeKeyConfigured = (env = process.env) => Boolean(env.KRAKEN_TRADE_KEY && env.KRAKEN_TRADE_SECRET)
 
-let lastNonce = 0
-const nextNonce = () => (lastNonce = Math.max(Date.now() * 1000, lastNonce + 1))
+// Nanosecond-scale nonce (ms × 1e6, as a decimal string): the same key is also used from tools
+// with time.time_ns() nonces, and Kraken rejects any nonce lower than the last one it saw, so a
+// microsecond nonce would be refused forever ("EAPI:Invalid nonce"). > 2^53, hence BigInt.
+let lastNonce = 0n
+export const nextNonce = () => {
+  const n = BigInt(Date.now()) * 1000000n
+  lastNonce = n > lastNonce ? n : lastNonce + 1n
+  return lastNonce.toString()
+}
 
 /** Unique client order id (≤ 18 chars free text): tsb + role letter + base36 time + rand. */
 export function newClOrdId(role, nowMs = Date.now()) {
@@ -58,9 +65,11 @@ export function createKrakenTrader({ creds, fetchImpl = fetch, log = () => {}, r
     if (!ALLOWED.has(endpoint)) throw new KrakenError(`Endpoint not allowed: ${endpoint}`, { endpoint })
     const path = `/0/private/${endpoint}`
     const nonce = nextNonce()
-    const body = JSON.stringify({ nonce, ...params })
+    // nonce as a JSON number literal (too big for a JS number, so spliced in as text)
+    const rest = JSON.stringify(params)
+    const body = `{"nonce":${nonce}${rest === '{}' ? '}' : `,${rest.slice(1)}`}`
     const sign = createHmac('sha512', Buffer.from(creds.secret, 'base64'))
-      .update(Buffer.concat([Buffer.from(path), createHash('sha256').update(String(nonce) + body).digest()]))
+      .update(Buffer.concat([Buffer.from(path), createHash('sha256').update(nonce + body).digest()]))
       .digest('base64')
     const t0 = Date.now()
     let res

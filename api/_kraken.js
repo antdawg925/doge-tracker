@@ -55,10 +55,13 @@ export function krakenCredsFor(profile) {
   return key && secret ? { key, secret } : null
 }
 
-let lastNonce = 0
+// Nanosecond-scale nonce (ms × 1e6) so it stays above time.time_ns() nonces used by tools on
+// the same key (Kraken refuses any nonce lower than the last one it saw). BigInt: > 2^53.
+let lastNonce = 0n
 function nextNonce() {
-  lastNonce = Math.max(Date.now() * 1000, lastNonce + 1)
-  return String(lastNonce)
+  const n = BigInt(Date.now()) * 1000000n
+  lastNonce = n > lastNonce ? n : lastNonce + 1n
+  return lastNonce.toString()
 }
 
 const READ_ONLY_PATHS = new Set(['/0/private/Balance', '/0/private/OpenOrders'])

@@ -165,9 +165,16 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     const bal = bookFromBalance(await trader.balanceEx())
     open = splitOpenOrders(await trader.openOrders())
     if (mode === 'live') {
+      if (!Array.isArray(state.filledOrderIds)) state.filledOrderIds = []
+      const seenFills = new Set(state.filledOrderIds)
       for (const role of ['stop', 'zone']) {
         const o = state.ordersMode === 'live' ? state.orders[role] : null
         if (!o?.id) continue
+        // Already recorded this fill (e.g. prior cron where save failed): clear + do not re-alert.
+        if (seenFills.has(o.id)) {
+          if (state.orders[role]?.id === o.id) state.orders[role] = null
+          continue
+        }
         if (open.mine.some((x) => x.txid === o.id)) continue
         const r = (await trader.queryOrders([o.id]))?.[o.id]
         const exec = Number(r?.vol_exec || 0)
@@ -175,6 +182,7 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
         if (exec > 0) {
           const fill = { role, kind: o.kind, side: 'sell', qty: exec, price: Number(r.price) || o.price, full }
           applyFill(state, fill, { config, dry: false, nowIso })
+          state.filledOrderIds = [...seenFills.add(o.id)].slice(-20)
           logs.push({ mode, role, action: 'fill', status: full ? 'filled' : 'partial', side: 'sell', ordertype: o.ordertype, price: fill.price, qty: exec, txid: o.id, cl_ord_id: o.clOrdId, reason: role === 'stop' ? 'bottom stop' : 'zone sale' })
         }
         if (!exec) extraFlags.push({ code: 'order_gone', message: `Bot ${role} order ${o.id} is no longer open at Kraken (${r?.status || 'unknown'}${r?.reason ? `: ${r.reason}` : ''}) and did not fill: re-placing it now` })
@@ -303,6 +311,14 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     await sb.from('doge_live_log').insert({ user_id: userId, plan_id: state.planId, at: nowIso, mode, role: 'plan', action: 'request', status: 'error', reason: clip(reqs.find((r) => !r.ok)?.error), details: { requests: reqs.slice(0, 30) } })
   }
 
+  // Persist BEFORE Telegram: if status/state cannot be saved, do not alert (avoids 5-min spam
+  // when a DB check rejects status like 'stopped').
+  const up = await sb
+    .from('doge_live_plans')
+    .update({ state, snapshot, status: state.status, last_run_at: nowIso, last_error: null, lease_until: null, updated_at: nowIso })
+    .eq('user_id', userId)
+  if (up.error) throw new Error(`save: ${up.error.message}`)
+
   const tg = dogeTelegramLines({ logs, events: step.events, alerts, userBuyFills, state, snapshot, mode })
   if (tg.length) {
     const title = `DOGE stop (${mode === 'live' ? 'LIVE' : 'dry-run'})`
@@ -314,11 +330,6 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     for (const m of coachMsgs) await notify(sb, { userId, chatId: profile.telegram_chat_id, text: m, nowMs }).catch(() => null)
   }
 
-  const up = await sb
-    .from('doge_live_plans')
-    .update({ state, snapshot, status: state.status, last_run_at: nowIso, last_error: null, lease_until: null, updated_at: nowIso })
-    .eq('user_id', userId)
-  if (up.error) throw new Error(`save: ${up.error.message}`)
   return { userId, mode, intents: step.intents.length, logs: logs.length, status: state.status }
 }
 
