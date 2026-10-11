@@ -3,6 +3,7 @@ import SetupChart from './SetupChart.jsx';
 import { formatPct, formatPrice } from '../../lib/format.js';
 import { setupLines } from '../../lib/setupLines.js';
 import { addPaperIdea } from '../../lib/paperIdeas.js';
+import OrderTicket from './OrderTicket.jsx';
 
 function useDesktop() {
   const q = '(min-width: 900px)';
@@ -19,9 +20,9 @@ function useDesktop() {
 /**
  * Setup preview: chart + facts + amount + Buy/Short confirm right under the chart.
  * Desktop: right side panel. Mobile: bottom sheet. Both have a close button.
- * facts: [{ k, v, cls }]; amountLabel; shares (computed by parent from amount); onConfirm(shares).
+ * facts: [{ k, v, cls }]; OrderTicket (shares + price + est. risk); onConfirm({ shares, price }).
  */
-export default function SetupPreview({ row, side, entry, stop, target, facts = [], amount, onAmount, amountLabel, amountStep = 50, shares, confirmLabel, paperLabel, realNote = null, onConfirm, onClose, busy, msg, note, blocked = false }) {
+export default function SetupPreview({ row, side, entry, stop, target, facts = [], realNote = null, onConfirm, onClose, busy, msg, note, blocked = false }) {
   const desktop = useDesktop();
   const short = side === 'short';
   useEffect(() => {
@@ -32,10 +33,10 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
   const lines = setupLines({ side, plan: row.plan, entry, stop, target });
   const [paper, setPaper] = useState(''); // '' | 'saving' | saved text | error
   useEffect(() => setPaper(''), [row.symbol]);
-  const paperTrade = async () => {
+  const paperTrade = async ({ shares, price }) => {
     setPaper('saving');
     try {
-      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: row.price, stop, target, source: 'setup' });
+      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, stop, target, source: 'setup' });
       setPaper(`Paper ${i.side} ${i.qty} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
     } catch (e) {
       setPaper(`Paper trade failed: ${e.message}`);
@@ -66,19 +67,19 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
           <span className="stp__key stp__key--tgt">{short ? 'Cover' : 'Target'}</span>
           <span className="stp__key stp__key--muted">Other major levels</span>
         </div>
-        <div className="stp__confirm">
-          <label className="stp__amt">
-            <span className="small muted">{amountLabel}</span>
-            <input type="number" min="0" step={amountStep} value={amount} onChange={(e) => onAmount(e.target.value)} />
-          </label>
-          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paper === 'saving' || !shares || !(row.price > 0)} onClick={paperTrade} title="Track it as a paper idea at the current price (no real money)">
-            {paper === 'saving' ? 'Saving…' : paperLabel || (short ? 'Paper short' : 'Paper buy')}
-          </button>
-          <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn stp__go`} disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : confirmLabel}
-          </button>
-        </div>
-        {realNote}
+        <OrderTicket
+          symbol={row.symbol}
+          side={side}
+          last={row.price}
+          stop={stop}
+          target={target}
+          onPaper={paperTrade}
+          paperBusy={paper === 'saving'}
+          onReal={onConfirm}
+          busy={busy}
+          blocked={blocked}
+          note={realNote}
+        />
         {paper && paper !== 'saving' ? <p className={`small ${paper.startsWith('Paper trade failed') ? 'neg' : 'rpaper__msg'}`}>{paper}</p> : null}
         <dl className="dip-sheet__facts small stp__facts">
           {facts.map((f) => (

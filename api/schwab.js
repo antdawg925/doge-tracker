@@ -16,6 +16,7 @@
  *   POST /api/schwab/position-live  { positionId, live } per-position Live toggle (default off)
  *   POST /api/schwab/adopt          { positionId, orderId } "Let bot manage this order" (explicit)
  *   POST /api/schwab/cancel         { positionId } cancel the bot's Schwab order for a position
+ *   POST /api/schwab/quote          { symbol } read-only: bid / ask / last (order ticket prefill)
  *   POST /api/schwab/borrow         { symbols } read-only: quotes?fields=reference → isShortable /
  *                                   isHardToBorrow / htbRate / htbQuantity per symbol (caller's own login)
  *   POST /api/schwab/disconnect     forget tokens (orders already at Schwab stay)
@@ -36,7 +37,7 @@ const DEFAULT_ORIGIN = 'https://trade-smart-app.vercel.app'
 const STATE_TTL_MS = 10 * 60_000
 const PENDING_TTL_MS = 15 * 60_000
 const GET_ROUTES = new Set(['authorize', 'callback', 'status'])
-const POST_ROUTES = new Set(['borrow', 'connect', 'finish', 'account', 'live', 'kill', 'position-live', 'adopt', 'cancel', 'disconnect'])
+const POST_ROUTES = new Set(['borrow', 'quote', 'connect', 'finish', 'account', 'live', 'kill', 'position-live', 'adopt', 'cancel', 'disconnect'])
 
 function routeOf(req) {
   const q = req.query?.route
@@ -178,6 +179,24 @@ export default async function handler(req, res) {
     if (route === 'status') {
       const c = await getConn(sb, uid)
       return sendJson(res, 200, { ok: true, configured: schwabConfigured(), redirectUri: redirectUri(), connection: publicStatus(c, nowMs), rules: LIVE_RULES })
+    }
+
+    if (route === 'quote') {
+      // Read-only: live bid / ask / last for one symbol (order ticket prefill). No orders.
+      const sym = String(body.symbol || '').toUpperCase().trim()
+      if (!/^[A-Z.\-]{1,10}$/.test(sym)) return sendJson(res, 400, { error: 'Bad symbol.' })
+      const c = await getConn(sb, uid)
+      const usable = c && c.status === 'connected' && Date.parse(c.refresh_expires_at) > nowMs && schwabConfigured()
+      if (!usable) return sendJson(res, 200, { ok: true, available: false, reason: 'Schwab not connected' })
+      try {
+        const call = schwabHttp({ token: await accessTokenFor(sb, c, { nowMs }) })
+        const r = await call('GET', '/marketdata/v1/quotes', { query: { symbols: sym, fields: 'quote' } })
+        const q = (r.json || {})[sym]?.quote || {}
+        const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null)
+        return sendJson(res, 200, { ok: true, available: true, symbol: sym, bid: n(q.bidPrice), ask: n(q.askPrice), last: n(q.lastPrice), at: q.quoteTime || null })
+      } catch (err) {
+        return sendJson(res, 200, { ok: true, available: false, reason: `Schwab: ${String(err?.message || 'request failed').slice(0, 120)}` })
+      }
     }
 
     if (route === 'borrow') {

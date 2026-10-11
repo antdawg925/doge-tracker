@@ -7,6 +7,7 @@ import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sel
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
+import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -35,9 +36,7 @@ function SqueezeTag({ sq }) {
   );
 }
 
-function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, gates, busy, msg, borrowAvailable }) {
-  const shares = sharesForRisk(Number(risk), row.entry, row.stop);
-  const loss = shortDollarRisk(shares, row.entry, row.stop);
+function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borrowAvailable }) {
   const blocked = row.borrow?.isShortable === false;
   return (
     <div className="dip-sheet sh-sheet" role="dialog" aria-label={`Sell high ${row.symbol}`}>
@@ -53,15 +52,7 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, gates, b
         <p className="small muted">
           SELL_SHORT limit just under resistance {formatPrice(row.resistance)}, regular hours. On fill a BUY_TO_COVER stop goes above; it only moves down.
         </p>
-        <label className="dip-sheet__amt">
-          <span className="small muted">$ risk (sets shares)</span>
-          <input type="number" min="0" step="25" value={risk} onChange={(e) => onRisk(e.target.value)} autoFocus />
-        </label>
         <dl className="dip-sheet__facts small">
-          <div>
-            <dt>Shares</dt>
-            <dd className="mono">{shares || '—'}</dd>
-          </div>
           <div>
             <dt>Short limit</dt>
             <dd className="mono">{formatPrice(row.entry)}</dd>
@@ -73,10 +64,6 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, gates, b
           <div>
             <dt>Cover target</dt>
             <dd className="mono pos">{formatPrice(row.cover)}</dd>
-          </div>
-          <div>
-            <dt>$ risk</dt>
-            <dd className="mono neg">{loss != null ? usd(loss) : '—'}</dd>
           </div>
           <div>
             <dt>R:R</dt>
@@ -103,18 +90,21 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, gates, b
         {row.earningsWarn ? <p className="warn-banner small">Earnings {day(row.earningsAt)} — inside the fill window. Gap risk.</p> : null}
         {blocked ? <p className="small neg">Schwab says {row.symbol} is not shortable right now.</p> : null}
         {msg ? <p className="small neg">{msg}</p> : null}
-        <div className="dip-sheet__actions">
-          <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={busy || !shares} onClick={() => onPaper(row, shares)}>
-            Paper short
-          </button>
-          <button type="button" className="btn btn--short stk-btn act-btn sh-confirm" disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : `Short $ ${shares || ''} sh`}
-          </button>
-        </div>
-        <LiveOrderNote gates={gates} />
+        <OrderTicket
+          symbol={row.symbol}
+          side="short"
+          last={row.price}
+          stop={row.stop}
+          target={row.cover}
+          onPaper={(o) => onPaper(row, o)}
+          onReal={onConfirm}
+          busy={busy}
+          blocked={blocked}
+          note={<LiveOrderNote gates={gates} />}
+        />
+        <button type="button" className="btn btn--ghost stk-btn otk__cancel" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -136,10 +126,10 @@ export default function SellHighs() {
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares) => {
+  const paperQuick = async (r, shares, price = r.price) => {
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: r.price, stop: r.stop, target: r.cover, source: 'setup' });
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: price, stop: r.stop, target: r.cover, source: 'setup' });
       setPaperMsg(`Paper short ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
@@ -164,7 +154,7 @@ export default function SellHighs() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async (shares, target = sheet) => {
+  const confirm = async ({ shares, price }, target = sheet) => {
     const sheet = target;
     if (!sheet) return;
     setBusy(true);
@@ -176,8 +166,8 @@ export default function SellHighs() {
           side: 'short',
           symbol: sheet.symbol,
           shares,
-          riskUsd: Number(risk),
-          limit: sheet.entry,
+          riskUsd: Number((shares * Math.abs(price - sheet.stop)).toFixed(2)),
+          limit: price,
           stop: sheet.stop,
           t1: sheet.cover,
           ladder: sheet.ladder,
@@ -299,19 +289,11 @@ export default function SellHighs() {
           entry={preview.entry}
           stop={preview.stop}
           target={preview.cover}
-          amount={risk}
-          onAmount={setRisk}
-          amountLabel="$ risk (sets shares)"
-          amountStep={25}
-          shares={sharesForRisk(Number(risk), preview.entry, preview.stop)}
-          confirmLabel={canTrade ? `Short $ ${sharesForRisk(Number(risk), preview.entry, preview.stop) || ''} sh @ ${formatPrice(preview.entry)}` : 'Bot access needed'}
           blocked={!canTrade || preview.borrow?.isShortable === false}
           facts={[
-            { k: 'Shares', v: sharesForRisk(Number(risk), preview.entry, preview.stop) || '—' },
             { k: 'Short limit', v: formatPrice(preview.entry) },
             { k: 'Cover stop', v: formatPrice(preview.stop), cls: 'neg' },
             { k: 'Cover target', v: formatPrice(preview.cover), cls: 'pos' },
-            { k: '$ risk', v: usd(shortDollarRisk(sharesForRisk(Number(risk), preview.entry, preview.stop), preview.entry, preview.stop)), cls: 'neg' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Short % float', v: pct1(preview.siPct), cls: preview.squeeze?.flag ? 'neg' : '' },
             { k: 'Days to cover', v: preview.dtc != null ? preview.dtc.toFixed(1) : '—', cls: preview.squeeze?.flag ? 'neg' : '' },
@@ -325,14 +307,14 @@ export default function SellHighs() {
             </>
           }
           realNote={<LiveOrderNote gates={gates} />}
-          onConfirm={(sh) => confirm(sh, preview)}
+          onConfirm={(o) => confirm(o, preview)}
           onClose={() => setPreview(null)}
           busy={busy}
           msg={msg}
         />
       ) : null}
       {sheet ? (
-        <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
+        <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, o) => { paperQuick(r, o.shares, o.price); setSheet(null); }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}
     </div>
   );

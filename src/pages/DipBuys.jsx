@@ -7,14 +7,13 @@ import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
+import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 
-function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, gates, busy, msg }) {
-  const shares = sharesForAmount(Number(amount), row.buy);
-  const risk = dollarRisk(shares, row.buy, row.stop);
+function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
   return (
     <div className="dip-sheet" role="dialog" aria-label={`Buy ${row.symbol}`}>
       <div className="dip-sheet__card card">
@@ -27,15 +26,7 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, gate
         <p className="small muted">
           Limit at major support{row.buyZone === 'sma50' ? ' / SMA50 zone' : ''}.
         </p>
-        <label className="dip-sheet__amt">
-          <span className="small muted">$ to spend</span>
-          <input type="number" min="0" step="50" value={amount} onChange={(e) => onAmount(e.target.value)} autoFocus />
-        </label>
         <dl className="dip-sheet__facts small">
-          <div>
-            <dt>Shares</dt>
-            <dd className="mono">{shares || '—'}</dd>
-          </div>
           <div>
             <dt>Limit</dt>
             <dd className="mono">{formatPrice(row.buy)}</dd>
@@ -49,10 +40,6 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, gate
             <dd className="mono pos">{formatPrice(row.t1)}</dd>
           </div>
           <div>
-            <dt>$ risk</dt>
-            <dd className="mono neg">{risk != null ? usd(risk) : '—'}</dd>
-          </div>
-          <div>
             <dt>R:R</dt>
             <dd className="mono">{row.rr?.toFixed?.(2) ?? row.rr}</dd>
           </div>
@@ -61,18 +48,21 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, gate
           <p className="warn-banner small">Earnings {day(row.earningsAt)} — before a typical fill window. Gap risk.</p>
         ) : null}
         {msg ? <p className="small neg">{msg}</p> : null}
-        <div className="dip-sheet__actions">
-          <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={busy || !shares} onClick={() => onPaper(row, shares)}>
-            Paper buy
-          </button>
-          <button type="button" className="btn btn--gold stk-btn act-btn" disabled={busy || !shares} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : `Buy $ ${shares || ''} sh`}
-          </button>
-        </div>
-        <LiveOrderNote gates={gates} />
+        <OrderTicket
+          symbol={row.symbol}
+          side="long"
+          last={row.price}
+          stop={row.stop}
+          target={row.t1}
+          onPaper={(o) => onPaper(row, o)}
+          onReal={onConfirm}
+          busy={busy}
+          blocked={false}
+          note={<LiveOrderNote gates={gates} />}
+        />
+        <button type="button" className="btn btn--ghost stk-btn otk__cancel" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -95,10 +85,10 @@ export default function DipBuys() {
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares) => {
+  const paperQuick = async (r, shares, price = r.price) => {
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: r.price, stop: r.stop, target: r.t1, source: 'setup' });
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, stop: r.stop, target: r.t1, source: 'setup' });
       setPaperMsg(`Paper buy ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
@@ -124,7 +114,7 @@ export default function DipBuys() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async (shares, target = sheet) => {
+  const confirm = async ({ shares, price }, target = sheet) => {
     const sheet = target;
     if (!sheet) return;
     setBusy(true);
@@ -135,8 +125,8 @@ export default function DipBuys() {
         body: {
           symbol: sheet.symbol,
           shares,
-          amountUsd: Number(amount),
-          limit: sheet.buy,
+          amountUsd: Number((shares * price).toFixed(2)),
+          limit: price,
           stop: sheet.stop,
           t1: sheet.t1,
           ladder: sheet.ladder,
@@ -245,31 +235,24 @@ export default function DipBuys() {
           entry={preview.buy}
           stop={preview.stop}
           target={preview.t1}
-          amount={amount}
-          onAmount={setAmount}
-          amountLabel="$ to spend"
-          shares={sharesForAmount(Number(amount), preview.buy)}
-          confirmLabel={canBuy ? `Buy $ ${sharesForAmount(Number(amount), preview.buy) || ''} sh @ ${formatPrice(preview.buy)}` : 'Bot access needed'}
           blocked={!canBuy}
           facts={[
-            { k: 'Shares', v: sharesForAmount(Number(amount), preview.buy) || '—' },
             { k: 'Buy limit', v: formatPrice(preview.buy) },
             { k: 'Stop', v: formatPrice(preview.stop), cls: 'neg' },
             { k: 'Target', v: formatPrice(preview.t1), cls: 'pos' },
-            { k: '$ risk', v: usd(dollarRisk(sharesForAmount(Number(amount), preview.buy), preview.buy, preview.stop)), cls: 'neg' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Stage', v: `${preview.stage} · ${preview.stageLabel}` },
             { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },
           ]}
           note={preview.earningsWarn ? <p className="warn-banner small">Earnings {day(preview.earningsAt)} — before a typical fill window. Gap risk.</p> : null}
           realNote={<LiveOrderNote gates={gates} />}
-          onConfirm={(sh) => confirm(sh, preview)}
+          onConfirm={(o) => confirm(o, preview)}
           onClose={() => setPreview(null)}
           busy={busy}
           msg={msg}
         />
       ) : null}
-      {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} gates={gates} busy={busy} msg={msg} /> : null}
+      {sheet ? <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, o) => { paperQuick(r, o.shares, o.price); setSheet(null); }} gates={gates} busy={busy} msg={msg} /> : null}
     </div>
   );
 }
