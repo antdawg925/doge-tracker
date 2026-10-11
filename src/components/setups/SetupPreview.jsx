@@ -21,7 +21,7 @@ function useDesktop() {
  * Desktop: right side panel. Mobile: bottom sheet. Both have a close button.
  * facts: [{ k, v, cls }]; amountLabel; shares (computed by parent from amount); onConfirm(shares).
  */
-export default function SetupPreview({ row, side, entry, stop, target, facts = [], amount, onAmount, amountLabel, amountStep = 50, shares, confirmLabel, paperLabel, onConfirm, onClose, busy, msg, note, blocked = false }) {
+export default function SetupPreview({ row, side, entry, stop, target, facts = [], amount, onAmount, amountLabel, amountStep = 50, shares, confirmLabel, paperLabel, realNote = null, onConfirm, onClose, busy, msg, note, blocked = false }) {
   const desktop = useDesktop();
   const short = side === 'short';
   useEffect(() => {
@@ -78,6 +78,7 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
             {busy ? 'Saving…' : confirmLabel}
           </button>
         </div>
+        {realNote}
         {paper && paper !== 'saving' ? <p className={`small ${paper.startsWith('Paper trade failed') ? 'neg' : 'rpaper__msg'}`}>{paper}</p> : null}
         <dl className="dip-sheet__facts small stp__facts">
           {facts.map((f) => (
@@ -89,7 +90,6 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
         </dl>
         {note}
         {msg ? <p className="small neg">{msg}</p> : null}
-        <p className="small muted stp__dry">Saves a dry-run plan (My Bot → Stocks). Live orders need Stocks Live + Schwab Live.</p>
       </div>
     </div>
   );

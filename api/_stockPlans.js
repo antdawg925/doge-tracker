@@ -8,7 +8,7 @@
  */
 import { accessTokenFor, createSchwabBroker, schwabConfigured } from './_schwab.js'
 import { notify } from './_notify.js'
-import { isTradingDay, etParts, stockPassFor } from '../shared/marketHours.js'
+import { isTradingDay, etParts, stockPassFor, closeMinutes } from '../shared/marketHours.js'
 import { buildLimitBuyOrder, nextRatchetStop, shouldCancelPending, DIP_EXCLUDES } from '../shared/dipBuys.js'
 import { buildShortLimitOrder, nextShortRatchetStop } from '../shared/sellHighs.js'
 import { fillFromOrder, isNotShortableError } from '../shared/schwabLive.js'
@@ -20,7 +20,7 @@ function rthOk(nowMs) {
   const p = etParts(nowMs)
   if (!isTradingDay(p.date, p.dow)) return false
   const mins = p.hour * 60 + p.minute
-  return mins >= 9 * 60 + 30 && mins < 16 * 60 // 9:30–16:00 ET
+  return mins >= 9 * 60 + 30 && mins < closeMinutes(p.date) // 9:30–16:00 ET (13:00 on early-close days)
 }
 
 async function loadConns(sb, userIds) {
@@ -99,7 +99,10 @@ export async function runStockPlans(sb, { profiles, markets, nowMs = Date.now(),
     summary.checked += 1
     const sym = String(plan.symbol || '').toUpperCase()
     const prof = profileBy.get(plan.user_id)
-    const live = Boolean(prof?.stocks_live) && Boolean(conns.get(plan.user_id)?.live_enabled) && !plan.dry_run
+    // Every gate, server-side: plan not dry-run + Stocks Live + Schwab connected + Live Schwab stops ON
+    // + live orders not paused (kill switch: no place / move / cancel). RTH is checked per action below.
+    const conn = conns.get(plan.user_id)
+    const live = !plan.dry_run && Boolean(prof?.stocks_live) && conn?.status === 'connected' && Boolean(conn?.live_enabled) && !conn?.kill_switch
     const spot = markets?.get(sym)?.price ?? markets?.get(sym)?.bars?.at?.(-1)?.close ?? null
     const short = plan.side === 'short'
     const posSide = short ? 'short' : 'long'
@@ -139,10 +142,10 @@ export async function runStockPlans(sb, { profiles, markets, nowMs = Date.now(),
                 userId: plan.user_id,
                 chatId: prof?.telegram_chat_id,
                 kind: 'plan_placed',
-                title: `${sym}: ${live ? (inRth ? 'placing' : 'queued (RTH)') : 'DRY-RUN'} ${entryWord}`,
+                title: `${sym}: ${live ? (inRth ? 'placing' : 'queued (RTH)') : plan.dry_run ? 'DRY-RUN' : 'waiting (Live off)'} ${entryWord}`,
                 message: short
-                  ? `Limit SELL SHORT ${plan.shares} sh @ ${money(plan.limit_price)}, buy-to-cover stop ${money(plan.stop_price)}, cover target ${money(plan.t1_price)}.${live ? '' : ' Live is off — nothing sent to Schwab.'}`
-                  : `Limit buy ${plan.shares} sh @ ${money(plan.limit_price)}, stop ${money(plan.stop_price)}, T1 ${money(plan.t1_price)}.${live ? '' : ' Live is off — nothing sent to Schwab.'}`,
+                  ? `Limit SELL SHORT ${plan.shares} sh @ ${money(plan.limit_price)}, buy-to-cover stop ${money(plan.stop_price)}, cover target ${money(plan.t1_price)}.${live ? '' : plan.dry_run ? ' Live is off — nothing sent to Schwab.' : ' Real plan: waits until Stocks Live + Live Schwab stops are on (and not paused). Nothing sent yet.'}`
+                  : `Limit buy ${plan.shares} sh @ ${money(plan.limit_price)}, stop ${money(plan.stop_price)}, T1 ${money(plan.t1_price)}.${live ? '' : plan.dry_run ? ' Live is off — nothing sent to Schwab.' : ' Real plan: waits until Stocks Live + Live Schwab stops are on (and not paused). Nothing sent yet.'}`,
                 nowMs,
               })
               await sb.from('stock_plans').update({ data: { ...(plan.data || {}), notifiedPlace: true } }).eq('id', plan.id)

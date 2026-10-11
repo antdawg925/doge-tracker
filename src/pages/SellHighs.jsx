@@ -6,6 +6,7 @@ import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sellHighs.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
+import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -34,7 +35,7 @@ function SqueezeTag({ sq }) {
   );
 }
 
-function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, busy, msg, borrowAvailable }) {
+function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, gates, busy, msg, borrowAvailable }) {
   const shares = sharesForRisk(Number(risk), row.entry, row.stop);
   const loss = shortDollarRisk(shares, row.entry, row.stop);
   const blocked = row.borrow?.isShortable === false;
@@ -50,7 +51,7 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, busy, ms
           </button>
         </div>
         <p className="small muted">
-          SELL_SHORT limit just under resistance {formatPrice(row.resistance)}, regular hours. On fill a BUY_TO_COVER stop goes above; it only moves down. Default dry-run until Stocks Live is on.
+          SELL_SHORT limit just under resistance {formatPrice(row.resistance)}, regular hours. On fill a BUY_TO_COVER stop goes above; it only moves down.
         </p>
         <label className="dip-sheet__amt">
           <span className="small muted">$ risk (sets shares)</span>
@@ -113,6 +114,7 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, busy, ms
             {busy ? 'Saving…' : `Short $ ${shares || ''} sh`}
           </button>
         </div>
+        <LiveOrderNote gates={gates} />
       </div>
     </div>
   );
@@ -132,6 +134,7 @@ export default function SellHighs() {
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
   const [paperMsg, setPaperMsg] = useState('');
+  const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
   const paperQuick = async (r, shares) => {
     setPaperMsg('Saving paper idea…');
@@ -181,12 +184,12 @@ export default function SellHighs() {
           borrow: sheet.borrow,
           squeeze: sheet.squeeze?.flag ? sheet.squeeze : null,
           confirm: 'SHORT',
-          dryRun: true,
+          dryRun: false, // REAL plan: server runner sends only when every live gate is on, in RTH
         },
       });
       setSheet(null);
       setPreview(null);
-      alert(`${sheet.symbol}: Sell highs short saved (dry-run). See My Bot → Stocks.`);
+      alert(`${sheet.symbol}: real Sell highs short saved. It goes to Schwab in market hours once Stocks Live + Live Schwab stops are on. See My Bot → Buy stocks.`);
     } catch (e) {
       setMsg(e.message);
     } finally {
@@ -321,6 +324,7 @@ export default function SellHighs() {
               {preview.borrow?.isShortable === false ? <p className="small neg">Schwab says {preview.symbol} is not shortable right now.</p> : null}
             </>
           }
+          realNote={<LiveOrderNote gates={gates} />}
           onConfirm={(sh) => confirm(sh, preview)}
           onClose={() => setPreview(null)}
           busy={busy}
@@ -328,7 +332,7 @@ export default function SellHighs() {
         />
       ) : null}
       {sheet ? (
-        <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
+        <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}
     </div>
   );

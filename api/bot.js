@@ -229,9 +229,10 @@ async function stockRoute(sb, req, res, route) {
     if (!(shares > 0)) return sendJson(res, 400, { error: short ? 'Shares must be a whole number > 0 (check $ risk vs stop distance).' : 'Shares must be a whole number > 0 (check $ to spend / limit).' })
     const want = short ? 'SHORT' : 'BUY'
     if (body.confirm !== want) return sendJson(res, 400, { error: `Confirm ${want} to place the plan.` })
-    const dry = body.dryRun !== false // default dry-run unless explicitly false AND stocks_live
-    const { data: prof } = await sb.from('profiles').select('stocks_live').eq('id', who.user.id).maybeSingle()
-    const dryRun = dry || !prof?.stocks_live
+    // dry_run = paper intent; default true. dryRun:false saves a REAL plan, which the runner only sends to
+    // Schwab while Stocks Live + Live Schwab stops are on, not paused, connected, and in regular hours.
+    // Saved while those are off, it stays pending (nothing sent) until they're on.
+    const dryRun = body.dryRun !== false
     const risk = short ? shortDollarRisk(shares, limit, stop) : dollarRisk(shares, limit, stop)
     const ladder = (Array.isArray(body.ladder) ? body.ladder : [])
       .map((r) => ({ trigger: Number(r?.trigger), stop: Number(r?.stop) }))

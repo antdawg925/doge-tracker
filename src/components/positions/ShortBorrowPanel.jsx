@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import ModePill from '../common/ModePill.jsx';
 import useSchwabStatus from '../stocks/useSchwabStatus.js';
-import { planMode, positionMode } from '../../lib/botMode.js';
+import { planState, positionMode } from '../../lib/botMode.js';
 import { supabase } from '../../lib/supabase.js';
 import { fetchYahooChart } from '../../lib/yahoo.js';
 import { fetchSchwabBorrow } from '../../lib/schwabBorrow.js';
@@ -76,7 +76,8 @@ export default function ShortBorrowPanel({ userId }) {
   }, [userId]);
 
   const conn = schwab.status?.connection;
-  const modeOf = (r) => (r.plan ? planMode(r, stocksLive, conn) : positionMode(r, conn));
+  const stateOf = (r) => (r.plan ? planState(r, stocksLive, conn) : { mode: positionMode(r, conn), reason: null });
+  const modeOf = (r) => stateOf(r).mode;
   if (!rows?.length) return null;
   const rateTip = (r) =>
     r.est.known
@@ -109,7 +110,7 @@ export default function ShortBorrowPanel({ userId }) {
           {rows.map((r) => (
             <tr key={r.key} className={`mode-row--${modeOf(r)}`}>
               <td>
-                <ModePill mode={modeOf(r)} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
+                <ModePill mode={modeOf(r)} reason={stateOf(r).reason} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
                 <div className="muted small">{r.source}</div>
               </td>
               <td className="num mono">−{r.shares.toLocaleString('en-US')}</td>
@@ -132,7 +133,7 @@ export default function ShortBorrowPanel({ userId }) {
           <li key={r.key} className={`pos-card mode-card--${modeOf(r)}`}>
             <div className="pos-card__top">
               <span>
-                <ModePill mode={modeOf(r)} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
+                <ModePill mode={modeOf(r)} reason={stateOf(r).reason} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
               </span>
               <span className={`mono ${tone(r.est.pnl)}`}>{money(r.est.pnl, { sign: true })}</span>
             </div>

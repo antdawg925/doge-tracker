@@ -6,12 +6,13 @@ import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
+import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 
-function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, busy, msg }) {
+function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, gates, busy, msg }) {
   const shares = sharesForAmount(Number(amount), row.buy);
   const risk = dollarRisk(shares, row.buy, row.stop);
   return (
@@ -24,7 +25,7 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, busy
           </button>
         </div>
         <p className="small muted">
-          Limit at major support{row.buyZone === 'sma50' ? ' / SMA50 zone' : ''}. Default dry-run until Stocks Live is on.
+          Limit at major support{row.buyZone === 'sma50' ? ' / SMA50 zone' : ''}.
         </p>
         <label className="dip-sheet__amt">
           <span className="small muted">$ to spend</span>
@@ -71,6 +72,7 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, busy
             {busy ? 'Saving…' : `Buy $ ${shares || ''} sh`}
           </button>
         </div>
+        <LiveOrderNote gates={gates} />
       </div>
     </div>
   );
@@ -91,6 +93,7 @@ export default function DipBuys() {
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
   const [paperMsg, setPaperMsg] = useState('');
+  const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
   const paperQuick = async (r, shares) => {
     setPaperMsg('Saving paper idea…');
@@ -138,13 +141,13 @@ export default function DipBuys() {
           t1: sheet.t1,
           ladder: sheet.ladder,
           confirm: 'BUY',
-          dryRun: true,
+          dryRun: false, // REAL plan: server runner sends only when every live gate is on, in RTH
         },
       });
       setSheet(null);
       setPreview(null);
       setMsg('');
-      alert(`${sheet.symbol}: plan saved (dry-run). See My Bot → Stocks.`);
+      alert(`${sheet.symbol}: real buy plan saved. It goes to Schwab in market hours once Stocks Live + Live Schwab stops are on. See My Bot → Buy stocks.`);
     } catch (e) {
       setMsg(e.message);
     } finally {
@@ -259,13 +262,14 @@ export default function DipBuys() {
             { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },
           ]}
           note={preview.earningsWarn ? <p className="warn-banner small">Earnings {day(preview.earningsAt)} — before a typical fill window. Gap risk.</p> : null}
+          realNote={<LiveOrderNote gates={gates} />}
           onConfirm={(sh) => confirm(sh, preview)}
           onClose={() => setPreview(null)}
           busy={busy}
           msg={msg}
         />
       ) : null}
-      {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} busy={busy} msg={msg} /> : null}
+      {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} gates={gates} busy={busy} msg={msg} /> : null}
     </div>
   );
 }
