@@ -485,7 +485,7 @@ export default function Positions() {
           <div className="pos-empty">
             <p className="muted">No real positions yet.</p>
             <button type="button" className="btn btn--primary" onClick={() => { setFormMode('real'); setForm({}); }}>
-              Add what you hold
+              + Positions
             </button>
           </div>
         ) : (
