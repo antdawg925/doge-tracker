@@ -2,6 +2,9 @@ import { useState } from 'react';
 import ModePill from '../common/ModePill.jsx';
 import { assetKey } from '../../lib/assets';
 import { formatPct, formatPrice, formatUsd } from '../../lib/format';
+import RiskEdit from './RiskEdit.jsx';
+import { authedFetch } from '../../lib/api.js';
+import { supabase } from '../../lib/supabase.js';
 import { closePaperIdea, deletePaperIdea, ideaAsset, ideaPnl } from '../../lib/paperIdeas.js';
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
@@ -80,6 +83,23 @@ function Row({ i, quotes, onChanged, onOpen, onError }) {
       <td className={`num mono ${tone(pnl)}`}>
         {formatUsd(pnl, { sign: true, decimals: 2 })} <small>{formatPct(pct, 1)}</small>
       </td>
+      <td className="num">
+        {isClosed ? (
+          <span className="muted small">—</span>
+        ) : (
+          <RiskEdit
+            it={{ kind: bot ? 'bot' : 'paper', symbol: i.symbol, assetType: i.asset_type, side: i.side, shares: i.qty, entry: i.entry_price, stop: i.stop_price, price: live, live: false }}
+            onSave={async (stop) => {
+              if (bot) await authedFetch('/api/bot/stocks/plans/raise', { method: 'POST', body: { id: i.id.replace(/^plan-/, ''), price: stop } });
+              else {
+                const { error } = await supabase.from('paper_ideas').update({ stop_price: stop, updated_at: new Date().toISOString() }).eq('id', i.id);
+                if (error) throw error;
+              }
+              await onChanged();
+            }}
+          />
+        )}
+      </td>
       <td className="action">
         {bot ? (
           <span className="muted small">bot</span>
@@ -122,6 +142,7 @@ function Table({ list, ...rest }) {
             <th className="num">Price</th>
             <th className="num">Stop / target</th>
             <th className="num">P/L</th>
+            <th className="num" title="Hard $ loss cap for the whole idea; editing it moves the stop (shares stay)">Risk $</th>
             <th aria-label="Actions" />
           </tr>
         </thead>

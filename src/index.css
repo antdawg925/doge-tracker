@@ -5423,3 +5423,20 @@ tr.mode-row--waiting > td:first-child { box-shadow: inset 3px 0 0 rgba(251, 191,
 .otk__nums { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
 .otk__total { margin: 0.2rem 0 0; font-size: 0.92rem; font-weight: 650; color: var(--text); }
 .otk__total strong { font-family: var(--mono); font-size: 1.05rem; }
+
+/* Risk $ editor + confirm modal (Positions) */
+.rk { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; }
+.rk__in { display: inline-flex; align-items: center; gap: 0.15rem; color: var(--muted); font-size: 0.8rem; }
+.rk__in input { width: 4.4rem; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.18rem 0.35rem; font: inherit; font-family: var(--mono); font-size: 0.82rem; text-align: right; }
+.rk__stop { font-size: 0.68rem; }
+.rk-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
+.rk-modal__scrim { position: absolute; inset: 0; background: rgba(3, 6, 12, 0.6); border: 0; }
+.rk-modal__card { position: relative; width: min(24rem, 92vw); padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; text-align: left; white-space: normal; }
+.rk-modal__card h3 { margin: 0; font-size: 1rem; }
+.rk-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.8rem; margin: 0; font-size: 0.88rem; }
+.rk-grid dt { color: var(--muted); }
+.rk-grid dd { margin: 0; }
+.rk-warn { margin: 0; padding-left: 1rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.rk-warn:empty { display: none; }
+.rk-loosen { display: inline-flex; gap: 0.35rem; align-items: center; color: #f07178; font-weight: 700; }
+.rk-btns { display: flex; justify-content: flex-end; gap: 0.4rem; }

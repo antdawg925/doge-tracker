@@ -15,6 +15,7 @@ import {
 } from '../lib/positionsStore';
 import { searchSymbols } from '../lib/search';
 import ShortBorrowPanel from '../components/positions/ShortBorrowPanel.jsx';
+import RiskEdit from '../components/positions/RiskEdit.jsx';
 import PaperIdeasSection from '../components/positions/PaperIdeasSection.jsx';
 import PaperTradeForm from '../components/paper/PaperTradeForm.jsx';
 import ModePill from '../components/common/ModePill.jsx';
@@ -379,6 +380,12 @@ export default function Positions() {
     };
   }, [rows, quotes]);
 
+  const realRiskItem = (row, m) => ({ kind: 'real', symbol: row.symbol, assetType: row.asset_type, side: 'long', shares: row.shares, entry: row.avg_cost, stop: row.stop_price, price: m.price, live: false });
+  const saveRealRisk = async (row, stop, risk) => {
+    const { error } = await supabase.from('positions').update({ stop_price: stop, risk_usd: risk, updated_at: new Date().toISOString() }).eq('id', row.id);
+    if (error) throw error;
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, stop_price: stop, risk_usd: risk } : r)));
+  };
   const openIdea = (a) => {
     openAssetOnDesk(a);
     navigate('/research');
@@ -501,6 +508,7 @@ export default function Positions() {
                   <th className="num">Value</th>
                   <th className="num">Gain / loss</th>
                   <th className="num">%</th>
+                  <th className="num" title="Hard $ loss cap for the whole holding; editing it sets the stop (shares stay). Tracking only.">Risk $</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -522,6 +530,9 @@ export default function Positions() {
                     <td className="num mono">{formatUsd(m.value, { decimals: 2 })}</td>
                     <td className={`num mono ${tone(m.gain)}`}>{formatUsd(m.gain, { sign: true, decimals: 2 })}</td>
                     <td className={`num mono ${tone(m.gainPct)}`}>{formatPct(m.gainPct, 1)}</td>
+                    <td className="num">
+                      <RiskEdit it={realRiskItem(row, m)} onSave={(stop, risk) => saveRealRisk(row, stop, risk)} />
+                    </td>
                     <td className="action">
                       <RowActions row={row} confirming={confirmId === row.id} {...actionProps} />
                     </td>
@@ -553,6 +564,7 @@ export default function Positions() {
                     <span className={`mono small ${tone(m.gain)}`}>
                       {formatUsd(m.gain, { sign: true, decimals: 2 })} ({formatPct(m.gainPct, 1)})
                     </span>
+                    <RiskEdit it={realRiskItem(row, m)} onSave={(stop, risk) => saveRealRisk(row, stop, risk)} />
                     <RowActions row={row} confirming={confirmId === row.id} {...actionProps} />
                   </div>
                 </li>

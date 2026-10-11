@@ -7,7 +7,7 @@ import { supabase } from './supabase.js';
 import { assetKey } from './assets.js';
 import { DEFAULTS, loadAppState, saveAppState } from './defaults.js';
 
-const COLS = 'id, symbol, asset_type, asset_id, name, shares, avg_cost, notes, updated_at';
+const COLS = 'id, symbol, asset_type, asset_id, name, shares, avg_cost, notes, stop_price, risk_usd, updated_at';
 const IMPORT_FLAG = 'trade-smart-positions-imported-v1';
 
 function num(v) {
@@ -22,6 +22,8 @@ function normalizeRow(r) {
     symbol: String(r.symbol || '').toUpperCase(),
     shares: num(r.shares) ?? 0,
     avg_cost: num(r.avg_cost),
+    stop_price: num(r.stop_price),
+    risk_usd: num(r.risk_usd),
   };
 }
 
