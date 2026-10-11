@@ -63,11 +63,11 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
           </div>
           <div>
             <dt>Cover stop</dt>
-            <dd className="mono neg">{formatPrice(row.stop)}</dd>
+            <dd className="mono neg">{formatPrice(row.stop)} <PctUnder v={movePct(row.entry, row.stop, true)} /></dd>
           </div>
           <div>
             <dt>Cover target</dt>
-            <dd className="mono pos">{formatPrice(row.cover)}</dd>
+            <dd className="mono pos">{formatPrice(row.cover)} <PctUnder v={movePct(row.entry, row.cover, true)} /></dd>
           </div>
           <div>
             <dt>R:R</dt>
