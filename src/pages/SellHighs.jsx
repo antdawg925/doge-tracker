@@ -27,6 +27,10 @@ export function BorrowTag({ b }) {
   return <span className="sh-borrow sh-borrow--etb">ETB</span>;
 }
 
+/** Move from entry to a level as a signed % for this side (loss negative, gain positive). */
+const movePct = (entry, level, short) => (entry > 0 && level > 0 ? ((short ? entry - level : level - entry) / entry) * 100 : null);
+const PctUnder = ({ v }) => (v == null ? null : <span className={`pct-under ${v < 0 ? 'neg' : 'pos'}`}>{`${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}%`}</span>);
+
 function SqueezeTag({ sq }) {
   if (!sq?.flag) return null;
   return (
@@ -253,8 +257,8 @@ export default function SellHighs() {
                   <td className="num mono">{formatPrice(r.price)}</td>
                   <td className="num mono">{formatPrice(r.entry)}</td>
                   <td className="num mono pos">{formatPct(r.awayPct, 1)}</td>
-                  <td className="num mono neg">{formatPrice(r.stop)}</td>
-                  <td className="num mono pos">{formatPrice(r.cover)}</td>
+                  <td className="num mono neg">{formatPrice(r.stop)}<PctUnder v={movePct(r.entry, r.stop, true)} /></td>
+                  <td className="num mono pos">{formatPrice(r.cover)}<PctUnder v={movePct(r.entry, r.cover, true)} /></td>
                   <td className="num mono">{r.rr?.toFixed?.(2)}</td>
                   <td className={`num mono${r.squeeze?.flag ? ' neg' : ''}`}>{pct1(r.siPct)}</td>
                   <td className={`num mono${r.squeeze?.flag ? ' neg' : ''}`}>{r.dtc != null ? r.dtc.toFixed(1) : '—'}</td>
@@ -292,8 +296,8 @@ export default function SellHighs() {
           blocked={!canTrade || preview.borrow?.isShortable === false}
           facts={[
             { k: 'Short limit', v: formatPrice(preview.entry) },
-            { k: 'Cover stop', v: formatPrice(preview.stop), cls: 'neg' },
-            { k: 'Cover target', v: formatPrice(preview.cover), cls: 'pos' },
+            { k: 'Cover stop', v: <>{formatPrice(preview.stop)} <PctUnder v={movePct(preview.entry, preview.stop, true)} /></>, cls: 'neg' },
+            { k: 'Cover target', v: <>{formatPrice(preview.cover)} <PctUnder v={movePct(preview.entry, preview.cover, true)} /></>, cls: 'pos' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Short % float', v: pct1(preview.siPct), cls: preview.squeeze?.flag ? 'neg' : '' },
             { k: 'Days to cover', v: preview.dtc != null ? preview.dtc.toFixed(1) : '—', cls: preview.squeeze?.flag ? 'neg' : '' },

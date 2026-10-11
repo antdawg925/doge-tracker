@@ -13,6 +13,10 @@ import { addPaperIdea } from '../lib/paperIdeas.js';
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 
+/** Move from entry to a level as a signed % for this side (loss negative, gain positive). */
+const movePct = (entry, level, short) => (entry > 0 && level > 0 ? ((short ? entry - level : level - entry) / entry) * 100 : null);
+const PctUnder = ({ v }) => (v == null ? null : <span className={`pct-under ${v < 0 ? 'neg' : 'pos'}`}>{`${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}%`}</span>);
+
 function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
   return (
     <div className="dip-sheet" role="dialog" aria-label={`Buy ${row.symbol}`}>
@@ -204,8 +208,8 @@ export default function DipBuys() {
                   <td className="num mono">{formatPrice(r.price)}</td>
                   <td className="num mono">{formatPrice(r.buy)}</td>
                   <td className="num mono neg">{formatPct(r.awayPct, 1)}</td>
-                  <td className="num mono">{formatPrice(r.stop)}</td>
-                  <td className="num mono pos">{formatPrice(r.t1)}</td>
+                  <td className="num mono">{formatPrice(r.stop)}<PctUnder v={movePct(r.buy, r.stop, false)} /></td>
+                  <td className="num mono pos">{formatPrice(r.t1)}<PctUnder v={movePct(r.buy, r.t1, false)} /></td>
                   <td className="num mono">{r.rr?.toFixed?.(2)}</td>
                   <EarningsCell earningsAt={r.earningsAt} warn={r.earningsWarn} side="long" />
                   <td>
@@ -238,8 +242,8 @@ export default function DipBuys() {
           blocked={!canBuy}
           facts={[
             { k: 'Buy limit', v: formatPrice(preview.buy) },
-            { k: 'Stop', v: formatPrice(preview.stop), cls: 'neg' },
-            { k: 'Target', v: formatPrice(preview.t1), cls: 'pos' },
+            { k: 'Stop', v: <>{formatPrice(preview.stop)} <PctUnder v={movePct(preview.buy, preview.stop, false)} /></>, cls: 'neg' },
+            { k: 'Target', v: <>{formatPrice(preview.t1)} <PctUnder v={movePct(preview.buy, preview.t1, false)} /></>, cls: 'pos' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Stage', v: `${preview.stage} · ${preview.stageLabel}` },
             { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },
