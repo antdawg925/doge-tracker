@@ -37,15 +37,11 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
           </div>
           <div>
             <dt>Stop</dt>
-            <dd className="mono neg">{formatPrice(row.stop)}</dd>
+            <dd className="mono neg">{formatPrice(row.stop)} <PctUnder v={movePct(row.buy, row.stop, false)} /></dd>
           </div>
           <div>
             <dt>T1</dt>
-            <dd className="mono pos">{formatPrice(row.t1)}</dd>
-          </div>
-          <div>
-            <dt>R:R</dt>
-            <dd className="mono">{row.rr?.toFixed?.(2) ?? row.rr}</dd>
+            <dd className="mono pos">{formatPrice(row.t1)} <PctUnder v={movePct(row.buy, row.t1, false)} /></dd>
           </div>
         </dl>
         {row.earningsWarn ? (
@@ -178,7 +174,6 @@ export default function DipBuys() {
               <th className="num">% away</th>
               <th className="num">Stop</th>
               <th className="num">T1</th>
-              <th className="num">R:R</th>
               <th>Earnings</th>
               <th />
             </tr>
@@ -210,7 +205,6 @@ export default function DipBuys() {
                   <td className="num mono neg">{formatPct(r.awayPct, 1)}</td>
                   <td className="num mono">{formatPrice(r.stop)}<PctUnder v={movePct(r.buy, r.stop, false)} /></td>
                   <td className="num mono pos">{formatPrice(r.t1)}<PctUnder v={movePct(r.buy, r.t1, false)} /></td>
-                  <td className="num mono">{r.rr?.toFixed?.(2)}</td>
                   <EarningsCell earningsAt={r.earningsAt} warn={r.earningsWarn} side="long" />
                   <td>
                     {canBuy ? (
@@ -244,7 +238,6 @@ export default function DipBuys() {
             { k: 'Buy limit', v: formatPrice(preview.buy) },
             { k: 'Stop', v: <>{formatPrice(preview.stop)} <PctUnder v={movePct(preview.buy, preview.stop, false)} /></>, cls: 'neg' },
             { k: 'Target', v: <>{formatPrice(preview.t1)} <PctUnder v={movePct(preview.buy, preview.t1, false)} /></>, cls: 'pos' },
-            { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Stage', v: `${preview.stage} · ${preview.stageLabel}` },
             { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },
           ]}
