@@ -1,0 +1,73 @@
+/**
+ * Paper ideas (`public.paper_ideas`, RLS own rows): simulated long/short trades tracked
+ * beside real holdings. Never mixed into real totals.
+ */
+import { supabase } from './supabase.js';
+
+const COLS = 'id, symbol, asset_type, asset_id, name, side, qty, entry_price, stop_price, target_price, source, status, opened_at, exit_price, closed_at';
+const n = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+const norm = (r) => ({ ...r, qty: n(r.qty), entry_price: n(r.entry_price), stop_price: n(r.stop_price), target_price: n(r.target_price), exit_price: n(r.exit_price) });
+
+export async function listPaperIdeas({ symbol } = {}) {
+  let q = supabase.from('paper_ideas').select(COLS).order('opened_at', { ascending: false }).limit(300);
+  if (symbol) q = q.eq('symbol', String(symbol).toUpperCase());
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data || []).map(norm);
+}
+
+/** asset: { symbol, type, id?, name? } */
+export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = null, target = null, source = 'manual' }) {
+  const payload = {
+    symbol: String(asset.symbol || '').toUpperCase(),
+    asset_type: asset.type === 'crypto' ? 'crypto' : 'stock',
+    asset_id: asset.type === 'crypto' ? asset.id || null : null,
+    name: asset.name || null,
+    side: side === 'short' ? 'short' : 'long',
+    qty: n(qty),
+    entry_price: n(entry),
+    stop_price: n(stop) > 0 ? n(stop) : null,
+    target_price: n(target) > 0 ? n(target) : null,
+    source,
+  };
+  if (!(payload.qty > 0) || !(payload.entry_price > 0)) throw new Error('Paper trade needs a size and an entry price.');
+  const { data, error } = await supabase.from('paper_ideas').insert(payload).select(COLS).single();
+  if (error) throw error;
+  return norm(data);
+}
+
+export async function closePaperIdea(id, exitPrice) {
+  const { data, error } = await supabase
+    .from('paper_ideas')
+    .update({ status: 'closed', exit_price: n(exitPrice), closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(COLS)
+    .single();
+  if (error) throw error;
+  return norm(data);
+}
+
+export async function deletePaperIdea(id) {
+  const { error } = await supabase.from('paper_ideas').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** P&L for one idea at `price` (open) or its exit (closed). */
+export function ideaPnl(idea, price) {
+  const px = idea.status === 'closed' ? idea.exit_price : price;
+  if (!(px > 0) || !(idea.entry_price > 0)) return { pnl: null, pct: null, px: px ?? null };
+  const dir = idea.side === 'short' ? -1 : 1;
+  const pnl = (px - idea.entry_price) * idea.qty * dir;
+  return { pnl, pct: ((px / idea.entry_price - 1) * 100) * dir, px };
+}
+
+/** Default size: $100 risk when there's a stop, else ~$1,000 notional. */
+export function paperSize(entry, stop) {
+  const e = Number(entry);
+  const s = Number(stop);
+  if (!(e > 0)) return 0;
+  const raw = s > 0 && Math.abs(e - s) > 0 ? 100 / Math.abs(e - s) : 1000 / e;
+  return e >= 5 ? Math.max(1, Math.floor(raw)) : Math.max(1, Math.round(raw));
+}
+
+export const ideaAsset = (r) => ({ symbol: r.symbol, name: r.name || r.symbol, type: r.asset_type === 'crypto' ? 'crypto' : 'stock', id: r.asset_type === 'crypto' ? r.asset_id || undefined : undefined });

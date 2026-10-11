@@ -9,6 +9,7 @@ import MajorLevelsPanel from '../components/MajorLevelsPanel';
 import PriceChart from '../components/PriceChart';
 // Old level panels (SupportPanel / ResistancePanel / SuggestedStops) stay in the repo; Research uses MajorLevelsPanel.
 import PositionRail from '../components/PositionRail';
+import ResearchPaperBox from '../components/paper/ResearchPaperBox.jsx';
 import PositionSizeLine from '../components/PositionSizeLine';
 import NewsPanel from '../components/NewsPanel';
 import FundamentalsPanel from '../components/FundamentalsPanel';
@@ -282,6 +283,7 @@ export default function Research() {
           >
             <PositionSizeLine asset={asset} bars={longBars} spot={price} />
           </PositionRail>
+          <ResearchPaperBox asset={asset} spot={price} major={major} enabled={Boolean(user?.id)} />
         </aside>
       </div>
     </div>

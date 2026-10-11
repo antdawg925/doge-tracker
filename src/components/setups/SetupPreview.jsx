@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import SetupChart from './SetupChart.jsx';
 import { formatPct, formatPrice } from '../../lib/format.js';
 import { setupLines } from '../../lib/setupLines.js';
+import { addPaperIdea } from '../../lib/paperIdeas.js';
 
 function useDesktop() {
   const q = '(min-width: 900px)';
@@ -29,6 +30,17 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
   const lines = setupLines({ side, plan: row.plan, entry, stop, target });
+  const [paper, setPaper] = useState(''); // '' | 'saving' | saved text | error
+  useEffect(() => setPaper(''), [row.symbol]);
+  const paperTrade = async () => {
+    setPaper('saving');
+    try {
+      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: row.price, stop, target, source: 'setup' });
+      setPaper(`Paper ${i.side} ${i.qty} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+    } catch (e) {
+      setPaper(`Paper trade failed: ${e.message}`);
+    }
+  };
   return (
     <div className={`stp ${desktop ? 'stp--side' : 'stp--sheet'}`} role="dialog" aria-label={`${row.symbol} preview`}>
       {!desktop ? <button type="button" className="stp__scrim" aria-label="Close preview" onClick={onClose} /> : null}
@@ -62,7 +74,11 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
           <button type="button" className={`btn ${short ? 'btn--danger' : 'btn--primary'} stk-btn stp__go`} disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
             {busy ? 'Saving…' : confirmLabel}
           </button>
+          <button type="button" className="btn btn--paper stk-btn" disabled={paper === 'saving' || !shares || !(row.price > 0)} onClick={paperTrade} title="Track it as a paper idea at the current price (no real money)">
+            {paper === 'saving' ? 'Saving…' : 'Paper trade'}
+          </button>
         </div>
+        {paper && paper !== 'saving' ? <p className={`small ${paper.startsWith('Paper trade failed') ? 'neg' : 'rpaper__msg'}`}>{paper}</p> : null}
         <dl className="dip-sheet__facts small stp__facts">
           {facts.map((f) => (
             <div key={f.k}>

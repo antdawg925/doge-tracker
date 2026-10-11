@@ -15,6 +15,34 @@ import {
 } from '../lib/positionsStore';
 import { searchSymbols } from '../lib/search';
 import ShortBorrowPanel from '../components/positions/ShortBorrowPanel.jsx';
+import PaperIdeasSection from '../components/positions/PaperIdeasSection.jsx';
+import PaperTradeForm from '../components/paper/PaperTradeForm.jsx';
+import ModePill from '../components/common/ModePill.jsx';
+import { ideaAsset, listPaperIdeas } from '../lib/paperIdeas.js';
+import { supabase } from '../lib/supabase.js';
+
+/** Bot Buy dips / Sell highs fills that are dry-run = paper ideas (read-only, the bot manages them). */
+async function listBotPaper() {
+  const { data } = await supabase
+    .from('stock_plans')
+    .select('id, symbol, side, shares, filled_shares, filled_price, limit_price, stop_price, last_stop_price, t1_price, filled_at, created_at')
+    .eq('status', 'filled')
+    .eq('dry_run', true);
+  return (data || []).map((p) => ({
+    id: `plan-${p.id}`,
+    symbol: p.symbol,
+    asset_type: 'stock',
+    name: p.symbol,
+    side: p.side === 'short' ? 'short' : 'long',
+    qty: Number(p.filled_shares || p.shares),
+    entry_price: Number(p.filled_price || p.limit_price),
+    stop_price: Number(p.last_stop_price || p.stop_price) || null,
+    target_price: Number(p.t1_price) || null,
+    source: p.side === 'short' ? 'bot_high' : 'bot_dip',
+    status: 'open',
+    opened_at: p.filled_at || p.created_at,
+  }));
+}
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
 const fmtShares = (row) =>
@@ -135,6 +163,39 @@ function SymbolPicker({ value, onPick, autoFocus }) {
   );
 }
 
+function ModeToggle({ mode, onChange: set }) {
+  const onChange = (m) => {
+    set(m);
+    if (m === 'paper') requestAnimationFrame(() => document.querySelector('.pos-sec--paper')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+  return (
+    <div className="pos-mode" role="group" aria-label="Real or paper">
+      <button type="button" className={`pos-mode__real${mode === 'real' ? ' is-on' : ''}`} onClick={() => onChange('real')}>
+        Real $ <span className="small">I hold it</span>
+      </button>
+      <button type="button" className={`pos-mode__paper${mode === 'paper' ? ' is-on' : ''}`} onClick={() => onChange('paper')}>
+        Paper <span className="small">idea, no money</span>
+      </button>
+    </div>
+  );
+}
+
+function PaperAdd({ onSaved, onCancel, header }) {
+  const [asset, setAsset] = useState(null);
+  return (
+    <div className="card pos-form-wrap pos-form-wrap--paper">
+      {header}
+      <PaperTradeForm
+        asset={asset}
+        picker={<SymbolPicker value={asset} onPick={setAsset} autoFocus />}
+        source="manual"
+        onSaved={onSaved}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
 function PositionForm({ initial, existingRows, onSave, onCancel }) {
   const editing = Boolean(initial?.id);
   const [asset, setAsset] = useState(initial ? rowToAsset(initial) : null);
@@ -251,10 +312,18 @@ export default function Positions() {
   const [error, setError] = useState(null);
   const [form, setForm] = useState(null); // null | { row?: existing }
   const [confirmId, setConfirmId] = useState(null);
+  const [ideas, setIdeas] = useState([]);
+  const [formMode, setFormMode] = useState('real');
+
+  const loadPaper = useCallback(async () => {
+    const [mine, bot] = await Promise.all([listPaperIdeas().catch(() => []), hasBotAccess || isOwner ? listBotPaper().catch(() => []) : []]);
+    setIdeas([...bot, ...mine]);
+  }, [hasBotAccess, isOwner]);
 
   const load = useCallback(async () => {
     try {
       await importLocalPositionsOnce(userId);
+      loadPaper();
       setRows(await listPositions());
       setError(null);
     } catch (err) {
@@ -262,13 +331,17 @@ export default function Positions() {
     } finally {
       setLoaded(true);
     }
-  }, [userId]);
+  }, [userId, loadPaper]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const assets = useMemo(() => rows.map(rowToAsset), [rows]);
+  const assets = useMemo(() => {
+    const m = new Map();
+    for (const a of [...rows.map(rowToAsset), ...ideas.filter((i) => i.status !== 'closed').map(ideaAsset)]) m.set(assetKey(a), a);
+    return [...m.values()];
+  }, [rows, ideas]);
   const { quotes, updatedAt, loading: quoting, refresh } = usePortfolioQuotes(assets);
 
   const view = useMemo(() => {
@@ -306,6 +379,10 @@ export default function Positions() {
     };
   }, [rows, quotes]);
 
+  const openIdea = (a) => {
+    openAssetOnDesk(a);
+    navigate('/research');
+  };
   const onSave = async (asset, shares, avgCost) => {
     const saved = await upsertPosition(userId, asset, { shares, avgCost });
     setRows((prev) => [...prev.filter((r) => r.symbol !== saved.symbol), saved]);
@@ -344,60 +421,71 @@ export default function Positions() {
         <div className="pos-head__title">
           <h1>Positions</h1>
           <span className="muted small">
-            {rows.length} holding{rows.length === 1 ? '' : 's'}
-            {updatedAt ? ` · prices ${new Date(updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
+            {updatedAt ? `prices ${new Date(updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
           </span>
         </div>
-        <dl className="pos-totals">
-          <div>
-            <dt>Value</dt>
-            <dd className="mono">{formatUsd(totals.value, { decimals: 2 })}</dd>
-          </div>
-          <div>
-            <dt>Gain / loss</dt>
-            <dd className={`mono ${tone(totals.gain)}`}>
-              {formatUsd(totals.gain, { sign: true, decimals: 2 })}
-              {totals.gainPct != null ? <small> {formatPct(totals.gainPct, 1)}</small> : null}
-            </dd>
-          </div>
-          <div>
-            <dt>Today</dt>
-            <dd className={`mono ${tone(totals.day)}`}>
-              {formatUsd(totals.day, { sign: true, decimals: 2 })}
-              {totals.dayPct != null ? <small> {formatPct(totals.dayPct, 2)}</small> : null}
-            </dd>
-          </div>
-        </dl>
         <div className="pos-head__actions">
-          <button type="button" className="btn btn--ghost" onClick={refresh} disabled={quoting || !rows.length}>
+          <button type="button" className="btn btn--ghost" onClick={() => { refresh(); loadPaper(); }} disabled={quoting || !assets.length}>
             {quoting ? 'Updating…' : 'Refresh'}
           </button>
-          <button type="button" className="btn btn--primary" onClick={() => setForm(form && !form.row ? null : {})}>
+          <button type="button" className="btn btn--primary" onClick={() => { setFormMode('real'); setForm(form && !form.row ? null : {}); }}>
             Add position
           </button>
         </div>
       </div>
 
-      {form ? (
-        <PositionForm
-          key={form.row?.id || 'new'}
-          initial={form.row}
-          existingRows={rows}
-          onSave={onSave}
-          onCancel={() => setForm(null)}
-        />
+      {form && (form.row || formMode === 'real') ? (
+        <div className="pos-form-wrap">
+          {!form.row ? <ModeToggle mode={formMode} onChange={setFormMode} /> : null}
+          <PositionForm
+            key={form.row?.id || 'new'}
+            initial={form.row}
+            existingRows={rows}
+            onSave={onSave}
+            onCancel={() => setForm(null)}
+          />
+        </div>
       ) : null}
 
       {error ? <p className="neg small">{error}</p> : null}
 
-      <section className="card pos-list">
+      <section className="card pos-sec pos-sec--real">
+        <div className="pos-sec__head">
+          <h2>
+            <ModePill mode="real" title="Real money: what you actually hold" /> Real
+          </h2>
+          <dl className="pos-sec__stats">
+            <div>
+              <dt>Open</dt>
+              <dd className="mono">{rows.length}</dd>
+            </div>
+            <div>
+              <dt>Value</dt>
+              <dd className="mono">{formatUsd(totals.value, { decimals: 2 })}</dd>
+            </div>
+            <div>
+              <dt>Unrealized</dt>
+              <dd className={`mono ${tone(totals.gain)}`}>
+                {formatUsd(totals.gain, { sign: true, decimals: 2 })}
+                {totals.gainPct != null ? <small> {formatPct(totals.gainPct, 1)}</small> : null}
+              </dd>
+            </div>
+            <div>
+              <dt>Today</dt>
+              <dd className={`mono ${tone(totals.day)}`}>
+                {formatUsd(totals.day, { sign: true, decimals: 2 })}
+                {totals.dayPct != null ? <small> {formatPct(totals.dayPct, 2)}</small> : null}
+              </dd>
+            </div>
+          </dl>
+        </div>
         {!loaded ? (
           <p className="muted small">Loading…</p>
         ) : !rows.length ? (
           <div className="pos-empty">
-            <p className="muted">No positions yet.</p>
-            <button type="button" className="btn btn--primary" onClick={() => setForm({})}>
-              Add your first holding
+            <p className="muted">No real positions yet.</p>
+            <button type="button" className="btn btn--primary" onClick={() => { setFormMode('real'); setForm({}); }}>
+              Add what you hold
             </button>
           </div>
         ) : (
@@ -418,7 +506,7 @@ export default function Positions() {
               </thead>
               <tbody>
                 {view.list.map(({ row, q, m }) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className="mode-row--live">
                     <td>
                       <button type="button" className="pos-sym" onClick={() => openResearch(row)} title={`Open ${row.symbol} in Research`}>
                         <strong className="mono">{row.symbol}</strong>
@@ -444,7 +532,7 @@ export default function Positions() {
 
             <ul className="pos-cards">
               {view.list.map(({ row, m }) => (
-                <li key={row.id} className="pos-card">
+                <li key={row.id} className="pos-card mode-card--live">
                   <div className="pos-card__top">
                     <button type="button" className="pos-sym" onClick={() => openResearch(row)}>
                       <strong className="mono">{row.symbol}</strong>
@@ -473,6 +561,32 @@ export default function Positions() {
           </>
         )}
       </section>
+
+
+      <PaperIdeasSection
+        ideas={ideas}
+        quotes={quotes}
+        onAdd={() => {
+          if (form && !form.row && formMode === 'paper') return setForm(null);
+          setFormMode('paper');
+          setForm({});
+        }}
+        form={
+          form && !form.row && formMode === 'paper' ? (
+            <PaperAdd
+              header={<ModeToggle mode={formMode} onChange={setFormMode} />}
+              onSaved={() => {
+                setForm(null);
+                loadPaper();
+              }}
+              onCancel={() => setForm(null)}
+            />
+          ) : null
+        }
+        onChanged={loadPaper}
+        onOpen={openIdea}
+        onError={setError}
+      />
 
       {userId && (hasBotAccess || isOwner) ? <ShortBorrowPanel userId={userId} /> : null}
     </main>

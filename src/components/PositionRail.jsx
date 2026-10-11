@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import ModePill from './common/ModePill.jsx';
 import { formatCoins, formatPct, formatPrice } from '../lib/format';
 import { hasEnteredPosition, positionMetrics } from '../lib/math';
 import { resolveCoins, suggestStops } from '../lib/levels';
@@ -44,9 +45,11 @@ export default function PositionRail({ position, spot, asset, onChange, loaded =
   const sync = !loaded ? 'Loading…' : status === 'error' ? `Not saved: ${error || 'error'}` : status === 'saving' || status === 'pending' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Synced with Positions';
 
   return (
-    <section className="card prail">
+    <section className="card prail mode-card--live">
       <div className="prail__head">
-        <h2>Your {sym} position</h2>
+        <h2>
+          <ModePill mode="real" title="Real money: what you actually hold (Positions → Real)" /> Your {sym} position
+        </h2>
         {headerAction}
       </div>
       <p className={`prail__sync small ${status === 'error' ? 'neg' : 'muted'}`} role="status">
