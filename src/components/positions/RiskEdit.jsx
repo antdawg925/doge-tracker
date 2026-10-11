@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { fetchYahooChart } from '../../lib/yahoo.js';
 import { formatPrice } from '../../lib/format';
 
@@ -60,7 +61,8 @@ function Confirm({ it, risk, onCancel, onSave }) {
       setBusy(false);
     }
   };
-  return (
+  // Portal: table rows use filter on hover, which would trap a position:fixed modal inside the row.
+  return createPortal(
     <div className="rk-modal" role="dialog" aria-label={`Change risk for ${it.symbol}`}>
       <button type="button" className="rk-modal__scrim" aria-label="Cancel" onClick={onCancel} />
       <div className="rk-modal__card card">
@@ -110,7 +112,8 @@ function Confirm({ it, risk, onCancel, onSave }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
