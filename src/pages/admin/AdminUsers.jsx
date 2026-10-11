@@ -13,6 +13,21 @@ const fmt = (iso) =>
       })
     : '—';
 
+/** Compact "last active": 5m / 3h / 2d ago, else short PT date; full PT time on hover. */
+const ago = (iso) => {
+  if (!iso) return '—';
+  const m = Math.floor((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 2) return 'now';
+  if (m < 60) return `${m}m ago`;
+  if (m < 1440) return `${Math.floor(m / 60)}h ago`;
+  if (m < 7 * 1440) return `${Math.floor(m / 1440)}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' });
+};
+const ptFull = (iso) =>
+  iso
+    ? `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} PT`
+    : '';
+
 const fetchUsers = () => authedFetch('/api/admin/users');
 
 const TSB_BADGE = {
@@ -198,7 +213,7 @@ export default function AdminUsers() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Signed up</th>
-                  <th>Last sign-in</th>
+                  <th>Last active</th>
                   <th>Role</th>
                   <th>Bot</th>
                   <th title="Trade Smart Bot: status, book vs starting amount, max-loss line, last run (PT), active stock positions">TSB</th>
@@ -217,7 +232,7 @@ export default function AdminUsers() {
                       </td>
                       <td className="admin-users__email">{u.email}</td>
                       <td className="muted">{fmt(u.createdAt)}</td>
-                      <td className="muted">{fmt(u.lastSignInAt)}</td>
+                      <td className="muted" title={ptFull(u.lastActiveAt ?? u.lastSignInAt)}>{ago(u.lastActiveAt ?? u.lastSignInAt)}</td>
                       <td>
                         <span className={`badge${owner ? ' badge--owner' : ''}`}>{u.role}</span>
                       </td>

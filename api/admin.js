@@ -96,7 +96,7 @@ async function botStatusByUser(sb, ids) {
 async function listUsers(sb, res) {
   const [authUsers, profiles] = await Promise.all([
     listAllAuthUsers(sb),
-    sb.from('profiles').select('id, email, display_name, role, bot_access, bot_access_requested_at'),
+    sb.from('profiles').select('id, email, display_name, role, bot_access, bot_access_requested_at, last_seen_at'),
   ])
   if (profiles.error) throw profiles.error
   const byId = new Map(profiles.data.map((p) => [p.id, p]))
@@ -113,6 +113,8 @@ async function listUsers(sb, res) {
         displayName: p.display_name || u.user_metadata?.display_name || '',
         createdAt: u.created_at,
         lastSignInAt: u.last_sign_in_at || null,
+        // newest of a fresh sign-in or app activity (sessions persist, so sign-in alone goes stale)
+        lastActiveAt: [u.last_sign_in_at, p.last_seen_at].filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null,
         role,
         botAccess,
         botRequestedAt: botAccess ? null : p.bot_access_requested_at || null,

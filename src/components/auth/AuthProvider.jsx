@@ -19,6 +19,15 @@ async function fetchProfile(userId) {
   return data ?? null;
 }
 
+/** Stamp profiles.last_seen_at (Admin "Last active"); RPC no-ops if stamped < 5 min ago. */
+let lastTouch = 0;
+const touchLastSeen = () => {
+  const now = Date.now();
+  if (now - lastTouch < 5 * 60000) return;
+  lastTouch = now;
+  supabase.rpc('touch_last_seen').then(() => {}, () => {});
+};
+
 /**
  * Session + profile for the whole app.
  * Tiers: signed-in member (Research / Scanner / Short Kings) → bot tier
@@ -45,6 +54,20 @@ export default function AuthProvider({ children }) {
     const id = setInterval(() => fetchPendingCount().then(applyPending), 120000);
     return () => clearInterval(id);
   }, [ownerId, applyPending]);
+
+  // Signed in: record activity on open, every 5 min while open, and when the tab regains focus.
+  const userId = session?.user?.id ?? null;
+  useEffect(() => {
+    if (!userId) return undefined;
+    touchLastSeen();
+    const id = setInterval(touchLastSeen, 5 * 60000);
+    const onVis = () => document.visibilityState === 'visible' && touchLastSeen();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!supabase) return undefined;
