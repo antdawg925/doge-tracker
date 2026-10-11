@@ -5,6 +5,7 @@ import { fetchSellHighs } from '../lib/sellHighsClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sellHighs.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
+import EarningsCell from '../components/setups/EarningsCell.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -267,7 +268,7 @@ export default function SellHighs() {
                   <td>
                     <BorrowTag b={r.borrow} />
                   </td>
-                  <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
+                  <EarningsCell earningsAt={r.earningsAt} warn={r.earningsWarn} side="short" />
                   <td>
                     {canTrade ? (
                       <span className="act-pair">

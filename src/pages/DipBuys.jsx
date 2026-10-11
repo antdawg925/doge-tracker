@@ -5,6 +5,7 @@ import { fetchDipBuys } from '../lib/dipBuysClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
+import EarningsCell from '../components/setups/EarningsCell.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -213,7 +214,7 @@ export default function DipBuys() {
                   <td className="num mono">{formatPrice(r.stop)}</td>
                   <td className="num mono pos">{formatPrice(r.t1)}</td>
                   <td className="num mono">{r.rr?.toFixed?.(2)}</td>
-                  <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
+                  <EarningsCell earningsAt={r.earningsAt} warn={r.earningsWarn} side="long" />
                   <td>
                     {canBuy ? (
                       <span className="act-pair">
