@@ -5,11 +5,12 @@ import { fetchDipBuys } from '../lib/dipBuysClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
+import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 
-function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, busy, msg }) {
+function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, onPaper, busy, msg }) {
   const shares = sharesForAmount(Number(amount), row.buy);
   const risk = dollarRisk(shares, row.buy, row.stop);
   return (
@@ -62,8 +63,11 @@ function ConfirmSheet({ row, amount, onAmount, onClose, onConfirm, busy, msg }) 
           <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn btn--primary stk-btn" disabled={busy || !shares} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : `Confirm buy ${shares || ''} sh`}
+          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={busy || !shares} onClick={() => onPaper(row, shares)}>
+            Paper buy
+          </button>
+          <button type="button" className="btn btn--gold stk-btn act-btn" disabled={busy || !shares} onClick={() => onConfirm(shares)}>
+            {busy ? 'Saving…' : `Buy $ ${shares || ''} sh`}
           </button>
         </div>
       </div>
@@ -85,6 +89,17 @@ export default function DipBuys() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
+  const [paperMsg, setPaperMsg] = useState('');
+  /** Paper idea at the current price with this setup's stop/target (no real money). */
+  const paperQuick = async (r, shares) => {
+    setPaperMsg('Saving paper idea…');
+    try {
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: r.price, stop: r.stop, target: r.t1, source: 'setup' });
+      setPaperMsg(`Paper buy ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+    } catch (e) {
+      setPaperMsg(`Paper idea failed: ${e.message}`);
+    }
+  };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -154,6 +169,7 @@ export default function DipBuys() {
         </div>
       </div>
       {err ? <p className="auth-card__error">{err}</p> : null}
+      {paperMsg ? <p className={`small ${paperMsg.startsWith('Paper idea failed') ? 'neg' : 'rpaper__msg'}`}>{paperMsg}</p> : null}
       <div className="card scanner-table-wrap">
         <table className="scanner-table">
           <thead>
@@ -200,9 +216,14 @@ export default function DipBuys() {
                   <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
                   <td>
                     {canBuy ? (
-                      <button type="button" className="btn btn--primary stk-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
-                        Buy
-                      </button>
+                      <span className="act-pair">
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper idea at the current price (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForAmount(Number(amount), r.price)); }}>
+                          Paper buy
+                        </button>
+                        <button type="button" className="btn btn--gold stk-btn act-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
+                          Buy $
+                        </button>
+                      </span>
                     ) : (
                       <span className="muted small">Bot access</span>
                     )}
@@ -224,7 +245,7 @@ export default function DipBuys() {
           onAmount={setAmount}
           amountLabel="$ to spend"
           shares={sharesForAmount(Number(amount), preview.buy)}
-          confirmLabel={canBuy ? `Buy ${sharesForAmount(Number(amount), preview.buy) || ''} sh @ ${formatPrice(preview.buy)}` : 'Bot access needed'}
+          confirmLabel={canBuy ? `Buy $ ${sharesForAmount(Number(amount), preview.buy) || ''} sh @ ${formatPrice(preview.buy)}` : 'Bot access needed'}
           blocked={!canBuy}
           facts={[
             { k: 'Shares', v: sharesForAmount(Number(amount), preview.buy) || '—' },
@@ -243,7 +264,7 @@ export default function DipBuys() {
           msg={msg}
         />
       ) : null}
-      {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} /> : null}
+      {sheet ? <ConfirmSheet row={sheet} amount={amount} onAmount={setAmount} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} busy={busy} msg={msg} /> : null}
     </div>
   );
 }

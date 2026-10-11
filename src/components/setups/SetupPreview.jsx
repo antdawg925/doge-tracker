@@ -21,7 +21,7 @@ function useDesktop() {
  * Desktop: right side panel. Mobile: bottom sheet. Both have a close button.
  * facts: [{ k, v, cls }]; amountLabel; shares (computed by parent from amount); onConfirm(shares).
  */
-export default function SetupPreview({ row, side, entry, stop, target, facts = [], amount, onAmount, amountLabel, amountStep = 50, shares, confirmLabel, onConfirm, onClose, busy, msg, note, blocked = false }) {
+export default function SetupPreview({ row, side, entry, stop, target, facts = [], amount, onAmount, amountLabel, amountStep = 50, shares, confirmLabel, paperLabel, onConfirm, onClose, busy, msg, note, blocked = false }) {
   const desktop = useDesktop();
   const short = side === 'short';
   useEffect(() => {
@@ -71,11 +71,11 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
             <span className="small muted">{amountLabel}</span>
             <input type="number" min="0" step={amountStep} value={amount} onChange={(e) => onAmount(e.target.value)} />
           </label>
-          <button type="button" className={`btn ${short ? 'btn--danger' : 'btn--primary'} stk-btn stp__go`} disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : confirmLabel}
+          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paper === 'saving' || !shares || !(row.price > 0)} onClick={paperTrade} title="Track it as a paper idea at the current price (no real money)">
+            {paper === 'saving' ? 'Saving…' : paperLabel || (short ? 'Paper short' : 'Paper buy')}
           </button>
-          <button type="button" className="btn btn--paper stk-btn" disabled={paper === 'saving' || !shares || !(row.price > 0)} onClick={paperTrade} title="Track it as a paper idea at the current price (no real money)">
-            {paper === 'saving' ? 'Saving…' : 'Paper trade'}
+          <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn stp__go`} disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
+            {busy ? 'Saving…' : confirmLabel}
           </button>
         </div>
         {paper && paper !== 'saving' ? <p className={`small ${paper.startsWith('Paper trade failed') ? 'neg' : 'rpaper__msg'}`}>{paper}</p> : null}

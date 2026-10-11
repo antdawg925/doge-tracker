@@ -10,7 +10,7 @@ import SellHighs from './SellHighs.jsx';
 // their data and the cron keep running.
 const TABS = [
   { id: 'doge', label: 'DOGE' },
-  { id: 'stocks', label: 'Stocks' },
+  { id: 'stocks', label: 'Buy stocks' },
   { id: 'buy-dips', label: 'Buy dips' },
   { id: 'sell-highs', label: 'Sell highs' },
 ];

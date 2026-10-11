@@ -5,6 +5,7 @@ import { fetchSellHighs } from '../lib/sellHighsClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
 import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sellHighs.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
+import { addPaperIdea } from '../lib/paperIdeas.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
@@ -32,7 +33,7 @@ function SqueezeTag({ sq }) {
   );
 }
 
-function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, busy, msg, borrowAvailable }) {
+function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, onPaper, busy, msg, borrowAvailable }) {
   const shares = sharesForRisk(Number(risk), row.entry, row.stop);
   const loss = shortDollarRisk(shares, row.entry, row.stop);
   const blocked = row.borrow?.isShortable === false;
@@ -104,8 +105,11 @@ function ConfirmSheet({ row, risk, onRisk, onClose, onConfirm, busy, msg, borrow
           <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn btn--danger stk-btn sh-confirm" disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
-            {busy ? 'Saving…' : `Confirm short ${shares || ''} sh`}
+          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={busy || !shares} onClick={() => onPaper(row, shares)}>
+            Paper short
+          </button>
+          <button type="button" className="btn btn--short stk-btn act-btn sh-confirm" disabled={busy || !shares || blocked} onClick={() => onConfirm(shares)}>
+            {busy ? 'Saving…' : `Short $ ${shares || ''} sh`}
           </button>
         </div>
       </div>
@@ -126,6 +130,17 @@ export default function SellHighs() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
+  const [paperMsg, setPaperMsg] = useState('');
+  /** Paper idea at the current price with this setup's stop/target (no real money). */
+  const paperQuick = async (r, shares) => {
+    setPaperMsg('Saving paper idea…');
+    try {
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: r.price, stop: r.stop, target: r.cover, source: 'setup' });
+      setPaperMsg(`Paper short ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+    } catch (e) {
+      setPaperMsg(`Paper idea failed: ${e.message}`);
+    }
+  };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -199,6 +214,7 @@ export default function SellHighs() {
         </div>
       </div>
       {err ? <p className="auth-card__error">{err}</p> : null}
+      {paperMsg ? <p className={`small ${paperMsg.startsWith('Paper idea failed') ? 'neg' : 'rpaper__msg'}`}>{paperMsg}</p> : null}
       <div className="card scanner-table-wrap">
         <table className="scanner-table">
           <thead>
@@ -254,9 +270,14 @@ export default function SellHighs() {
                   <td className={`small ${r.earningsWarn ? 'neg' : 'muted'}`}>{r.earningsAt ? day(r.earningsAt) : '—'}</td>
                   <td>
                     {canTrade ? (
-                      <button type="button" className="btn btn--danger stk-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
-                        Short
-                      </button>
+                      <span className="act-pair">
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper short at the current price (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForRisk(Number(risk), r.price, r.stop)); }}>
+                          Paper short
+                        </button>
+                        <button type="button" className="btn btn--short stk-btn act-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
+                          Short $
+                        </button>
+                      </span>
                     ) : (
                       <span className="muted small">Bot access</span>
                     )}
@@ -279,7 +300,7 @@ export default function SellHighs() {
           amountLabel="$ risk (sets shares)"
           amountStep={25}
           shares={sharesForRisk(Number(risk), preview.entry, preview.stop)}
-          confirmLabel={canTrade ? `Short ${sharesForRisk(Number(risk), preview.entry, preview.stop) || ''} sh @ ${formatPrice(preview.entry)}` : 'Bot access needed'}
+          confirmLabel={canTrade ? `Short $ ${sharesForRisk(Number(risk), preview.entry, preview.stop) || ''} sh @ ${formatPrice(preview.entry)}` : 'Bot access needed'}
           blocked={!canTrade || preview.borrow?.isShortable === false}
           facts={[
             { k: 'Shares', v: sharesForRisk(Number(risk), preview.entry, preview.stop) || '—' },
@@ -306,7 +327,7 @@ export default function SellHighs() {
         />
       ) : null}
       {sheet ? (
-        <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
+        <ConfirmSheet row={sheet} risk={risk} onRisk={setRisk} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, sh) => { paperQuick(r, sh); setSheet(null); }} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}
     </div>
   );
