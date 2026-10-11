@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart } from 'lightweight-charts';
+import { aggregateBarsToPeriod } from '../../lib/history.js';
+import { fetchYahooChart } from '../../lib/yahoo.js';
 
 /**
  * Compact stock candles (Yahoo daily / weekly bars already loaded by the setup scan) with the
@@ -7,13 +9,17 @@ import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart } f
  * lines: [{ price, label, color, style: 'solid'|'dashed'|'dotted', width }]
  */
 const fmt = (p) => (p >= 100 ? p.toFixed(2) : p >= 1 ? p.toFixed(2) : p.toFixed(4));
+// 6M daily · 1Y weekly · 5Y monthly (from the 5y weekly scan bars) · 10Y monthly (Yahoo, on demand)
 const RANGES = [
-  { id: '1d', label: '1D', bars: 180 },
-  { id: '1w', label: '1W', bars: 156 },
+  { id: '6m', label: '6M', tf: 'daily', bars: 126 },
+  { id: '1y', label: '1Y', tf: 'weekly', bars: 53 },
+  { id: '5y', label: '5Y', tf: 'monthly', bars: 61 },
+  { id: '10y', label: '10Y', tf: 'monthly', bars: 121 },
 ];
+const tenYearCache = new Map();
 
 /** Yahoo often omits today's bar (null close) while the quote has the live price: add/patch it. */
-function withLive(src, spot, weekly) {
+function withLive(src, spot, tf) {
   const bars = (src || []).filter((b) => Number.isFinite(b?.close) && Number.isFinite(b?.t));
   if (!(spot > 0) || !bars.length) return bars;
   const last = bars[bars.length - 1];
@@ -21,7 +27,9 @@ function withLive(src, spot, weekly) {
   const et = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const sameDay = et(last.t) === et(now);
   const sameWeek = now - last.t < 7 * 86400000;
-  if (weekly ? sameWeek : sameDay) {
+  const ym = (ms) => et(ms).slice(0, 7);
+  const same = tf === 'monthly' ? ym(last.t) === ym(now) : tf === 'weekly' ? sameWeek : sameDay;
+  if (same) {
     const patched = { ...last, close: spot, high: Math.max(last.high, spot), low: Math.min(last.low, spot) };
     return [...bars.slice(0, -1), patched];
   }
@@ -34,10 +42,30 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
   const seriesRef = useRef(null);
   const drawn = useRef([]);
   const fitRef = useRef([]);
-  const [range, setRange] = useState('1d');
+  const [range, setRange] = useState('6m');
+  const [tenYear, setTenYear] = useState(() => tenYearCache.get(symbol) || null);
+  const cur = RANGES.find((r) => r.id === range) || RANGES[0];
+  useEffect(() => {
+    setTenYear(tenYearCache.get(symbol) || null);
+    if (range !== '10y' || !symbol || tenYearCache.has(symbol)) return undefined;
+    const ac = new AbortController();
+    fetchYahooChart(symbol, '10y', { signal: ac.signal, interval: '1mo' })
+      .then((r) => {
+        tenYearCache.set(symbol, r?.bars || []);
+        setTenYear(r?.bars || []);
+      })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [range, symbol]);
   const bars = useMemo(() => {
-    const src = withLive(range === '1w' ? weekly : daily, spot, range === '1w');
-    const n = RANGES.find((r) => r.id === range)?.bars || 180;
+    const monthlyFromWeekly = () => aggregateBarsToPeriod(weekly, 'month');
+    const raw =
+      range === '6m' ? daily
+      : range === '1y' ? weekly
+      : range === '10y' && tenYear?.length ? tenYear
+      : monthlyFromWeekly();
+    const src = withLive(raw, spot, cur.tf);
+    const n = cur.bars;
     const seen = new Set();
     return (src || [])
       .filter((b) => Number.isFinite(b?.close) && Number.isFinite(b?.t))
@@ -45,7 +73,7 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
       .map((b) => ({ time: Math.floor(b.t / 1000), open: b.open, high: b.high, low: b.low, close: b.close }))
       .filter((b) => (seen.has(b.time) ? false : seen.add(b.time)))
       .sort((a, b) => a.time - b.time);
-  }, [range, daily, weekly, spot]);
+  }, [range, cur, daily, weekly, spot, tenYear]);
 
   useEffect(() => {
     fitRef.current = lines.filter((l) => !l.muted).map((l) => Number(l.price)).filter((v) => Number.isFinite(v) && v > 0);
@@ -115,7 +143,7 @@ export default function SetupChart({ daily = [], weekly = [], lines = [], height
   return (
     <div className="stp-chart">
       <div className="lchart__bar">
-        <span className="small muted">{symbol} · Yahoo {range === '1w' ? 'weekly' : 'daily'}</span>
+        <span className="small muted">{symbol} · Yahoo {cur.tf}</span>
         <div className="lchart__ranges" role="tablist" aria-label="Chart range">
           {RANGES.map((x) => (
             <button key={x.id} type="button" role="tab" aria-selected={range === x.id} className={`lchart__range${range === x.id ? ' is-active' : ''}`} onClick={() => setRange(x.id)}>

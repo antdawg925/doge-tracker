@@ -5305,3 +5305,8 @@ p {
   .pos-shorts__table { display: none; }
   .pos-shorts__cards { display: flex; flex-direction: column; gap: 0.5rem; }
 }
+
+/* Setup chart (Buy dips / Sell highs): compact outlined range pills, selected filled */
+.stp-chart .lchart__ranges { background: none; padding: 0; gap: 0.25rem; }
+.stp-chart .lchart__range { border: 1px solid #2c3a50; padding: 0.12rem 0.5rem; font-size: 0.72rem; min-height: 0; }
+.stp-chart .lchart__range.is-active { background: #3d9cf0; border-color: #3d9cf0; color: #0b1220; }
