@@ -5420,3 +5420,6 @@ tr.mode-row--waiting > td:first-child { box-shadow: inset 3px 0 0 rgba(251, 191,
 .otk__btns { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; margin-top: 0.25rem; }
 .otk__btns .act-btn { min-height: 40px; }
 .otk__cancel { align-self: flex-start; margin-top: 0.35rem; }
+.otk__nums { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.otk__total { margin: 0.2rem 0 0; font-size: 0.92rem; font-weight: 650; color: var(--text); }
+.otk__total strong { font-family: var(--mono); font-size: 1.05rem; }

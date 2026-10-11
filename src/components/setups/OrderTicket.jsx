@@ -86,12 +86,16 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
           />
         </label>
       </div>
-      <p className="otk__risk">
-        Est. risk <strong>{risk != null ? usd(risk) : '—'}</strong>
-        <span className="small muted"> to stop {formatPrice(st)}</span>
-      </p>
+      <div className="otk__nums">
+        <p className="otk__risk">
+          Est. risk <strong>{risk != null ? usd(risk) : '—'}</strong>
+        </p>
+        <p className="otk__total">
+          Total <strong>{cost != null ? usd(cost) : '—'}</strong>
+        </p>
+      </div>
       <p className="small muted otk__sub">
-        Cost {usd(cost)} · {toStop != null ? `${toStop.toFixed(1)}% to stop` : '—'} · reward {reward != null ? <span className={reward >= 0 ? 'pos' : 'neg'}>{usd(reward)}</span> : '—'} to target
+        Stop {formatPrice(st)} · {toStop != null ? `${toStop.toFixed(1)}% to stop` : '—'} · reward {reward != null ? <span className={reward >= 0 ? 'pos' : 'neg'}>{usd(reward)}</span> : '—'} to target
       </p>
       {wrongSide ? <p className="small neg otk__sub">Price must be {short ? 'below the cover stop' : 'above the stop'}.</p> : null}
       <div className="otk__btns">
