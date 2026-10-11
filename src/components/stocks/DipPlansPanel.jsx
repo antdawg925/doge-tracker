@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authedFetch } from '../../lib/api.js';
 import { formatPrice } from '../../lib/format.js';
+import ModePill from '../common/ModePill.jsx';
+import { planMode } from '../../lib/botMode.js';
 
 const px = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : formatPrice(Number(n)));
 
@@ -8,7 +10,7 @@ const px = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : formatPric
  * My Bot → Stocks: Buy dips (long) and Sell highs (short) plans: pending limit → filled stop → ratchet.
  * Default dry-run; per-user Stocks Live switch (also needs Schwab Live ON to send orders).
  */
-export default function DipPlansPanel() {
+export default function DipPlansPanel({ conn = null }) {
   const [plans, setPlans] = useState(null);
   const [live, setLive] = useState(false);
   const [err, setErr] = useState('');
@@ -75,12 +77,14 @@ export default function DipPlansPanel() {
             const stop = Number(p.last_stop_price || p.stop_price);
             const next = p.next_rung;
             const short = p.side === 'short';
+            const mode = planMode(p, live, conn);
             return (
-              <li key={p.id} className={`dip-plans__row dip-plans__row--${p.status}`}>
+              <li key={p.id} className={`dip-plans__row dip-plans__row--${p.status} mode-card--${mode}`}>
                 <div className="dip-plans__sym">
+                  <ModePill mode={mode} title={mode === 'live' ? 'Real money: real Schwab orders' : p.dry_run ? 'Paper: dry-run plan, logs only' : 'Paper: Stocks Live or Live Schwab stops is off/paused, no real orders'} />
                   <strong>{p.symbol}</strong>
                   <span className={`dip-plans__side dip-plans__side--${short ? 'short' : 'long'}`}>{short ? 'Sell high' : 'Buy dip'}</span>
-                  <span className={`dip-plans__st dip-plans__st--${p.status}`}>{p.status}{p.dry_run ? ' · dry' : ''}</span>
+                  <span className={`dip-plans__st dip-plans__st--${p.status}`}>{p.status}</span>
                 </div>
                 <div className="dip-plans__nums mono small">
                   <span>{short ? `−${p.shares}` : p.shares} sh</span>

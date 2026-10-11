@@ -6,6 +6,8 @@ import { supabase } from '../../lib/supabase.js';
 import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
 import PlanTrade from './PlanTrade.jsx';
 import PaperBar from './PaperBar.jsx';
+import ModePill from '../common/ModePill.jsx';
+import { positionMode, schwabLiveOn } from '../../lib/botMode.js';
 import SchwabPanel, { LiveCell } from './SchwabPanel.jsx';
 import DipPlansPanel from './DipPlansPanel.jsx';
 import useSchwabStatus from './useSchwabStatus.js';
@@ -297,7 +299,7 @@ function PositionForm({ draft, setDraft, onSave, onCancel, onClose, onDelete, bu
 
 function PaperCell({ o }) {
   if (!o) return <span className="muted small">—</span>;
-  if (o.status === 'working') return <span className="small">Working <span className="mono">{px(o.stop_price)}</span></span>;
+  if (o.status === 'working') return <span className="small" title="Simulated stop order the bot manages">Paper stop <span className="mono">{px(o.stop_price)}</span></span>;
   if (o.status === 'filled')
     return (
       <span className="small neg" title={`Paper: stopped out at ${px(o.fill_price)} on ${ptTime(o.filled_at)} PT (stop ${px(o.stop_price)}${o.data?.gap ? ', gapped through' : ''}) · P/L ${signed(o.realized_pnl, (x) => `$${x.toFixed(2)}`)}`}>
@@ -323,11 +325,16 @@ function Row({ p, s, o, lo, conn, liveActions, onEdit, remind, onRemind }) {
   // Which rule is in charge: from the run snapshot, else inferred (stop sits on the max-loss cap → cap).
   const capStop = cap > 0 && shares > 0 ? (isLong ? entry - cap / shares : entry + cap / shares) : null;
   const rule = d?.rule || (Number.isFinite(stopNum) ? (capStop != null && Math.abs(stopNum - capStop) < 0.005 ? 'risk' : 'atr') : null);
+  const mode = positionMode(p, conn);
   const ruleText = rule === 'risk' ? `Risk cap $${cap.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : rule === 'atr' ? 'ATR stop' : null;
   return (
     <>
-      <tr className={d?.hit ? 'stk-row--hit' : d?.near ? 'stk-row--near' : ''}>
+      <tr className={`mode-row--${mode}${d?.hit ? ' stk-row--hit' : ''}`}>
         <td>
+          <ModePill
+            mode={mode}
+            title={mode === 'live' ? 'Real money: the bot manages a real Schwab stop' : p.live ? 'Paper: this row is set Live, but Live Schwab stops are off or paused, so no real orders' : 'Paper: simulated stop only, no real money'}
+          />{' '}
           <button type="button" className="stk-sym" onClick={() => setOpen((o) => !o)} aria-expanded={open} title="Decision log">
             {p.symbol}
           </button>{' '}
@@ -379,9 +386,11 @@ function Row({ p, s, o, lo, conn, liveActions, onEdit, remind, onRemind }) {
           {hitPnl == null ? '—' : hitPnl < -0.005 ? `−$${Math.abs(hitPnl).toFixed(2)}` : `+$${Math.max(0, hitPnl).toFixed(2)} locked`}
         </td>
         <td>
-          <PaperCell o={o} />
-        </td>
-        <td>
+          {mode === 'paper' && o ? (
+            <span className="stk-order-paper">
+              <PaperCell o={o} />
+            </span>
+          ) : null}
           <LiveCell p={p} lo={lo} conn={conn} {...liveActions} />
         </td>
         <td className="action">
@@ -392,7 +401,7 @@ function Row({ p, s, o, lo, conn, liveActions, onEdit, remind, onRemind }) {
       </tr>
       {open ? (
         <tr className="stk-log-row">
-          <td colSpan={13}>
+          <td colSpan={12}>
             <p className="small muted stk-log-head">
               Initial {px(s?.initial_stop)} · trail {d?.mult ?? '—'} ATR from {isLong ? 'highest close' : 'lowest low'} {px(d?.extreme)} · last candle {d?.lastBar || '—'} · checked {ptTime(s?.updated_at)} PT
               {' · '}in charge: <strong>{ruleText || '—'}</strong>
@@ -564,10 +573,10 @@ export default function StocksPanel() {
 
       <SchwabPanel schwab={schwab} onChanged={load} onError={setError} />
 
-      <DipPlansPanel />
+      <DipPlansPanel conn={schwab.status?.connection} />
 
       {data && (data.tally.orders || data.guard) ? (
-        <PaperBar key={`${data.guard?.max_loss_usd ?? 1}`} tally={data.tally} guard={data.guard} onChanged={refreshServer} onError={setError} />
+        <PaperBar key={`${data.guard?.max_loss_usd ?? 1}`} live={schwabLiveOn(schwab.status?.connection)} tally={data.tally} guard={data.guard} onChanged={refreshServer} onError={setError} />
       ) : null}
 
       <div className="stk-toolbar">
@@ -644,8 +653,7 @@ export default function StocksPanel() {
                 <th className="num">ATR</th>
                 <th>Flags</th>
                 <th className="num" title="$ result if the whole position fills at the stop">Risk if hit</th>
-                <th title="Simulated stop order the bot manages">Paper</th>
-                <th title="Real Schwab stop order the bot manages (off by default)">Live</th>
+                <th title="Bot stop order: paper (simulated) or the real Schwab order, plus the Live toggle">Order</th>
                 <th className="action" />
               </tr>
             </thead>

@@ -5310,3 +5310,21 @@ p {
 .stp-chart .lchart__ranges { background: none; padding: 0; gap: 0.25rem; }
 .stp-chart .lchart__range { border: 1px solid #2c3a50; padding: 0.12rem 0.5rem; font-size: 0.72rem; min-height: 0; }
 .stp-chart .lchart__range.is-active { background: #3d9cf0; border-color: #3d9cf0; color: #0b1220; }
+
+/* ===== Paper vs real money (one treatment everywhere): violet PAPER, gold LIVE $ ===== */
+:root { --paper: #8b5cf6; --paper-soft: rgba(139, 92, 246, 0.11); --live-gold: #fbbf24; --live-soft: rgba(251, 191, 36, 0.10); }
+.mode-pill { display: inline-block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; line-height: 1; padding: 0.22rem 0.42rem; border-radius: 999px; vertical-align: middle; white-space: nowrap; }
+.mode-pill--paper { background: var(--paper); color: #fff; }
+.mode-pill--live { background: var(--live-gold); color: #1a1300; box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35), 0 0 10px rgba(251, 191, 36, 0.35); }
+tr.mode-row--paper > td { background: var(--paper-soft); }
+tr.mode-row--paper > td:first-child { box-shadow: inset 3px 0 0 var(--paper); }
+tr.mode-row--live > td { background: var(--live-soft); }
+tr.mode-row--live > td:first-child { box-shadow: inset 4px 0 0 var(--live-gold); }
+tr.stk-row--hit > td { background: rgba(240, 113, 120, 0.12); }
+.mode-card--paper { border-left: 3px solid var(--paper) !important; background: var(--paper-soft); }
+.mode-card--live { border-left: 4px solid var(--live-gold) !important; background: var(--live-soft); }
+.dip-plans__row.mode-card--paper, .dip-plans__row.mode-card--live { padding-left: 0.55rem; border-radius: 6px; margin-top: 0.3rem; }
+.stk-paper.mode-bar--paper { border-color: rgba(139, 92, 246, 0.55); background: var(--paper-soft); }
+.stk-paper__tag { font-weight: 800; color: #c4b5fd; letter-spacing: 0.03em; font-size: 0.78rem; }
+.stk-order-paper { display: block; color: #c4b5fd; }
+.mb-hero.mode-card--live { border-color: var(--live-gold); }

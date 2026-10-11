@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import ModePill from '../common/ModePill.jsx';
+import useSchwabStatus from '../stocks/useSchwabStatus.js';
+import { planMode, positionMode } from '../../lib/botMode.js';
 import { supabase } from '../../lib/supabase.js';
 import { fetchYahooChart } from '../../lib/yahoo.js';
 import { fetchSchwabBorrow } from '../../lib/schwabBorrow.js';
@@ -17,12 +20,12 @@ const rangeFor = (days) => (days == null || days <= 80 ? '3mo' : days <= 170 ? '
 /** Open shorts: My Bot stock positions (side short) + filled Sell highs plans. Own rows only. */
 async function loadShorts(userId) {
   const [pos, plans] = await Promise.all([
-    supabase.from('stock_positions').select('id, symbol, shares, entry_price, entry_date, created_at').eq('user_id', userId).eq('side', 'short').eq('status', 'active'),
-    supabase.from('stock_plans').select('id, symbol, filled_shares, shares, filled_price, limit_price, filled_at').eq('user_id', userId).eq('side', 'short').eq('status', 'filled'),
+    supabase.from('stock_positions').select('id, symbol, shares, entry_price, entry_date, created_at, live').eq('user_id', userId).eq('side', 'short').eq('status', 'active'),
+    supabase.from('stock_plans').select('id, symbol, filled_shares, shares, filled_price, limit_price, filled_at, dry_run').eq('user_id', userId).eq('side', 'short').eq('status', 'filled'),
   ]);
   const out = [];
-  for (const p of pos.data || []) out.push({ key: `p-${p.id}`, symbol: p.symbol, shares: Number(p.shares), entry: Number(p.entry_price), openedAt: p.entry_date || p.created_at, source: 'My Bot' });
-  for (const p of plans.data || []) out.push({ key: `s-${p.id}`, symbol: p.symbol, shares: Number(p.filled_shares || p.shares), entry: Number(p.filled_price || p.limit_price), openedAt: p.filled_at, source: 'Sell highs' });
+  for (const p of pos.data || []) out.push({ key: `p-${p.id}`, symbol: p.symbol, shares: Number(p.shares), entry: Number(p.entry_price), openedAt: p.entry_date || p.created_at, source: 'My Bot', live: Boolean(p.live) });
+  for (const p of plans.data || []) out.push({ key: `s-${p.id}`, symbol: p.symbol, shares: Number(p.filled_shares || p.shares), entry: Number(p.filled_price || p.limit_price), openedAt: p.filled_at, source: 'Sell highs', dry_run: p.dry_run !== false, plan: true });
   return out;
 }
 
@@ -33,6 +36,11 @@ async function loadShorts(userId) {
 export default function ShortBorrowPanel({ userId }) {
   const [rows, setRows] = useState(null);
   const [borrowOn, setBorrowOn] = useState(false);
+  const [stocksLive, setStocksLive] = useState(false);
+  const schwab = useSchwabStatus();
+  useEffect(() => {
+    supabase.from('profiles').select('stocks_live').eq('id', userId).maybeSingle().then(({ data }) => setStocksLive(Boolean(data?.stocks_live)));
+  }, [userId]);
 
   useEffect(() => {
     let dead = false;
@@ -67,6 +75,8 @@ export default function ShortBorrowPanel({ userId }) {
     };
   }, [userId]);
 
+  const conn = schwab.status?.connection;
+  const modeOf = (r) => (r.plan ? planMode(r, stocksLive, conn) : positionMode(r, conn));
   if (!rows?.length) return null;
   const rateTip = (r) =>
     r.est.known
@@ -97,9 +107,9 @@ export default function ShortBorrowPanel({ userId }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.key}>
+            <tr key={r.key} className={`mode-row--${modeOf(r)}`}>
               <td>
-                <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
+                <ModePill mode={modeOf(r)} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
                 <div className="muted small">{r.source}</div>
               </td>
               <td className="num mono">−{r.shares.toLocaleString('en-US')}</td>
@@ -119,10 +129,10 @@ export default function ShortBorrowPanel({ userId }) {
       </table>
       <ul className="pos-shorts__cards">
         {rows.map((r) => (
-          <li key={r.key} className="pos-card">
+          <li key={r.key} className={`pos-card mode-card--${modeOf(r)}`}>
             <div className="pos-card__top">
               <span>
-                <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
+                <ModePill mode={modeOf(r)} /> <strong className="mono">{r.symbol}</strong> <span className="chip chip--short">Short</span>
               </span>
               <span className={`mono ${tone(r.est.pnl)}`}>{money(r.est.pnl, { sign: true })}</span>
             </div>

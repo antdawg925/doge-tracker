@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import ModePill from '../common/ModePill.jsx';
 import { useAuth } from '../../hooks/authContext.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
@@ -42,14 +43,12 @@ function Hero({ row, busy, call, isOwner, checkedAt, spot }) {
   const raiseOk = raiseTo !== '' && rv > (stopPx || 0) && (!s.bid || rv < s.bid);
   const late = row.last_run_at && checkedAt - Date.parse(row.last_run_at) > LATE_MS;
   return (
-    <section className={`card mb-hero${live ? ' mb-hero--live' : ''}${row.kill_switch ? ' mb-hero--killed' : ''}`}>
+    <section className={`card mb-hero mode-card--${live ? 'live' : 'paper'}${live ? ' mb-hero--live' : ''}${row.kill_switch ? ' mb-hero--killed' : ''}`}>
       <div className="mb-hero__top">
         <span className="small muted">
           DOGE price <BrandMark brand="kraken" height={11} />
         </span>
-        <span className={`dl-mode ${live ? 'dl-mode--live' : ''}`} title={live ? 'Real Kraken orders' : 'Computes and logs orders; places nothing'}>
-          {live ? 'LIVE' : 'DRY-RUN'}
-        </span>
+        <ModePill mode={live ? 'live' : 'paper'} title={live ? 'Real money: real Kraken orders' : 'Paper (dry-run): computes and logs orders; places nothing'} />
       </div>
       {row.kill_switch ? (
         <div className="dl-kill" role="alert">

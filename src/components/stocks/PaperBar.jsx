@@ -8,7 +8,7 @@ const signed = (n) => `${n < 0 ? '−' : '+'}${usd(n)}`;
  * One line: paper P/L vs buy & hold, plus the STOCKS Profit lock (separate from DOGE):
  * Max loss, Pause / Resume, Authorize when locked. Protective stops keep working either way.
  */
-export default function PaperBar({ tally, guard, onChanged, onError }) {
+export default function PaperBar({ live = false, tally, guard, onChanged, onError }) {
   const saved = guard?.max_loss_usd != null ? Number(guard.max_loss_usd) : 1;
   const [maxLoss, setMaxLoss] = useState(String(saved));
   const [busy, setBusy] = useState(false);
@@ -28,9 +28,10 @@ export default function PaperBar({ tally, guard, onChanged, onError }) {
   const saveLoss = () => valid && Number(maxLoss) !== saved && act('max-loss', { maxLossUsd: Number(maxLoss) });
 
   return (
-    <div className={`stk-paper${guard?.locked ? ' is-locked' : ''}`}>
+    <div className={`stk-paper mode-bar--paper${guard?.locked ? ' is-locked' : ''}`}>
+      <span className="stk-paper__tag" title={live ? 'Simulated book. Rows marked LIVE $ trade real money at Schwab, outside this book.' : 'Simulated book'}>PAPER — no real money</span>
       <span className="stk-paper__pnl" title={`Realized ${signed(tally.realized)} · unrealized ${signed(tally.unrealized)} · ${tally.working} working, ${tally.filled} filled${tally.blocked ? `, ${tally.blocked} blocked` : ''}`}>
-        Paper: <strong className={tally.paper >= 0 ? 'pos' : 'neg'}>{signed(tally.paper)}</strong>{' '}
+        <strong className={tally.paper >= 0 ? 'pos' : 'neg'}>{signed(tally.paper)}</strong>{' '}
         <span className="muted">(vs hold</span> <span className={tally.hold >= 0 ? 'pos' : 'neg'}>{signed(tally.hold)}</span>
         <span className="muted">)</span>
       </span>
