@@ -15,21 +15,21 @@ import {
 } from '../lib/positionsStore';
 import { searchSymbols } from '../lib/search';
 import ShortBorrowPanel from '../components/positions/ShortBorrowPanel.jsx';
-import RiskEdit from '../components/positions/RiskEdit.jsx';
-import PaperIdeasSection from '../components/positions/PaperIdeasSection.jsx';
+import RiskCap from '../components/positions/RiskCap.jsx';
+import PaperIdeasSection, { Table as IdeaTable } from '../components/positions/PaperIdeasSection.jsx';
+import { openLoss } from '../../shared/riskCap.js';
 import PaperTradeForm from '../components/paper/PaperTradeForm.jsx';
 import ModePill from '../components/common/ModePill.jsx';
 import { ideaAsset, listPaperIdeas } from '../lib/paperIdeas.js';
 import { supabase } from '../lib/supabase.js';
 
-/** Bot Buy dips / Sell highs fills that are dry-run = paper ideas (read-only, the bot manages them). */
-async function listBotPaper() {
+/** Bot Buy dips / Sell highs fills: dry-run = paper ideas, real = bot rows under Real (the bot manages both). */
+async function listBotPlans() {
   const { data } = await supabase
     .from('stock_plans')
-    .select('id, symbol, side, shares, filled_shares, filled_price, limit_price, stop_price, last_stop_price, t1_price, filled_at, created_at')
-    .eq('status', 'filled')
-    .eq('dry_run', true);
-  return (data || []).map((p) => ({
+    .select('id, symbol, side, shares, filled_shares, filled_price, limit_price, stop_price, last_stop_price, t1_price, filled_at, created_at, dry_run, risk_cap_usd, risk_tripped_at, risk_trip_loss')
+    .eq('status', 'filled');
+  const map = (p) => ({
     id: `plan-${p.id}`,
     symbol: p.symbol,
     asset_type: 'stock',
@@ -42,7 +42,12 @@ async function listBotPaper() {
     source: p.side === 'short' ? 'bot_high' : 'bot_dip',
     status: 'open',
     opened_at: p.filled_at || p.created_at,
-  }));
+    risk_cap_usd: Number(p.risk_cap_usd) > 0 ? Number(p.risk_cap_usd) : null,
+    risk_tripped_at: p.risk_tripped_at,
+    risk_trip_loss: p.risk_trip_loss,
+  });
+  const list = data || [];
+  return { paper: list.filter((p) => p.dry_run).map(map), real: list.filter((p) => !p.dry_run).map(map) };
 }
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
@@ -315,10 +320,13 @@ export default function Positions() {
   const [confirmId, setConfirmId] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [formMode, setFormMode] = useState('real');
+  const [botReal, setBotReal] = useState([]);
 
   const loadPaper = useCallback(async () => {
-    const [mine, bot] = await Promise.all([listPaperIdeas().catch(() => []), hasBotAccess || isOwner ? listBotPaper().catch(() => []) : []]);
-    setIdeas([...bot, ...mine]);
+    const empty = { paper: [], real: [] };
+    const [mine, bot] = await Promise.all([listPaperIdeas().catch(() => []), hasBotAccess || isOwner ? listBotPlans().catch(() => empty) : empty]);
+    setIdeas([...bot.paper, ...mine]);
+    setBotReal(bot.real);
   }, [hasBotAccess, isOwner]);
 
   const load = useCallback(async () => {
@@ -340,9 +348,9 @@ export default function Positions() {
 
   const assets = useMemo(() => {
     const m = new Map();
-    for (const a of [...rows.map(rowToAsset), ...ideas.filter((i) => i.status !== 'closed').map(ideaAsset)]) m.set(assetKey(a), a);
+    for (const a of [...rows.map(rowToAsset), ...[...botReal, ...ideas].filter((i) => i.status !== 'closed').map(ideaAsset)]) m.set(assetKey(a), a);
     return [...m.values()];
-  }, [rows, ideas]);
+  }, [rows, ideas, botReal]);
   const { quotes, updatedAt, loading: quoting, refresh } = usePortfolioQuotes(assets);
 
   const view = useMemo(() => {
@@ -380,12 +388,23 @@ export default function Positions() {
     };
   }, [rows, quotes]);
 
-  const realRiskItem = (row, m) => ({ kind: 'real', symbol: row.symbol, assetType: row.asset_type, side: 'long', shares: row.shares, entry: row.avg_cost, stop: row.stop_price, price: m.price, live: false });
-  const saveRealRisk = async (row, stop, risk) => {
-    const { error } = await supabase.from('positions').update({ stop_price: stop, risk_usd: risk, updated_at: new Date().toISOString() }).eq('id', row.id);
+  // Risk cap (kill switch) on manual holdings: UI-only (no bot orders on these), never moves the stop.
+  const patchRow = async (row, patch) => {
+    const { error } = await supabase.from('positions').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id);
     if (error) throw error;
-    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, stop_price: stop, risk_usd: risk } : r)));
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
   };
+  const realCap = (row, m) => (
+    <RiskCap
+      symbol={row.symbol}
+      cap={row.risk_cap_usd}
+      tripped={row.risk_tripped_at}
+      loss={openLoss({ side: 'long', entry: row.avg_cost, price: m.price, qty: row.shares })}
+      onSave={(cap) => patchRow(row, { risk_cap_usd: cap, risk_tripped_at: null, risk_trip_loss: null })}
+      onResume={() => patchRow(row, { risk_tripped_at: null, risk_trip_loss: null })}
+      onTrip={(loss) => patchRow(row, { risk_tripped_at: new Date().toISOString(), risk_trip_loss: Number(loss.toFixed(2)) })}
+    />
+  );
   const openIdea = (a) => {
     openAssetOnDesk(a);
     navigate('/research');
@@ -508,13 +527,13 @@ export default function Positions() {
                   <th className="num">Value</th>
                   <th className="num">Gain / loss</th>
                   <th className="num">%</th>
-                  <th className="num" title="Hard $ loss cap for the whole holding; editing it sets the stop (shares stay). Tracking only.">Risk $</th>
+                  <th className="num" title="Emergency kill switch: if the open loss goes above this $, it's flagged RISK HIT. Does not move the stop. Blank = no cap.">Risk</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
                 {view.list.map(({ row, q, m }) => (
-                  <tr key={row.id} className="mode-row--live">
+                  <tr key={row.id} className={`mode-row--live${row.risk_tripped_at ? ' is-risk-hit' : ''}`}>
                     <td>
                       <button type="button" className="pos-sym" onClick={() => openResearch(row)} title={`Open ${row.symbol} in Research`}>
                         <strong className="mono">{row.symbol}</strong>
@@ -530,9 +549,7 @@ export default function Positions() {
                     <td className="num mono">{formatUsd(m.value, { decimals: 2 })}</td>
                     <td className={`num mono ${tone(m.gain)}`}>{formatUsd(m.gain, { sign: true, decimals: 2 })}</td>
                     <td className={`num mono ${tone(m.gainPct)}`}>{formatPct(m.gainPct, 1)}</td>
-                    <td className="num">
-                      <RiskEdit it={realRiskItem(row, m)} onSave={(stop, risk) => saveRealRisk(row, stop, risk)} />
-                    </td>
+                    <td className="num">{realCap(row, m)}</td>
                     <td className="action">
                       <RowActions row={row} confirming={confirmId === row.id} {...actionProps} />
                     </td>
@@ -564,7 +581,7 @@ export default function Positions() {
                     <span className={`mono small ${tone(m.gain)}`}>
                       {formatUsd(m.gain, { sign: true, decimals: 2 })} ({formatPct(m.gainPct, 1)})
                     </span>
-                    <RiskEdit it={realRiskItem(row, m)} onSave={(stop, risk) => saveRealRisk(row, stop, risk)} />
+                    {realCap(row, m)}
                     <RowActions row={row} confirming={confirmId === row.id} {...actionProps} />
                   </div>
                 </li>
@@ -572,6 +589,12 @@ export default function Positions() {
             </ul>
           </>
         )}
+        {botReal.length ? (
+          <div className="pos-botreal">
+            <h3 className="small">Bot plans · real $ <span className="muted">(Buy dips / Sell highs, managed by the bot)</span></h3>
+            <IdeaTable real list={botReal} quotes={quotes} onChanged={loadPaper} onOpen={openIdea} onError={setError} />
+          </div>
+        ) : null}
       </section>
 
 

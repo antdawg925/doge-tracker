@@ -2,7 +2,8 @@ import { useState } from 'react';
 import ModePill from '../common/ModePill.jsx';
 import { assetKey } from '../../lib/assets';
 import { formatPct, formatPrice, formatUsd } from '../../lib/format';
-import RiskEdit from './RiskEdit.jsx';
+import RiskCap from './RiskCap.jsx';
+import { openLoss } from '../../../shared/riskCap.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
 import { closePaperIdea, deletePaperIdea, ideaAsset, ideaPnl } from '../../lib/paperIdeas.js';
@@ -10,6 +11,23 @@ import { closePaperIdea, deletePaperIdea, ideaAsset, ideaPnl } from '../../lib/p
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' }) : '');
 const qtyFmt = (q) => (Number.isInteger(q) ? q.toLocaleString('en-US') : Number(q.toFixed(4)).toLocaleString('en-US'));
+const planId = (i) => String(i.id).replace(/^plan-/, '');
+
+/** Risk cap (kill switch) save / resume. Bot plans go through the server; paper ideas are UI-only. */
+async function setRiskCap(i, { cap = null, resume = false }) {
+  if (i.source?.startsWith('bot_')) {
+    await authedFetch('/api/bot/stocks/plans/risk-cap', { method: 'POST', body: { id: planId(i), cap, resume } });
+    return;
+  }
+  const patch = { risk_tripped_at: null, risk_trip_loss: null, updated_at: new Date().toISOString(), ...(resume ? {} : { risk_cap_usd: cap }) };
+  const { error } = await supabase.from('paper_ideas').update(patch).eq('id', i.id);
+  if (error) throw error;
+}
+async function tripPaper(i, loss) {
+  const { error } = await supabase.from('paper_ideas').update({ risk_tripped_at: new Date().toISOString(), risk_trip_loss: Number(loss.toFixed(2)) }).eq('id', i.id).is('risk_tripped_at', null);
+  if (error) throw error;
+}
+
 const SRC = { research: 'Research', setup: 'Setup', manual: '', bot_dip: 'Buy dips (bot)', bot_high: 'Sell highs (bot)' };
 
 /** Paper summary: open · unrealized · realized · win rate (closed). Paper only, never real totals. */
@@ -40,7 +58,7 @@ export function paperStats(ideas, quotes) {
   return { open, unreal: unrealN ? unreal : null, realized: closed ? realized : null, closed, winRate: closed ? (wins / closed) * 100 : null };
 }
 
-function Row({ i, quotes, onChanged, onOpen, onError }) {
+function Row({ i, quotes, onChanged, onOpen, onError, real }) {
   const [closing, setClosing] = useState(null); // exit price string while confirming
   const [busy, setBusy] = useState(false);
   const live = quotes[assetKey(ideaAsset(i))]?.price ?? null;
@@ -60,7 +78,7 @@ function Row({ i, quotes, onChanged, onOpen, onError }) {
     }
   };
   return (
-    <tr className={`mode-row--paper${isClosed ? ' is-closed' : ''}`}>
+    <tr className={`${real ? 'mode-row--live' : 'mode-row--paper'}${isClosed ? ' is-closed' : ''}${!isClosed && i.risk_tripped_at ? ' is-risk-hit' : ''}`}>
       <td>
         <button type="button" className="pos-sym" onClick={() => onOpen(ideaAsset(i))} title={`Open ${i.symbol} in Research`}>
           <strong className="mono">{i.symbol}</strong>
@@ -87,16 +105,15 @@ function Row({ i, quotes, onChanged, onOpen, onError }) {
         {isClosed ? (
           <span className="muted small">—</span>
         ) : (
-          <RiskEdit
-            it={{ kind: bot ? 'bot' : 'paper', symbol: i.symbol, assetType: i.asset_type, side: i.side, shares: i.qty, entry: i.entry_price, stop: i.stop_price, price: live, live: false }}
-            onSave={async (stop) => {
-              if (bot) await authedFetch('/api/bot/stocks/plans/raise', { method: 'POST', body: { id: i.id.replace(/^plan-/, ''), price: stop } });
-              else {
-                const { error } = await supabase.from('paper_ideas').update({ stop_price: stop, updated_at: new Date().toISOString() }).eq('id', i.id);
-                if (error) throw error;
-              }
-              await onChanged();
-            }}
+          <RiskCap
+            symbol={i.symbol}
+            bot={bot}
+            cap={i.risk_cap_usd}
+            tripped={i.risk_tripped_at}
+            loss={openLoss({ side: i.side, entry: i.entry_price, price: live, qty: i.qty })}
+            onSave={(cap) => setRiskCap(i, { cap }).then(onChanged)}
+            onResume={() => setRiskCap(i, { resume: true }).then(onChanged)}
+            onTrip={bot ? undefined : (loss) => tripPaper(i, loss).then(onChanged)}
           />
         )}
       </td>
@@ -130,25 +147,25 @@ function Row({ i, quotes, onChanged, onOpen, onError }) {
   );
 }
 
-function Table({ list, ...rest }) {
+export function Table({ list, real = false, ...rest }) {
   return (
     <div className="pos-scroll">
-      <table className="pos-table pos-table--paper">
+      <table className={`pos-table ${real ? 'pos-table--botreal' : 'pos-table--paper'}`}>
         <thead>
           <tr>
-            <th>Idea</th>
+            <th>{real ? 'Bot plan' : 'Idea'}</th>
             <th className="num">Qty</th>
             <th className="num">Entry</th>
             <th className="num">Price</th>
             <th className="num">Stop / target</th>
             <th className="num">P/L</th>
-            <th className="num" title="Hard $ loss cap for the whole idea; editing it moves the stop (shares stay)">Risk $</th>
+            <th className="num" title="Emergency kill switch: if the open loss goes above this $, the bot stops trading the position. Does not move the stop. Blank = no cap.">Risk</th>
             <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
           {list.map((i) => (
-            <Row key={i.id} i={i} {...rest} />
+            <Row key={i.id} i={i} real={real} {...rest} />
           ))}
         </tbody>
       </table>

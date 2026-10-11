@@ -5425,10 +5425,15 @@ tr.mode-row--waiting > td:first-child { box-shadow: inset 3px 0 0 rgba(251, 191,
 .otk__total strong { font-family: var(--mono); font-size: 1.05rem; }
 
 /* Risk $ editor + confirm modal (Positions) */
-.rk { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; }
-.rk__in { display: inline-flex; align-items: center; gap: 0.15rem; color: var(--muted); font-size: 0.8rem; }
-.rk__in input { width: 4.4rem; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.18rem 0.35rem; font: inherit; font-family: var(--mono); font-size: 0.82rem; text-align: right; }
-.rk__stop { font-size: 0.68rem; }
+.rc { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+.rc__in { display: inline-flex; align-items: center; gap: 0.15rem; color: var(--muted); font-size: 0.8rem; }
+.rc__in.is-hit input { border-color: #ef4444; }
+.rc__loss { font-size: 0.68rem; }
+.rc__hit { display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; justify-content: flex-end; }
+.risk-hit { display: inline-block; background: #dc2626; color: #fff; font-weight: 800; font-size: 0.64rem; letter-spacing: 0.03em; padding: 0.15rem 0.4rem; border-radius: 4px; white-space: nowrap; box-shadow: 0 0 8px rgba(239, 68, 68, 0.45); }
+.rc__resume { padding: 0.1rem 0.45rem; font-size: 0.7rem; min-height: 0; }
+tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+.rc__in input { width: 4.4rem; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.18rem 0.35rem; font: inherit; font-family: var(--mono); font-size: 0.82rem; text-align: right; }
 .rk-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
 .rk-modal__scrim { position: absolute; inset: 0; background: rgba(3, 6, 12, 0.6); border: 0; }
 .rk-modal__card { position: relative; width: min(24rem, 92vw); padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; text-align: left; white-space: normal; }
@@ -5442,3 +5447,5 @@ tr.mode-row--waiting > td:first-child { box-shadow: inset 3px 0 0 rgba(251, 191,
 .rk-btns { display: flex; justify-content: flex-end; gap: 0.4rem; }
 .pct-under { display: block; font-size: 0.68rem; line-height: 1.1; opacity: 0.95; }
 .stp__facts .pct-under, .dip-sheet__facts .pct-under { display: inline; margin-left: 0.25rem; }
+.pos-botreal { margin-top: 0.75rem; }
+.pos-botreal h3 { margin: 0 0 0.35rem; font-size: 0.82rem; color: var(--live-gold); }

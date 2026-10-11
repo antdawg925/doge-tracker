@@ -12,6 +12,7 @@ import { isTradingDay, etParts, stockPassFor, closeMinutes } from '../shared/mar
 import { buildLimitBuyOrder, nextRatchetStop, shouldCancelPending, DIP_EXCLUDES } from '../shared/dipBuys.js'
 import { buildShortLimitOrder, nextShortRatchetStop } from '../shared/sellHighs.js'
 import { fillFromOrder, isNotShortableError } from '../shared/schwabLive.js'
+import { RISK_CAP_ACTION, openLoss, riskCapHit } from '../shared/riskCap.js'
 
 const clip = (s, n = 280) => (s == null ? null : String(s).slice(0, n))
 const money = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : `$${Number(n).toFixed(Number(n) >= 1 ? 2 : 4)}`)
@@ -51,7 +52,7 @@ async function alert(sb, { userId, chatId, kind, title, message, urgent = false,
  * @param markets Map(symbol → {ok, price, bars})  daily bars with .close
  */
 export async function runStockPlans(sb, { profiles, markets, nowMs = Date.now(), force = false } = {}) {
-  const summary = { checked: 0, placed: 0, filled: 0, stopped: 0, cancelled: 0, raised: 0, dry: 0, errors: 0 }
+  const summary = { checked: 0, riskHalted: 0, placed: 0, filled: 0, stopped: 0, cancelled: 0, raised: 0, dry: 0, errors: 0 }
   if (!profiles?.length) return summary
   const pass = force ? 'manual' : stockPassFor(nowMs)
   const inRth = rthOk(nowMs)
@@ -114,6 +115,48 @@ export async function runStockPlans(sb, { profiles, markets, nowMs = Date.now(),
         await sb.from('stock_plans').update({ status: 'cancelled', last_error: 'TSLA excluded', notes: 'never touch TSLA' }).eq('id', plan.id)
         summary.cancelled += 1
         continue
+      }
+
+      // ---- Risk cap (emergency kill switch, separate from the stop). Halted plans: no place / move /
+      // cancel at all. Only a read-only check of an already-resting stop so a stop-out still records.
+      if (plan.risk_tripped_at) {
+        summary.riskHalted += 1
+        if (live && plan.status === 'filled' && plan.stop_order_id) {
+          const b = await brokerFor(plan.user_id)
+          const fill = b ? fillFromOrder(await b.getOrder(plan.stop_order_id).catch(() => null)) : null
+          if (fill?.filled) {
+            await sb.from('stock_plans').update({ status: 'stopped' }).eq('id', plan.id)
+            summary.stopped += 1
+            await A({ userId: plan.user_id, chatId: prof?.telegram_chat_id, kind: 'plan_stopped', title: `${sym}: Stopped out`, message: `Resting ${short ? 'buy-to-cover ' : ''}stop filled ${fill.filledQty} sh @ ${money(fill.price)} (plan was halted by Risk cap).`, urgent: true, nowMs })
+          }
+        }
+        continue
+      }
+      if (plan.status === 'filled' && Number(plan.risk_cap_usd) > 0) {
+        const qty = plan.filled_shares || plan.shares
+        const loss = openLoss({ side: posSide, entry: plan.filled_price || plan.limit_price, price: spot, qty })
+        if (riskCapHit(plan.risk_cap_usd, loss)) {
+          // Conditional update = exactly one trip (and one alert) even if two runs overlap.
+          const { data: tripped } = await sb.from('stock_plans')
+            .update({ risk_tripped_at: new Date(nowMs).toISOString(), risk_trip_loss: Number(loss.toFixed(2)), last_error: `risk cap hit: loss ${money(loss)} > cap ${money(plan.risk_cap_usd)}` })
+            .eq('id', plan.id).is('risk_tripped_at', null).select('id')
+          summary.riskHalted += 1
+          if (tripped?.length) {
+            if (RISK_CAP_ACTION === 'halt_and_exit') {
+              // TODO(Anthony decision pending): flatten at market here. Intentionally not implemented.
+            }
+            await A({
+              userId: plan.user_id,
+              chatId: prof?.telegram_chat_id,
+              kind: 'plan_risk_cap',
+              title: `🚨 ${sym}: RISK HIT — bot stopped`,
+              message: `${short ? 'Short' : 'Long'} ${qty} sh open loss ${money(loss)} > your Risk cap ${money(plan.risk_cap_usd)} @ ${money(spot)}.${plan.dry_run ? ' (paper plan)' : ''} The bot will place, move or cancel nothing more for it. ${live && plan.stop_order_id ? 'Your resting Schwab stop stays in place.' : 'Nothing is being sold.'} Raise Risk or tap Resume on Positions to re-arm.`,
+              urgent: true,
+              nowMs,
+            })
+          }
+          continue
+        }
       }
 
       // ---- pending / working: place or sync the limit buy

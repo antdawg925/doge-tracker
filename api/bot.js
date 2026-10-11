@@ -52,7 +52,7 @@ import { dogeFromKrakenBalance } from '../shared/botEngine.js'
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
 const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/run', 'doge-live/stop', 'doge-live/sell', 'doge-live/buy-plan', 'doge-live/buy', 'doge-live/limit-sell'])
-const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock', 'stocks/plans/create', 'stocks/plans/cancel', 'stocks/plans/raise', 'stocks/plans/live', 'stocks/plans/list'])
+const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock', 'stocks/plans/create', 'stocks/plans/cancel', 'stocks/plans/raise', 'stocks/plans/risk-cap', 'stocks/plans/live', 'stocks/plans/list'])
 
 function routeParts(req) {
   const q = req.query?.route
@@ -269,6 +269,20 @@ async function stockRoute(sb, req, res, route) {
     const { error } = await sb.from('stock_plans').update({ status: 'cancelled', last_error: 'cancelled by user' }).eq('id', id)
     if (error) return sendJson(res, 500, { error: error.message })
     return sendJson(res, 200, { ok: true })
+  }
+  if (route === 'stocks/plans/risk-cap') {
+    // Emergency Risk cap (kill switch). Never moves the stop. Setting / editing it, or resume:true,
+    // re-arms a halted plan (the runner trips it again next pass if the loss is still above the cap).
+    const id = body.id || body.planId
+    if (!id) return sendJson(res, 400, { error: 'Missing plan id.' })
+    const cap = body.cap == null || body.cap === '' ? null : Number(body.cap)
+    if (cap != null && !(cap > 0 && cap < 1e8)) return sendJson(res, 400, { error: 'Risk must be a positive $ amount (blank = no cap).' })
+    const { data: plan } = await sb.from('stock_plans').select('id, status, risk_cap_usd').eq('id', id).eq('user_id', who.user.id).maybeSingle()
+    if (!plan || !['pending', 'working', 'filled'].includes(plan.status)) return sendJson(res, 400, { error: 'Risk applies to open plans only.' })
+    const patch = { risk_tripped_at: null, risk_trip_loss: null, ...(body.resume ? {} : { risk_cap_usd: cap }) }
+    const { error } = await sb.from('stock_plans').update(patch).eq('id', id)
+    if (error) return sendJson(res, 500, { error: error.message })
+    return sendJson(res, 200, { ok: true, cap: body.resume ? plan.risk_cap_usd : cap })
   }
   if (route === 'stocks/plans/raise') {
     const id = body.id || body.planId

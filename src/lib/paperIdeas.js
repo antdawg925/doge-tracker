@@ -4,9 +4,9 @@
  */
 import { supabase } from './supabase.js';
 
-const COLS = 'id, symbol, asset_type, asset_id, name, side, qty, entry_price, stop_price, target_price, source, status, opened_at, exit_price, closed_at';
+const COLS = 'id, symbol, asset_type, asset_id, name, side, qty, entry_price, stop_price, target_price, source, status, opened_at, exit_price, closed_at, risk_cap_usd, risk_tripped_at, risk_trip_loss';
 const n = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
-const norm = (r) => ({ ...r, qty: n(r.qty), entry_price: n(r.entry_price), stop_price: n(r.stop_price), target_price: n(r.target_price), exit_price: n(r.exit_price) });
+const norm = (r) => ({ ...r, qty: n(r.qty), entry_price: n(r.entry_price), stop_price: n(r.stop_price), target_price: n(r.target_price), exit_price: n(r.exit_price), risk_cap_usd: n(r.risk_cap_usd) });
 
 export async function listPaperIdeas({ symbol } = {}) {
   let q = supabase.from('paper_ideas').select(COLS).order('opened_at', { ascending: false }).limit(300);
