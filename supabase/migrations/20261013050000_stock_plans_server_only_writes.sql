@@ -3,7 +3,7 @@
 drop policy if exists stock_plans_bot_insert on public.stock_plans;
 drop policy if exists stock_plans_bot_update on public.stock_plans;
 drop policy if exists stock_plans_bot_delete on public.stock_plans;
-revoke insert, update, delete on public.stock_plans from authenticated;
+revoke insert, update, delete, truncate, references, trigger on public.stock_plans from authenticated;
 revoke all on public.stock_plans from anon;
 
 -- Stops only tighten (long: up, short: down), for every role, like stock_stops.
