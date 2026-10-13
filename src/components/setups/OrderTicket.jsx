@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../../lib/api.js';
 import { formatPrice } from '../../lib/format.js';
+import { maxGapUpPct } from '../../../shared/stockEngine.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const r2 = (v) => (v >= 1 ? Number(v.toFixed(2)) : Number(v.toFixed(4)));
@@ -27,7 +28,7 @@ function useQuote(symbol) {
  * live ask for shorts, else last). Est. risk = shares × |price − stop|, live. Shares empty → $100-risk hint
  * as a placeholder only. Paper and real buttons both get { shares, price }.
  */
-export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false }) {
+export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false, dailyBars = null }) {
   const short = side === 'short';
   const quote = useQuote(symbol);
   const [shares, setShares] = useState('');
@@ -61,6 +62,10 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
   const toStop = per != null && px > 0 ? (per / px) * 100 : null;
   const reward = sh > 0 && px > 0 && target > 0 ? sh * (short ? px - target : target - px) : null;
   const ok = sh > 0 && px > 0 && !wrongSide;
+  // B14: shorts can gap up through the stop. Gap risk = loss if it opens past the stop by the largest
+  // overnight gap-up of the last 60 days (sizing stays his call; shown only).
+  const gapPct = short && dailyBars?.length > 1 ? maxGapUpPct(dailyBars) : null;
+  const gapRisk = short && gapPct > 0 && sh > 0 && px > 0 && st > 0 ? sh * (st * (1 + gapPct) - px) : null;
 
   return (
     <div className={`otk${compact ? ' otk--compact' : ''}`}>
@@ -97,6 +102,11 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
       <p className="small muted otk__sub">
         Stop {formatPrice(st)} · {toStop != null ? `${toStop.toFixed(1)}% to stop` : '—'} · reward {reward != null ? <span className={reward >= 0 ? 'pos' : 'neg'}>{usd(reward)}</span> : '—'} to target
       </p>
+      {gapRisk != null ? (
+        <p className="small otk__sub" title="If it gaps up past your stop by its largest overnight gap of the last 60 days">
+          Gap risk ≈ <strong className="neg">{usd(gapRisk)}</strong> <span className="muted">(if it gaps {(gapPct * 100).toFixed(1)}% over the stop)</span>
+        </p>
+      ) : null}
       {wrongSide ? <p className="small neg otk__sub">Price must be {short ? 'below the cover stop' : 'above the stop'}.</p> : null}
       <div className="otk__btns">
         <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paperBusy || !ok} onClick={() => onPaper({ shares: sh, price: px })} title="Track as a paper idea (no real money)">

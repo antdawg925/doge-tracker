@@ -73,6 +73,7 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
           last={row.price}
           stop={stop}
           target={target}
+          dailyBars={row.bars?.daily}
           onPaper={paperTrade}
           paperBusy={paper === 'saving'}
           onReal={onConfirm}

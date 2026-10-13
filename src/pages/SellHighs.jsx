@@ -100,6 +100,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
           last={row.price}
           stop={row.stop}
           target={row.cover}
+          dailyBars={row.bars?.daily}
           onPaper={(o) => onPaper(row, o)}
           onReal={onConfirm}
           busy={busy}
