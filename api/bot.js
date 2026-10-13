@@ -31,6 +31,7 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
 import { runPaperOrders } from './_paperOrders.js'
+import { cancelEntryNow, placeEntryNow, placeNowBlock } from './_planOrders.js'
 import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
 import { schwabHousekeeping } from './_schwabLive.js'
 import { planTrade } from '../shared/stockEngine.js'
@@ -265,8 +266,24 @@ async function stockRoute(sb, req, res, route) {
       notes: String(body.notes || '').slice(0, 300),
       data: { riskUsd: risk, preview: true, ...(short ? { borrow: body.borrow && typeof body.borrow === 'object' ? body.borrow : null, squeeze: body.squeeze ?? null } : {}) },
     }
+    // Buy $ / Short $ with placeNow: his explicit order → GTC limit at Schwab right away (no Stocks Live
+    // toggle needed). Gates checked BEFORE saving: TSLA, connected, kill switch, daily cap.
+    const placeNow = !dryRun && body.placeNow === true
+    let conn = null
+    if (placeNow) {
+      const { data: c } = await sb.from('broker_connections').select('*').eq('user_id', who.user.id).eq('broker', 'schwab').maybeSingle()
+      conn = c
+      const block = placeNowBlock({ symbol, conn })
+      if (block) return sendJson(res, 400, { error: block })
+      row.data.manualOrder = true
+    }
     const { data, error } = await sb.from('stock_plans').insert(row).select('*').single()
     if (error) return sendJson(res, 500, { error: error.message })
+    if (placeNow) {
+      const r = await placeEntryNow(sb, { plan: data, conn }).catch((e) => ({ ok: false, error: String(e?.message || e) }))
+      if (!r.ok) return sendJson(res, 400, { error: r.error })
+      return sendJson(res, 200, { ok: true, plan: { ...data, status: 'working', buy_order_id: r.orderId }, orderId: r.orderId, riskUsd: risk, dryRun, placed: true })
+    }
     return sendJson(res, 200, { ok: true, plan: data, riskUsd: risk, dryRun })
   }
   if (route === 'stocks/plans/cancel') {
@@ -277,6 +294,11 @@ async function stockRoute(sb, req, res, route) {
     if (!['pending', 'working'].includes(plan.status)) return sendJson(res, 400, { error: 'Only pending/working entries can be cancelled here.' })
     // B4: an order already at Schwab is cancelled THERE first by the runner (next 5-min run), which then
     // marks the plan cancelled (or filled, if it filled meanwhile). Nothing at Schwab yet → cancel now.
+    if (plan.status === 'working' && plan.buy_order_id && plan.data?.manualOrder) {
+      const { data: conn } = await sb.from('broker_connections').select('*').eq('user_id', who.user.id).eq('broker', 'schwab').maybeSingle()
+      const r = await cancelEntryNow(sb, { plan, conn }).catch((e) => ({ ok: false, error: String(e?.message || e) }))
+      return sendJson(res, r.ok ? 200 : 400, r.ok ? r : { error: r.error })
+    }
     if (plan.status === 'working' && plan.buy_order_id) {
       const { error } = await sb.from('stock_plans').update({ data: { ...(plan.data || {}), cancelRequested: new Date().toISOString() }, last_error: 'cancel requested: bot cancels the Schwab order on its next run' }).eq('id', id)
       if (error) return sendJson(res, 500, { error: error.message })

@@ -305,3 +305,25 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('paper score', sc.targetHitRate === 0.5 && sc.avgWin === 100 && sc.avgLoss === -50 && sc.realized === 50);
   console.log(`check:dip-buys paper orders OK (${n} checks total)`);
 }
+
+// ---------------- Buy $ place-now + cancel-now (FAKE Schwab only)
+{
+  const { placeEntryNow, placeNowBlock, cancelEntryNow } = await import('../api/_planOrders.js');
+  const NOW = Date.UTC(2026, 9, 13, 3);
+  const conn = { user_id: 'u1', status: 'connected', account_hash: 'h', refresh_expires_at: new Date(NOW + 86400000).toISOString(), kill_switch: false, live_enabled: false, data: {} };
+  ok('place-now: TSLA blocked', /TSLA/.test(placeNowBlock({ symbol: 'TSLA', conn, nowMs: NOW })));
+  ok('place-now: kill switch blocked', /PAUSED/.test(placeNowBlock({ symbol: 'ABC', conn: { ...conn, kill_switch: true }, nowMs: NOW })));
+  ok('place-now: not connected blocked', /not connected/.test(placeNowBlock({ symbol: 'ABC', conn: null, nowMs: NOW })));
+  ok('place-now: cap blocked', /cap/.test(placeNowBlock({ symbol: 'ABC', conn: { ...conn, data: { actions: { day: '2026-10-12', n: 20 } } }, nowMs: NOW })));
+  ok('place-now: Live toggles not required, after hours ok', placeNowBlock({ symbol: 'ABC', conn, nowMs: NOW }) === null);
+  const writes = [];
+  const sb = { from: (t) => ({ update: (p) => ({ eq: () => ({ eq: () => { writes.push([t, p]); return Promise.resolve({}); }, then: (r) => { writes.push([t, p]); return Promise.resolve({}).then(r); } }) }) }) };
+  const calls = [];
+  const orders = {};
+  const fb = { placeLimitBuy: async (a) => { calls.push(a); orders.B7 = { status: 'WORKING', filledQuantity: 0 }; return { orderId: 'B7' }; }, getOrder: async (id) => orders[id], cancel: async (id) => { orders[id].status = 'CANCELED'; } };
+  const r = await placeEntryNow(sb, { plan: { id: 'p', symbol: 'ABC', side: 'long', shares: 10, limit_price: 50, data: {} }, conn, nowMs: NOW, broker: fb });
+  ok('place-now: GTC limit sent + order id saved', r.ok && r.orderId === 'B7' && calls[0].duration === 'GOOD_TILL_CANCEL' && writes.some(([t, p]) => t === 'stock_plans' && p.buy_order_id === 'B7' && p.status === 'working' && p.data.manualOrder));
+  const c = await cancelEntryNow(sb, { plan: { id: 'p', buy_order_id: 'B7', data: {} }, conn, nowMs: NOW, broker: fb });
+  ok('cancel-now: cancelled at Schwab then marked', c.ok && !c.pending && writes.some(([, p]) => p.status === 'cancelled'));
+  console.log(`check:dip-buys place-now OK (${n} checks total)`);
+}

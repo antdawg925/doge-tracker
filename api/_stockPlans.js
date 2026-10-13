@@ -286,7 +286,8 @@ export async function runStockPlans(sb, { profiles, markets, nowMs = Date.now(),
     // Every gate, server-side: plan not dry-run + Stocks Live + Schwab connected + Live Schwab stops ON
     // + live orders not paused (kill switch: no place / move / cancel). RTH is checked per action below.
     const conn = conns.get(plan.user_id)
-    const live = !plan.dry_run && Boolean(prof?.stocks_live) && conn?.status === 'connected' && Boolean(conn?.live_enabled) && !conn?.kill_switch
+    // Buy $ / Short $ placed at once (data.manualOrder) = his explicit order: managed without the Live toggles.
+    const live = !plan.dry_run && conn?.status === 'connected' && !conn?.kill_switch && (Boolean(plan.data?.manualOrder) || (Boolean(prof?.stocks_live) && Boolean(conn?.live_enabled)))
     const spot = markets?.get(sym)?.price ?? markets?.get(sym)?.bars?.at?.(-1)?.close ?? null
     const short = plan.side === 'short'
     const posSide = short ? 'short' : 'long'
