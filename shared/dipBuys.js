@@ -3,6 +3,7 @@
  * Used by My Bot → Buy dips and by stock_plans (Schwab limit + protective stop).
  * Never touches TSLA. Default dry-run.
  */
+import { sellTarget } from './sellTarget.js';
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';
 import { buildLimitBuyOrder as schwabLimitBuy, roundStop, tickSize } from './schwabLive.js';
 
@@ -54,7 +55,9 @@ export function buildDipPlan(symbol, weeklyBars, spot, { stage = null, dailyClos
   const stopRaw = s1.price - atrW;
   if (!(stopRaw > 0) || !(stopRaw < limit)) return null;
   const stop = roundStop(stopRaw, 'long');
-  const t1 = major.resistances[0]?.price ?? null;
+  // Sell target: nearest major resistance ≥1 ATR above the limit, capped at limit + 2.5 ATR.
+  const tgt = sellTarget({ side: 'long', entry: limit, levels: computeMajorPlan(weeklyBars, limit, { now: nowMs, max: 6 })?.resistances || major.resistances, atrW });
+  const t1 = tgt?.price ?? null;
   if (!(t1 > limit)) return null;
   const risk = limit - stop;
   const reward = t1 - limit;
@@ -71,6 +74,7 @@ export function buildDipPlan(symbol, weeklyBars, spot, { stage = null, dailyClos
     limit,
     stop,
     t1,
+    targetWhy: tgt?.why ?? null,
     rr: Number(rr.toFixed(2)),
     awayPct: Number(awayPct.toFixed(2)),
     support: s1.price,

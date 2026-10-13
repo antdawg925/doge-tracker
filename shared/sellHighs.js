@@ -4,6 +4,7 @@
  * ATR above it, cover target = next major support. Stop ratchets DOWN only.
  * Never TSLA. Default dry-run. Used by My Bot → Sell highs (/bot?tab=sell-highs) and stock_plans side='short'.
  */
+import { sellTarget } from './sellTarget.js';
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';
 import { buildShortLimitOrder as schwabShortLimit, roundStop, tickSize } from './schwabLive.js';
 import { DIP_CANCEL_DAYS, DIP_EXCLUDES } from './dipBuys.js';
@@ -117,7 +118,9 @@ export function buildShortPlan(symbol, weeklyBars, spot, { dailyCloses = null, s
   if (!(limit > spot)) return null; // already at/through resistance — not a bounce entry
   const stop = roundStop(r1 + atrW, 'short');
   if (!(stop > limit)) return null;
-  const target = s1;
+  // Cover target: nearest major support ≥1 ATR below the entry, capped at entry − 2.5 ATR.
+  const tgt = sellTarget({ side: 'short', entry: limit, levels: computeMajorPlan(weeklyBars, limit, { now: nowMs, max: 6 })?.supports || major.supports, atrW });
+  const target = tgt?.price ?? s1;
   const risk = stop - limit;
   const reward = limit - target;
   if (!(risk > 0) || !(reward > 0)) return null;
@@ -130,6 +133,7 @@ export function buildShortPlan(symbol, weeklyBars, spot, { dailyCloses = null, s
     limit,
     stop,
     t1: target,
+    targetWhy: tgt?.why ?? null,
     rr: Number((reward / risk).toFixed(2)),
     awayPct: Number(((limit / spot - 1) * 100).toFixed(2)),
     resistance: r1,

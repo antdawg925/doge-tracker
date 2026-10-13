@@ -276,3 +276,14 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('borrow: daily closes method', dc.method === 'daily closes' && dc.paid > 0 && dc.paid < dc.daily * 10);
   console.log(`check:dip-buys borrow OK (${n} checks total)`);
 }
+
+// ---------------- sell / cover target rule (pure)
+{
+  const { sellTarget } = await import('../shared/sellTarget.js');
+  const lv = [{ price: 102, touches: 3 }, { price: 108, touches: 1 }, { price: 110, touches: 2 }, { price: 140, touches: 4 }];
+  ok('target: skips <1 ATR and 1-touch levels', sellTarget({ entry: 100, levels: lv, atrW: 4 }).price === 110);
+  ok('target: capped at 2.5 ATR', sellTarget({ entry: 100, levels: [{ price: 140, touches: 4 }], atrW: 4 }).price === 110 && sellTarget({ entry: 100, levels: [{ price: 140, touches: 4 }], atrW: 4 }).capped);
+  ok('target: no level → 2.5 ATR', sellTarget({ entry: 100, levels: [], atrW: 2 }).price === 105);
+  ok('cover target: short mirror', sellTarget({ side: 'short', entry: 100, levels: [{ price: 97, touches: 5 }, { price: 93, touches: 2 }], atrW: 4 }).price === 93);
+  console.log(`check:dip-buys target OK (${n} checks total)`);
+}
