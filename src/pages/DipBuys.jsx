@@ -3,7 +3,6 @@ import { useAuth } from '../hooks/authContext.js';
 import { authedFetch } from '../lib/api.js';
 import { fetchDipBuys } from '../lib/dipBuysClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
-import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
@@ -23,7 +22,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
     <div className="dip-sheet" role="dialog" aria-label={`Buy ${row.symbol}`}>
       <div className="dip-sheet__card card">
         <div className="dip-sheet__head">
-          <h2>Buy dip · {row.symbol}</h2>
+          <h2 className={row.mode === 'paper' ? 'rpaper__title' : ''}>{row.mode === 'paper' ? 'Paper buy' : row.mode === 'real' ? 'Buy $ (real)' : 'Buy dip'} · {row.symbol}</h2>
           <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} aria-label="Close">
             ×
           </button>
@@ -61,10 +60,11 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
           target={row.t1}
           limitPrice={row.buy}
           onPaper={(o) => onPaper(row, o)}
+          mode={row.mode || 'both'}
           onReal={onConfirm}
           busy={busy}
           blocked={false}
-          note={<LiveOrderNote gates={gates} />}
+          note={row.mode === 'paper' ? <p className="small muted">Paper only — no real money. Rests as a GTC limit at the Target price.</p> : <LiveOrderNote gates={gates} />}
         />
         <button type="button" className="btn btn--ghost stk-btn otk__cancel" onClick={onClose} disabled={busy}>
           Cancel
@@ -84,21 +84,23 @@ export default function DipBuys() {
   const [updatedAt, setUpdatedAt] = useState(0);
   const [tick, setTick] = useState(0);
   const [sheet, setSheet] = useState(null);
-  const [amount, setAmount] = useState('1000');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares, price = r.buy) => {
+  const paperQuick = async (r, shares, price = r.buy, requestId = null) => {
+    if (!(shares > 0)) return false;
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, limit: price, stop: r.stop, target: r.t1, source: 'setup' });
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, limit: price, stop: r.stop, target: r.t1, source: 'setup', requestId });
       setPaperMsg(`Paper LIMIT buy ${i.qty} ${i.symbol} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders. Fills when price trades there; exits at target or stop.`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
+      return false;
     }
+    return true;
   };
 
   useEffect(() => {
@@ -120,7 +122,7 @@ export default function DipBuys() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async ({ shares, price }, target = sheet) => {
+  const confirm = async ({ shares, price, requestId }, target = sheet) => {
     const sheet = target;
     if (!sheet) return;
     setBusy(true);
@@ -138,6 +140,7 @@ export default function DipBuys() {
           ladder: sheet.ladder,
           confirm: 'BUY',
           dryRun: false,
+          clientRequestId: requestId,
           placeNow: true, // his explicit order: GTC LIMIT placed at Schwab right away
         },
       });
@@ -147,9 +150,11 @@ export default function DipBuys() {
       alert(`${sheet.symbol}: REAL limit buy ${shares} @ ${formatPrice(price)} placed at Schwab (GTC). See Positions → Real → Pending orders.`);
     } catch (e) {
       setMsg(e.message);
+      return false;
     } finally {
       setBusy(false);
     }
+    return true;
   };
 
   const list = rows || [];
@@ -220,10 +225,10 @@ export default function DipBuys() {
                   <td>
                     {canBuy ? (
                       <span className="act-pair">
-                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT buy at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForAmount(Number(amount), r.buy)); }}>
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT buy at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'paper' }); setMsg(''); setPaperMsg(''); }}>
                           Paper buy
                         </button>
-                        <button type="button" className="btn btn--gold stk-btn act-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
+                        <button type="button" className="btn btn--gold stk-btn act-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'real' }); setMsg(''); }}>
                           Buy $
                         </button>
                       </span>
@@ -261,7 +266,7 @@ export default function DipBuys() {
           msg={msg}
         />
       ) : null}
-      {sheet ? <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, o) => { paperQuick(r, o.shares, o.price); setSheet(null); }} gates={gates} busy={busy} msg={msg} /> : null}
+      {sheet ? <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} /> : null}
     </div>
   );
 }

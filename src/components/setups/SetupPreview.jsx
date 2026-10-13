@@ -33,14 +33,17 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
   const lines = setupLines({ side, plan: row.plan, entry, stop, target });
   const [paper, setPaper] = useState(''); // '' | 'saving' | saved text | error
   useEffect(() => setPaper(''), [row.symbol]);
-  const paperTrade = async ({ shares, price }) => {
+  const paperTrade = async ({ shares, price, requestId }) => {
+    if (!(shares > 0)) return false;
     setPaper('saving');
     try {
-      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, limit: price, stop, target, source: 'setup' });
+      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, limit: price, stop, target, source: 'setup', requestId });
       setPaper(`Paper LIMIT ${i.side === 'short' ? 'short' : 'buy'} ${i.qty} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders`);
     } catch (e) {
       setPaper(`Paper trade failed: ${e.message}`);
+      return false;
     }
+    return true;
   };
   return (
     <div className={`stp ${desktop ? 'stp--side' : 'stp--sheet'}`} role="dialog" aria-label={`${row.symbol} preview`}>

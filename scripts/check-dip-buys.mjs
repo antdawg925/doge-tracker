@@ -1,8 +1,8 @@
 // Dip-buy plan + Schwab LIMIT BUY payload (validation only, no network).
 import assert from 'node:assert/strict';
-import { buildDipPlan, buildLimitBuyOrder, dollarRisk, nextRatchetStop, sharesForAmount, shouldCancelPending, DIP_EXCLUDES } from '../shared/dipBuys.js';
+import { buildDipPlan, buildLimitBuyOrder, dollarRisk, nextRatchetStop, shouldCancelPending, DIP_EXCLUDES } from '../shared/dipBuys.js';
 import { buildLimitBuyOrder as schwabBuy, buildShortLimitOrder as schwabShort, buildStopOrder, borrowFromQuote, isNotShortableError } from '../shared/schwabLive.js';
-import { buildShortPlan, buildShortLimitOrder, nextShortRatchetStop, sharesForRisk, shortDollarRisk, squeezeRisk, weinsteinStage, SHORT_RISK_USD } from '../shared/sellHighs.js';
+import { buildShortPlan, buildShortLimitOrder, nextShortRatchetStop, shortDollarRisk, squeezeRisk, weinsteinStage } from '../shared/sellHighs.js';
 
 const t0 = Date.UTC(2020, 0, 6);
 const bars = [];
@@ -35,7 +35,6 @@ const plan = buildDipPlan('NVDA', bars, 112, { stage: 2, dailyCloses: path });
 ok('plan built', plan && plan.limit < 112 && plan.stop < plan.limit && plan.t1 > plan.limit, JSON.stringify(plan));
 ok('RR > 0', plan.rr > 0);
 ok('stage 6 rejected', buildDipPlan('NVDA', bars, 112, { stage: 6 }) === null);
-ok('shares floor', sharesForAmount(1000, plan.limit) === Math.floor(1000 / plan.limit));
 ok('dollar risk', Math.abs(dollarRisk(10, plan.limit, plan.stop) - (plan.limit - plan.stop) * 10) < 0.02);
 
 const payload = buildLimitBuyOrder({ symbol: 'nvda', qty: 5, limitPrice: plan.limit });
@@ -76,10 +75,8 @@ ok('short R:R', Math.abs(sp.rr - (sp.limit - sp.t1) / (sp.stop - sp.limit)) < 0.
 ok('uptrend name rejected', buildShortPlan('NVDA', bars, 112, { dailyCloses: path.map((x, i) => x + i) }) === null);
 ok('squeeze flagged', sp.squeeze.flag && squeezeRisk(5, 2).flag === false && squeezeRisk(30, 6).level === 'extreme');
 ok('squeeze needs both', squeezeRisk(40, 1).flag === false && squeezeRisk(10, 9).flag === false);
-ok('$100 default risk', SHORT_RISK_USD === 100);
-const sh = sharesForRisk(100, sp.limit, sp.stop);
-ok('risk sizing', sh === Math.floor(100 / (sp.stop - sp.limit)) && shortDollarRisk(sh, sp.limit, sp.stop) <= 100);
-ok('risk sizing other $', sharesForRisk(250, 50, 52.5) === 100 && sharesForRisk(100, 50, 50) === 0);
+const sh = 37; // typed shares only (no risk sizing)
+ok('short $ risk is info only', shortDollarRisk(sh, sp.limit, sp.stop) > 0);
 
 const sx = buildShortLimitOrder({ symbol: 'xyz', qty: sh, limitPrice: sp.limit });
 ok('SELL_SHORT payload', sx.orderType === 'LIMIT' && sx.session === 'NORMAL' && sx.duration === 'GOOD_TILL_CANCEL' && sx.orderStrategyType === 'SINGLE');

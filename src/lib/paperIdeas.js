@@ -17,7 +17,7 @@ export async function listPaperIdeas({ symbol } = {}) {
 }
 
 /** asset: { symbol, type, id?, name? } */
-export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = null, target = null, source = 'manual', limit = null }) {
+export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = null, target = null, source = 'manual', limit = null, requestId = null }) {
   const payload = {
     symbol: String(asset.symbol || '').toUpperCase(),
     asset_type: asset.type === 'crypto' ? 'crypto' : 'stock',
@@ -37,7 +37,14 @@ export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = nu
     Object.assign(payload, { status: 'pending', limit_price: n(limit), entry_price: n(limit), time_in_force: 'GTC', placed_at: new Date().toISOString(), auto_exit: true });
   }
   if (!(payload.qty > 0) || !(payload.entry_price > 0)) throw new Error('Paper trade needs a size and an entry price.');
+  if (requestId) payload.client_request_id = String(requestId).slice(0, 80);
   const { data, error } = await supabase.from('paper_ideas').insert(payload).select(COLS).single();
+  if (error?.code === '23505' && requestId) {
+    // Same press seen twice → return the order already saved (one press = one order).
+    const { data: prev, error: e2 } = await supabase.from('paper_ideas').select(COLS).eq('client_request_id', payload.client_request_id).single();
+    if (e2) throw e2;
+    return { ...norm(prev), duplicate: true };
+  }
   if (error) throw error;
   return norm(data);
 }
@@ -67,14 +74,6 @@ export function ideaPnl(idea, price) {
   return { pnl, pct: ((px / idea.entry_price - 1) * 100) * dir, px };
 }
 
-/** Default size: $100 risk when there's a stop, else ~$1,000 notional. */
-export function paperSize(entry, stop) {
-  const e = Number(entry);
-  const s = Number(stop);
-  if (!(e > 0)) return 0;
-  const raw = s > 0 && Math.abs(e - s) > 0 ? 100 / Math.abs(e - s) : 1000 / e;
-  return e >= 5 ? Math.max(1, Math.floor(raw)) : Math.max(1, Math.round(raw));
-}
 
 export const ideaAsset = (r) => ({ symbol: r.symbol, name: r.name || r.symbol, type: r.asset_type === 'crypto' ? 'crypto' : 'stock', id: r.asset_type === 'crypto' ? r.asset_id || undefined : undefined });
 

@@ -12,7 +12,6 @@ export { tradeability, MIN_AVG_DOLLAR_VOL, MIN_AVG_SHARE_VOL, LIQ_DAYS } from '.
 
 export const SHORT_EXCLUDES = DIP_EXCLUDES;
 export const SHORT_CANCEL_DAYS = DIP_CANCEL_DAYS;
-export const SHORT_RISK_USD = 100; // Anthony's rule: $100 risk per short
 /** Squeeze risk: short % of float AND days to cover both high. */
 export const SQUEEZE = Object.freeze({ siPct: 15, dtc: 5, siPctHigh: 25 });
 
@@ -154,12 +153,6 @@ export function buildShortPlan(symbol, weeklyBars, spot, { dailyCloses = null, s
   };
 }
 
-/** Shares so the stop loses about `riskUsd` (default $100). Whole shares. */
-export function sharesForRisk(riskUsd, limit, stop) {
-  const per = Math.abs(stop - limit);
-  if (!(riskUsd > 0) || !(per > 0)) return 0;
-  return Math.floor(riskUsd / per + 1e-9);
-}
 
 /** Dollar risk on a short if the buy-to-cover stop fills. */
 export function shortDollarRisk(shares, limit, stop) {

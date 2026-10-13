@@ -8,7 +8,7 @@
  *   POST /api/bot/guard/pause     { paused: boolean } — user pauses / resumes their OWN bot.
  *   POST /api/bot/guard/max-loss  { maxLossUsd: number >= 0 } — user's OWN "willing to lose" line.
  *   POST /api/bot/stocks/refresh  bot-tier user: recompute their OWN stock stops now (after add/edit).
- *   POST /api/bot/stocks/plan     { symbol, riskUsd, side } bot-tier user: "Plan a trade" suggested sizing (nothing saved).
+ *   POST /api/bot/stocks/plan     { symbol, side } bot-tier user: "Plan a trade" suggested stop (no share sizing; nothing saved).
  *   POST /api/bot/stocks/guard/pause|max-loss|unlock  the caller's OWN stocks paper guard
  *                                 (stock_guard, separate from DOGE's bot_guard).
  * /run also runs the watch-only stock pass (api/_stockRunner.js): every 5 min in US market
@@ -45,8 +45,8 @@ import { runStopReminders } from './_stopReminders.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { flushDigests } from './_notify.js'
 import { manageBuys, placeBuy, placeLimitSell, previewBuy } from './_dogeBuy.js'
-import { DIP_EXCLUDES, dollarRisk, sharesForAmount } from '../shared/dipBuys.js'
-import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../shared/sellHighs.js'
+import { DIP_EXCLUDES, dollarRisk } from '../shared/dipBuys.js'
+import { shortDollarRisk } from '../shared/sellHighs.js'
 import { tradeKeyConfigured } from './_krakenTrade.js'
 import { initLiveState, normalizeLiveConfig } from '../shared/dogeLive.js'
 import { dogeFromKrakenBalance } from '../shared/botEngine.js'
@@ -230,13 +230,13 @@ async function stockRoute(sb, req, res, route) {
     const stop = Number(body.stop)
     const t1 = body.t1 != null ? Number(body.t1) : null
     const amount = Number(body.amountUsd ?? body.amount)
-    const riskIn = Number(body.riskUsd ?? (short ? SHORT_RISK_USD : NaN))
+    const riskIn = Number(body.riskUsd)
     if (!(limit > 0) || !(stop > 0)) return sendJson(res, 400, { error: 'Need limit and stop > 0.' })
     if (!short && !(stop < limit)) return sendJson(res, 400, { error: 'Need limit > stop > 0.' })
     if (short && !(stop > limit)) return sendJson(res, 400, { error: 'Short needs stop > limit (buy-to-cover stop above the entry).' })
-    let shares = body.shares != null ? Number(body.shares) : short ? sharesForRisk(riskIn, limit, stop) : sharesForAmount(amount, limit)
-    shares = Math.floor(shares)
-    if (!(shares > 0)) return sendJson(res, 400, { error: short ? 'Shares must be a whole number > 0 (check $ risk vs stop distance).' : 'Shares must be a whole number > 0 (check $ to spend / limit).' })
+    // Shares are ONLY what he typed: no risk- or $-based sizing, no default.
+    const shares = Number(body.shares)
+    if (!Number.isInteger(shares) || !(shares > 0)) return sendJson(res, 400, { error: 'Enter shares (a whole number above 0).' })
     const want = short ? 'SHORT' : 'BUY'
     if (body.confirm !== want) return sendJson(res, 400, { error: `Confirm ${want} to place the plan.` })
     // dry_run = paper intent; default true. dryRun:false saves a REAL plan, which the runner only sends to
@@ -265,6 +265,13 @@ async function stockRoute(sb, req, res, route) {
       next_rung: ladder[0] || null,
       notes: String(body.notes || '').slice(0, 300),
       data: { riskUsd: risk, preview: true, ...(short ? { borrow: body.borrow && typeof body.borrow === 'object' ? body.borrow : null, squeeze: body.squeeze ?? null } : {}) },
+    }
+    // One press = one order: a repeated client request id returns the plan already saved (no new order).
+    const clientRequestId = body.clientRequestId ? String(body.clientRequestId).slice(0, 80) : null
+    if (clientRequestId) {
+      const { data: prev } = await sb.from('stock_plans').select('*').eq('user_id', who.user.id).eq('client_request_id', clientRequestId).maybeSingle()
+      if (prev) return sendJson(res, 200, { ok: true, plan: prev, orderId: prev.buy_order_id, duplicate: true, placed: Boolean(prev.buy_order_id) })
+      row.client_request_id = clientRequestId
     }
     // Buy $ / Short $ with placeNow: his explicit order → GTC limit at Schwab right away (no Stocks Live
     // toggle needed). Gates checked BEFORE saving: TSLA, connected, kill switch, daily cap.
@@ -339,8 +346,8 @@ async function stockRoute(sb, req, res, route) {
   // stocks/plan
   const symbol = String(body.symbol || '').trim().toUpperCase()
   if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return sendJson(res, 400, { error: 'Enter a stock symbol.' })
-  const riskUsd = body.riskUsd == null || body.riskUsd === '' ? 100 : Number(body.riskUsd)
-  if (!Number.isFinite(riskUsd) || riskUsd <= 0 || riskUsd > 1e7) return sendJson(res, 400, { error: 'Max loss $ must be a positive number.' })
+  // Stop suggestion only: no share sizing (shares are always what he types).
+  const riskUsd = null
   let market
   try {
     market = await fetchDailyMarket(symbol, rangeFor([]))

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { addPaperIdea, paperSize } from '../../lib/paperIdeas.js';
+import { addPaperIdea } from '../../lib/paperIdeas.js';
 import { fetchSpot } from '../../lib/price.js';
 
 const r = (v) => (v == null || !Number.isFinite(Number(v)) || !(Number(v) > 0) ? '' : String(Number(v) >= 1 ? Number(Number(v).toFixed(2)) : Number(Number(v).toFixed(5))));
 
 /**
  * Compact violet paper-trade ticket. `asset` fixed (Research / setup preview) or chosen with `picker`.
- * suggest(side) → { entry, stop, target } prefill; size defaults to $100 risk (else ~$1k).
+ * suggest(side) → { entry, stop, target } prefill; shares are only what he types (no default size).
  */
 export default function PaperTradeForm({ asset, picker = null, suggest, defaultSide = 'long', source = 'manual', onSaved, onCancel }) {
   const [side, setSide] = useState(defaultSide);
@@ -17,7 +17,7 @@ export default function PaperTradeForm({ asset, picker = null, suggest, defaultS
 
   function fill(s) {
     const entry = r(s?.entry);
-    return { entry, stop: r(s?.stop), target: r(s?.target), qty: entry ? String(paperSize(entry, s?.stop)) : '' };
+    return { entry, stop: r(s?.stop), target: r(s?.target), qty: '' };
   }
   // New asset (picker) or side: refill from the suggestion; pull a quote when there's no entry.
   const key = `${asset?.type}:${asset?.symbol}`;
@@ -27,7 +27,7 @@ export default function PaperTradeForm({ asset, picker = null, suggest, defaultS
     if (!asset || suggest?.(side)?.entry) return undefined;
     const ac = new AbortController();
     fetchSpot(asset, { signal: ac.signal })
-      .then((q) => q?.price > 0 && setVals((v) => (v.entry ? v : { ...v, entry: r(q.price), qty: String(paperSize(q.price, v.stop)) })))
+      .then((q) => q?.price > 0 && setVals((v) => (v.entry ? v : { ...v, entry: r(q.price) })))
       .catch(() => {});
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -36,7 +36,6 @@ export default function PaperTradeForm({ asset, picker = null, suggest, defaultS
   const set = (k) => (e) => {
     const v = { ...vals, [k]: e.target.value };
     if (k === 'qty') setTouchedQty(true);
-    else if (!touchedQty && (k === 'entry' || k === 'stop')) v.qty = Number(v.entry) > 0 ? String(paperSize(v.entry, v.stop)) : v.qty;
     setVals(v);
   };
   const submit = async (e) => {

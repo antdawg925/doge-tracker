@@ -303,7 +303,7 @@ export function computeStockStop({ side, entryPrice, entryDate, bars, info = nul
  * "Plan a trade" at the current price (research only, nothing saved): suggested shares so that a
  * fill at the stop loses about riskUsd. Long uses the long ATR rule; short adds the gap cushion.
  */
-export function planTrade({ side = 'short', bars, price, info = null, riskUsd = R.defaultRiskUsd, nowMs = Date.now() }) {
+export function planTrade({ side = 'short', bars, price, info = null, riskUsd = null, nowMs = Date.now() }) {
   const done = completedDailyBars(bars, nowMs);
   const today = etDate(nowMs);
   const long = side === 'long';

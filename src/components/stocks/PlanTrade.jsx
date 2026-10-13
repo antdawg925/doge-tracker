@@ -4,7 +4,6 @@ import { SHORT_KINGS_WATCHLIST } from '../../lib/shortKings.js';
 
 const px = (n) =>
   Number.isFinite(n) ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 })}` : '—';
-const usd0 = (n) => (Number.isFinite(n) ? `$${Math.round(n).toLocaleString('en-US')}` : '—');
 
 /**
  * "Plan a trade" (research): suggested shares for a max loss at the current price, long or short.
@@ -13,7 +12,6 @@ const usd0 = (n) => (Number.isFinite(n) ? `$${Math.round(n).toLocaleString('en-U
 export default function PlanTrade({ onAdd }) {
   const [symbol, setSymbol] = useState('');
   const [side, setSide] = useState('long');
-  const [risk, setRisk] = useState('100');
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,7 +23,7 @@ export default function PlanTrade({ onAdd }) {
     setBusy(true);
     setError('');
     try {
-      setPlan({ ...(await authedFetch('/api/bot/stocks/plan', { method: 'POST', body: { symbol: s, side: sd, riskUsd: Number(risk) || 100 } })), symbol: s });
+      setPlan({ ...(await authedFetch('/api/bot/stocks/plan', { method: 'POST', body: { symbol: s, side: sd } })), symbol: s });
     } catch (e) {
       setPlan(null);
       setError(e.message);
@@ -75,12 +73,8 @@ export default function PlanTrade({ onAdd }) {
             <option key={s} value={s} />
           ))}
         </datalist>
-        <label className="small muted">
-          Max loss $
-          <input type="number" min="1" step="1" value={risk} onChange={(e) => setRisk(e.target.value)} />
-        </label>
         <button type="submit" className="btn btn--primary stk-btn" disabled={busy || !symbol}>
-          {busy ? '…' : 'Suggest shares'}
+          {busy ? '…' : 'Suggest stop'}
         </button>
         <span className="small muted">Suggestion only · not saved</span>
       </form>
@@ -108,25 +102,12 @@ export default function PlanTrade({ onAdd }) {
                 <dd className="mono">{px(plan.cushion)}</dd>
               </div>
             ) : null}
-            <div>
-              <dt>Risk / share</dt>
-              <dd className="mono">{plan.perShare ? px(plan.perShare) : '—'}</dd>
-            </div>
-            <div className="stk-plan__big">
-              <dt>Suggested {long ? 'long' : 'short'}</dt>
-              <dd className="mono">{plan.shares ?? '—'} sh</dd>
-            </div>
-            <div>
-              <dt>{long ? 'Position cost' : 'Short value'}</dt>
-              <dd className="mono">{usd0(plan.cost)}</dd>
-            </div>
           </dl>
           <p className="small muted">
             {long
               ? `Stop = max(10-day low ${px(plan.swingLow)} − buffer, price − ${plan.mult} ATR). `
               : `Buy-stop = max(20-day high ${px(plan.swingHigh)} + buffer, price + ${plan.mult} ATR). `}
-            {plan.shares ?? 0} sh × {px(plan.perShare)} ≈ {px(plan.totalRisk)}
-            {long ? ' if stopped' : ' if it gaps through'} (≤ {px(plan.riskUsd)}). A suggestion: your position uses the shares you enter.
+            Shares are yours to enter.
             {f?.si ? (
               <span className="dp-warn">
                 {' '}
@@ -139,9 +120,9 @@ export default function PlanTrade({ onAdd }) {
           <button
             type="button"
             className="btn btn--ghost"
-            onClick={() => onAdd({ symbol: plan.symbol, side: plan.side, shares: plan.shares ? String(plan.shares) : '', risk_usd: String(plan.riskUsd) })}
+            onClick={() => onAdd({ symbol: plan.symbol, side: plan.side, shares: '' })}
           >
-            Add as position (edit shares)
+            Add as position (enter shares)
           </button>
         </div>
       ) : null}

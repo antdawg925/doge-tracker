@@ -3,7 +3,6 @@ import { useAuth } from '../hooks/authContext.js';
 import { authedFetch } from '../lib/api.js';
 import { fetchSellHighs } from '../lib/sellHighsClient.js';
 import { formatPct, formatPrice, formatTime } from '../lib/format.js';
-import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sellHighs.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
@@ -47,8 +46,8 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
     <div className="dip-sheet sh-sheet" role="dialog" aria-label={`Sell high ${row.symbol}`}>
       <div className="dip-sheet__card card">
         <div className="dip-sheet__head">
-          <h2>
-            Sell high · short {row.symbol}
+          <h2 className={row.mode === 'paper' ? 'rpaper__title' : ''}>
+            {row.mode === 'paper' ? 'Paper short' : row.mode === 'real' ? 'Short $ (real)' : 'Sell high · short'} · {row.symbol}
           </h2>
           <button type="button" className="btn btn--ghost stk-btn" onClick={onClose} aria-label="Close">
             ×
@@ -104,10 +103,11 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
           limitPrice={row.entry}
           dailyBars={row.bars?.daily}
           onPaper={(o) => onPaper(row, o)}
+          mode={row.mode || 'both'}
           onReal={onConfirm}
           busy={busy}
           blocked={blocked}
-          note={<LiveOrderNote gates={gates} />}
+          note={row.mode === 'paper' ? <p className="small muted">Paper only — no real money. Rests as a GTC limit at the Target price.</p> : <LiveOrderNote gates={gates} />}
         />
         <button type="button" className="btn btn--ghost stk-btn otk__cancel" onClick={onClose} disabled={busy}>
           Cancel
@@ -126,21 +126,23 @@ export default function SellHighs() {
   const [progress, setProgress] = useState('');
   const [tick, setTick] = useState(0);
   const [sheet, setSheet] = useState(null);
-  const [risk, setRisk] = useState(String(SHORT_RISK_USD));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares, price = r.entry) => {
+  const paperQuick = async (r, shares, price = r.entry, requestId = null) => {
+    if (!(shares > 0)) return false;
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: price, limit: price, stop: r.stop, target: r.cover, source: 'setup' });
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: price, limit: price, stop: r.stop, target: r.cover, source: 'setup', requestId });
       setPaperMsg(`Paper LIMIT short ${i.qty} ${i.symbol} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders. Fills when price trades there; exits at cover target or stop.`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
+      return false;
     }
+    return true;
   };
 
   useEffect(() => {
@@ -161,7 +163,7 @@ export default function SellHighs() {
     return () => ac.abort();
   }, [tick]);
 
-  const confirm = async ({ shares, price }, target = sheet) => {
+  const confirm = async ({ shares, price, requestId }, target = sheet) => {
     const sheet = target;
     if (!sheet) return;
     setBusy(true);
@@ -182,6 +184,7 @@ export default function SellHighs() {
           squeeze: sheet.squeeze?.flag ? sheet.squeeze : null,
           confirm: 'SHORT',
           dryRun: false,
+          clientRequestId: requestId,
           placeNow: true, // his explicit order: GTC LIMIT short placed at Schwab right away
         },
       });
@@ -190,9 +193,11 @@ export default function SellHighs() {
       alert(`${sheet.symbol}: REAL limit short ${shares} @ ${formatPrice(price)} placed at Schwab (GTC). See Positions → Real → Pending orders.`);
     } catch (e) {
       setMsg(e.message);
+      return false;
     } finally {
       setBusy(false);
     }
+    return true;
   };
 
   const rows = data?.rows;
@@ -275,10 +280,10 @@ export default function SellHighs() {
                   <td>
                     {canTrade ? (
                       <span className="act-pair">
-                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT short at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForRisk(Number(risk), r.entry, r.stop)); }}>
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT short at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'paper' }); setMsg(''); setPaperMsg(''); }}>
                           Paper short
                         </button>
-                        <button type="button" className="btn btn--short stk-btn act-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
+                        <button type="button" className="btn btn--short stk-btn act-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'real' }); setMsg(''); }}>
                           Short $
                         </button>
                       </span>
@@ -324,7 +329,7 @@ export default function SellHighs() {
         />
       ) : null}
       {sheet ? (
-        <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={(r, o) => { paperQuick(r, o.shares, o.price); setSheet(null); }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
+        <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
       ) : null}
     </div>
   );

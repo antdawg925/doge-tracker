@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+const newReqId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 import { authedFetch } from '../../lib/api.js';
 import { formatPrice } from '../../lib/format.js';
 import { maxGapUpPct } from '../../../shared/stockEngine.js';
@@ -25,10 +27,9 @@ function useQuote(symbol) {
 
 /**
  * Quick order entry for Buy dips / Sell highs: Shares (final, never resized) + Price (live bid for buys,
- * live ask for shorts, else last). Est. risk = shares × |price − stop|, live. Shares empty → $100-risk hint
- * as a placeholder only. Paper and real buttons both get { shares, price }.
+ * live ask for shorts, else last). Est. risk = shares × |price − stop|, live. Shares are only what he types (no suggested size); empty → 'Enter shares'. Paper and real buttons both get { shares, price }.
  */
-export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false, dailyBars = null, limitPrice = null }) {
+export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false, dailyBars = null, limitPrice = null, mode = 'both' }) {
   const short = side === 'short';
   const quote = useQuote(symbol);
   const [shares, setShares] = useState('');
@@ -42,6 +43,25 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
   }, [symbol]);
   // Prefill once the quote arrives (unless he already typed a price).
   const [confirming, setConfirming] = useState(null);
+  // One press = one order: an in-flight guard plus one request id per order (server dedupes on it).
+  const inFlight = useRef(false);
+  const reqId = useRef(newReqId());
+  const [sending, setSending] = useState(false);
+  const submit = async (fn, o) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSending(true);
+    try {
+      const done = await fn({ ...o, requestId: reqId.current });
+      if (done !== false) {
+        reqId.current = newReqId(); // next order = a new, separate confirm
+        setConfirming(null);
+      }
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
+  };
   useEffect(() => {
     if (touched) return;
     // Orders are LIMIT orders at the setup's Target price (editable); live bid/ask only as a fallback.
@@ -63,7 +83,6 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
   const st = Number(stop);
   const per = px > 0 && st > 0 ? Math.abs(px - st) : null;
   const wrongSide = px > 0 && st > 0 && (short ? !(st > px) : !(st < px));
-  const hint = per ? Math.max(1, Math.floor(100 / per)) : null;
   const risk = sh > 0 && per != null ? sh * per : null;
   const cost = sh > 0 && px > 0 ? sh * px : null;
   const toStop = per != null && px > 0 ? (per / px) * 100 : null;
@@ -79,7 +98,7 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
       <div className="otk__inputs">
         <label className="otk__f">
           <span className="small muted">Shares</span>
-          <input type="number" min="1" step="1" inputMode="numeric" value={shares} placeholder={hint ? `${hint} = $100 risk` : ''} onChange={(e) => setShares(e.target.value)} />
+          <input type="number" min="1" step="1" inputMode="numeric" value={shares} placeholder="Enter shares" onChange={(e) => setShares(e.target.value)} />
         </label>
         <label className="otk__f">
           <span className="small muted">
@@ -116,12 +135,16 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
       ) : null}
       {wrongSide ? <p className="small neg otk__sub">Price must be {short ? 'below the cover stop' : 'above the stop'}.</p> : null}
       <div className="otk__btns">
-        <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paperBusy || !ok} onClick={() => onPaper({ shares: sh, price: px })} title="Track as a paper idea (no real money)">
-          {paperBusy ? 'Saving…' : short ? 'Paper short' : 'Paper buy'}
-        </button>
-        <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn`} disabled={busy || !ok || blocked} onClick={() => setConfirming({ shares: sh, price: px })}>
-          {busy ? 'Saving…' : realLabel ? realLabel(sh, px) : `${short ? 'Short $' : 'Buy $'}${sh > 0 ? ` ${sh} sh` : ''}`}
-        </button>
+        {mode !== 'real' ? (
+          <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paperBusy || sending || !ok} onClick={() => submit(onPaper, { shares: sh, price: px })} title="Paper limit order (no real money)">
+            {paperBusy || sending ? 'Saving…' : !(sh > 0) ? 'Enter shares' : mode === 'paper' ? `Confirm paper ${short ? 'short' : 'buy'} ${sh} sh` : short ? 'Paper short' : 'Paper buy'}
+          </button>
+        ) : null}
+        {mode !== 'paper' ? (
+          <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn`} disabled={busy || sending || !ok || blocked} onClick={() => setConfirming({ shares: sh, price: px })}>
+            {busy ? 'Saving…' : !(sh > 0) ? 'Enter shares' : realLabel ? realLabel(sh, px) : `${short ? 'Short $' : 'Buy $'} ${sh} sh`}
+          </button>
+        ) : null}
       </div>
       {note}
       {confirming ? (
@@ -135,9 +158,9 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
           </p>
           <p className="small muted">Sent to Schwab now. Good-till-cancelled; it can only fill in the regular session. Stop is placed after the fill (market hours).</p>
           <div className="otk__btns">
-            <button type="button" className="btn btn--ghost stk-btn" onClick={() => setConfirming(null)} disabled={busy}>Back</button>
-            <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn`} disabled={busy} onClick={async () => { await onReal(confirming); setConfirming(null); }}>
-              {busy ? 'Placing…' : `Place ${short ? 'short' : 'buy'} at Schwab`}
+            <button type="button" className="btn btn--ghost stk-btn" onClick={() => setConfirming(null)} disabled={busy || sending}>Back</button>
+            <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn`} disabled={busy || sending} onClick={() => submit(onReal, confirming)}>
+              {busy || sending ? 'Placing…' : `Place ${short ? 'short' : 'buy'} at Schwab`}
             </button>
           </div>
         </div>

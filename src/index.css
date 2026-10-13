@@ -5458,3 +5458,5 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .pos-pending--paper { border: 1px solid rgba(155,123,255,.5); background: rgba(155,123,255,.06); }
 .pos-pending h3 { margin: 0 0 .4rem; }
 .pos-pending__table { width: 100%; }
+
+.rpaper__title { color: var(--paper, #9b7bff); }

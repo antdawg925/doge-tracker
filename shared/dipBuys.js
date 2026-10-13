@@ -104,11 +104,6 @@ export function buildDipPlan(symbol, weeklyBars, spot, { stage = null, dailyClos
   };
 }
 
-/** Shares for a dollar amount at the limit (whole shares only). */
-export function sharesForAmount(usd, limit) {
-  if (!(usd > 0) || !(limit > 0)) return 0;
-  return Math.floor(usd / limit);
-}
 
 /** Dollar risk if the stop fills after the buy. */
 export function dollarRisk(shares, limit, stop) {
