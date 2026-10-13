@@ -4,6 +4,7 @@ import MyBot from '../components/bot/MyBot.jsx';
 import StocksPanel from '../components/stocks/StocksPanel.jsx';
 import DipBuys from './DipBuys.jsx';
 import SellHighs from './SellHighs.jsx';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
 
 // The old DOGE plan box, paper test, decision log, runs, paper trades and Bot status card
 // (DogePlanForm / DogeStopBox / PlanHistory / AlertLog / BotStatus) are hidden, not deleted:
@@ -76,7 +77,9 @@ export default function Alerts() {
         </p>
       ) : null}
 
-      {tab === 'stocks' ? <StocksPanel /> : tab === 'buy-dips' ? <DipBuys /> : tab === 'sell-highs' ? <SellHighs /> : <MyBot refreshKey={market.updatedAt} />}
+      <ErrorBoundary key={tab} name="My Bot tab">
+        {tab === 'stocks' ? <StocksPanel /> : tab === 'buy-dips' ? <DipBuys /> : tab === 'sell-highs' ? <SellHighs /> : <MyBot refreshKey={market.updatedAt} />}
+      </ErrorBoundary>
     </main>
   );
 }

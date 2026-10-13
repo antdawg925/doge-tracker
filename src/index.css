@@ -5480,3 +5480,4 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .orm__grid dd { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .orm__where { margin: 0 0 12px; }
 .orm__ok { width: 100%; min-height: 44px; font-size: 1rem; }
+.err-boundary { padding: 12px 14px; margin: 8px 0; border: 1px solid #ef4444; }

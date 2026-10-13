@@ -9,6 +9,7 @@ import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.
 import { dollarVolLabel } from '../lib/dollarVol.js';
 import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { showOrderResult } from '../lib/orderResult.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -244,6 +245,7 @@ export default function DipBuys() {
         </table>
       </div>
       {preview && !sheet ? (
+        <ErrorBoundary key={preview.symbol} name="Preview" onReset={() => setPreview(null)}>
         <SetupPreview
           row={preview}
           side="long"
@@ -266,8 +268,9 @@ export default function DipBuys() {
           busy={busy}
           msg={msg}
         />
+        </ErrorBoundary>
       ) : null}
-      {sheet ? <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} /> : null}
+      {sheet ? <ErrorBoundary key={sheet.symbol + sheet.mode} name="Order ticket" onReset={() => setSheet(null)}><ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} /></ErrorBoundary> : null}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import MobileTabBar from './MobileTabBar.jsx';
 import { useAuth } from '../hooks/authContext.js';
 import { supabase } from '../lib/supabase.js';
 import { createSupabasePlanBackend } from '../lib/planStoreSupabase.js';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 const NAV = [
   { to: '/home', label: 'Home', end: true, match: ['/', '/home'] },
@@ -112,7 +113,9 @@ export default function AppLayout() {
         <Outlet />
       )}
       <MobileTabBar />
-      <OrderResultModal />
+      <ErrorBoundary name="Order confirmation">
+        <OrderResultModal />
+      </ErrorBoundary>
     </div>
   );
 }

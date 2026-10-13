@@ -9,6 +9,7 @@ import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.
 import { dollarVolLabel } from '../lib/dollarVol.js';
 import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { showOrderResult } from '../lib/orderResult.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
@@ -73,10 +74,6 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
           <div>
             <dt>R:R</dt>
             <dd className="mono">{row.rr?.toFixed?.(2) ?? row.rr}</dd>
-          </div>
-          <div>
-            <dt>Notional</dt>
-            <dd className="mono">{shares ? usd(shares * row.entry) : '—'}</dd>
           </div>
           <div>
             <dt>Short % float</dt>
@@ -299,6 +296,7 @@ export default function SellHighs() {
         </table>
       </div>
       {preview && !sheet ? (
+        <ErrorBoundary key={preview.symbol} name="Preview" onReset={() => setPreview(null)}>
         <SetupPreview
           row={preview}
           side="short"
@@ -328,9 +326,10 @@ export default function SellHighs() {
           busy={busy}
           msg={msg}
         />
+        </ErrorBoundary>
       ) : null}
       {sheet ? (
-        <ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} />
+        <ErrorBoundary key={sheet.symbol + sheet.mode} name="Order ticket" onReset={() => setSheet(null)}><ConfirmSheet row={sheet} onClose={() => setSheet(null)} onConfirm={confirm} onPaper={async (r, o) => { const ok = await paperQuick(r, o.shares, o.price, o.requestId); if (ok) setSheet(null); return ok; }} gates={gates} busy={busy} msg={msg} borrowAvailable={Boolean(data?.borrowAvailable)} /></ErrorBoundary>
       ) : null}
     </div>
   );
