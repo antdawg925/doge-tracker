@@ -36,8 +36,8 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
   const paperTrade = async ({ shares, price }) => {
     setPaper('saving');
     try {
-      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, stop, target, source: 'setup' });
-      setPaper(`Paper ${i.side} ${i.qty} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+      const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, limit: price, stop, target, source: 'setup' });
+      setPaper(`Paper LIMIT ${i.side === 'short' ? 'short' : 'buy'} ${i.qty} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders`);
     } catch (e) {
       setPaper(`Paper trade failed: ${e.message}`);
     }
@@ -73,6 +73,7 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
           last={row.price}
           stop={stop}
           target={target}
+          limitPrice={entry}
           dailyBars={row.bars?.daily}
           onPaper={paperTrade}
           paperBusy={paper === 'saving'}

@@ -32,7 +32,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
         </p>
         <dl className="dip-sheet__facts small">
           <div>
-            <dt>Limit</dt>
+            <dt>Target price</dt>
             <dd className="mono">{formatPrice(row.buy)}</dd>
           </div>
           <div>
@@ -40,7 +40,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
             <dd className="mono neg">{formatPrice(row.stop)} <PctUnder v={movePct(row.buy, row.stop, false)} /></dd>
           </div>
           <div>
-            <dt>T1</dt>
+            <dt>Sell target</dt>
             <dd className="mono pos">{formatPrice(row.t1)} <PctUnder v={movePct(row.buy, row.t1, false)} /></dd>
           </div>
           <div>
@@ -58,6 +58,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg }) {
           last={row.price}
           stop={row.stop}
           target={row.t1}
+          limitPrice={row.buy}
           onPaper={(o) => onPaper(row, o)}
           onReal={onConfirm}
           busy={busy}
@@ -89,11 +90,11 @@ export default function DipBuys() {
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares, price = r.price) => {
+  const paperQuick = async (r, shares, price = r.buy) => {
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, stop: r.stop, target: r.t1, source: 'setup' });
-      setPaperMsg(`Paper buy ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, limit: price, stop: r.stop, target: r.t1, source: 'setup' });
+      setPaperMsg(`Paper LIMIT buy ${i.qty} ${i.symbol} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders. Fills when price trades there; exits at target or stop.`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
     }
@@ -135,13 +136,14 @@ export default function DipBuys() {
           t1: sheet.t1,
           ladder: sheet.ladder,
           confirm: 'BUY',
-          dryRun: false, // REAL plan: server runner sends only when every live gate is on, in RTH
+          dryRun: false,
+          placeNow: true, // his explicit order: GTC LIMIT placed at Schwab right away
         },
       });
       setSheet(null);
       setPreview(null);
       setMsg('');
-      alert(`${sheet.symbol}: real buy plan saved. It goes to Schwab in market hours once Stocks Live + Live Schwab stops are on. See My Bot → Buy stocks.`);
+      alert(`${sheet.symbol}: REAL limit buy ${shares} @ ${formatPrice(price)} placed at Schwab (GTC). See Positions → Real → Pending orders.`);
     } catch (e) {
       setMsg(e.message);
     } finally {
@@ -157,6 +159,7 @@ export default function DipBuys() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Buy dips · Momentum + Investable names, stage 1–2.</p>
+            <p className="small muted bot-scan__rule">Target price = limit buy at major support. Sell target = nearest major resistance at least 1 weekly ATR above it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper buy and Buy $ both place a GTC limit at the Target price.</p>
           </div>
           <div className="scanner__controls">
             <button type="button" className="btn" disabled={Boolean(progress)} onClick={() => setTick((n) => n + 1)}>
@@ -173,11 +176,11 @@ export default function DipBuys() {
           <thead>
             <tr>
               <th>Symbol</th>
-              <th className="num">Price</th>
-              <th className="num">Buy</th>
+              <th className="num">Current price</th>
+              <th className="num">Target price</th>
               <th className="num">% away</th>
               <th className="num">Stop</th>
-              <th className="num">T1</th>
+              <th className="num" title="Nearest major resistance ≥1 weekly ATR above the target price (≥2 touches or monthly), capped at +2.5 ATR">Sell target</th>
               <th className="num">R:R</th>
               <th>Earnings</th>
               <th />
@@ -215,7 +218,7 @@ export default function DipBuys() {
                   <td>
                     {canBuy ? (
                       <span className="act-pair">
-                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper idea at the current price (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForAmount(Number(amount), r.price)); }}>
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT buy at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForAmount(Number(amount), r.buy)); }}>
                           Paper buy
                         </button>
                         <button type="button" className="btn btn--gold stk-btn act-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
@@ -241,9 +244,9 @@ export default function DipBuys() {
           target={preview.t1}
           blocked={!canBuy}
           facts={[
-            { k: 'Buy limit', v: formatPrice(preview.buy) },
+            { k: 'Target price', v: formatPrice(preview.buy) },
             { k: 'Stop', v: <>{formatPrice(preview.stop)} <PctUnder v={movePct(preview.buy, preview.stop, false)} /></>, cls: 'neg' },
-            { k: 'Target', v: <>{formatPrice(preview.t1)} <PctUnder v={movePct(preview.buy, preview.t1, false)} /></>, cls: 'pos' },
+            { k: 'Sell target', v: <>{formatPrice(preview.t1)} <PctUnder v={movePct(preview.buy, preview.t1, false)} /></>, cls: 'pos' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },
             { k: 'Stage', v: `${preview.stage} · ${preview.stageLabel}` },
             { k: 'Earnings', v: day(preview.earningsAt), cls: preview.earningsWarn ? 'neg' : '' },

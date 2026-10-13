@@ -5449,3 +5449,7 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .stp__facts .pct-under, .dip-sheet__facts .pct-under { display: inline; margin-left: 0.25rem; }
 .pos-botreal { margin-top: 0.75rem; }
 .pos-botreal h3 { margin: 0 0 0.35rem; font-size: 0.82rem; color: var(--live-gold); }
+
+.otk__confirm { margin-top: .6rem; padding: .7rem .8rem; border: 1px solid var(--gold, #d4a72c); border-radius: 10px; background: rgba(212,167,44,.08); }
+.otk__confirm p { margin: .2rem 0; }
+.otk__confirm-head { color: var(--gold, #d4a72c); letter-spacing: .02em; }

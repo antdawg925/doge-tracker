@@ -58,7 +58,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
         </p>
         <dl className="dip-sheet__facts small">
           <div>
-            <dt>Short limit</dt>
+            <dt>Target price</dt>
             <dd className="mono">{formatPrice(row.entry)}</dd>
           </div>
           <div>
@@ -100,6 +100,7 @@ function ConfirmSheet({ row, onClose, onConfirm, onPaper, gates, busy, msg, borr
           last={row.price}
           stop={row.stop}
           target={row.cover}
+          limitPrice={row.entry}
           dailyBars={row.bars?.daily}
           onPaper={(o) => onPaper(row, o)}
           onReal={onConfirm}
@@ -131,11 +132,11 @@ export default function SellHighs() {
   const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
-  const paperQuick = async (r, shares, price = r.price) => {
+  const paperQuick = async (r, shares, price = r.entry) => {
     setPaperMsg('Saving paper idea…');
     try {
-      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: price, stop: r.stop, target: r.cover, source: 'setup' });
-      setPaperMsg(`Paper short ${i.qty} ${i.symbol} @ ${formatPrice(i.entry_price)} saved → Positions · Paper ideas`);
+      const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'short', qty: shares, entry: price, limit: price, stop: r.stop, target: r.cover, source: 'setup' });
+      setPaperMsg(`Paper LIMIT short ${i.qty} ${i.symbol} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders. Fills when price trades there; exits at cover target or stop.`);
     } catch (e) {
       setPaperMsg(`Paper idea failed: ${e.message}`);
     }
@@ -179,12 +180,13 @@ export default function SellHighs() {
           borrow: sheet.borrow,
           squeeze: sheet.squeeze?.flag ? sheet.squeeze : null,
           confirm: 'SHORT',
-          dryRun: false, // REAL plan: server runner sends only when every live gate is on, in RTH
+          dryRun: false,
+          placeNow: true, // his explicit order: GTC LIMIT short placed at Schwab right away
         },
       });
       setSheet(null);
       setPreview(null);
-      alert(`${sheet.symbol}: real Sell highs short saved. It goes to Schwab in market hours once Stocks Live + Live Schwab stops are on. See My Bot → Buy stocks.`);
+      alert(`${sheet.symbol}: REAL limit short ${shares} @ ${formatPrice(price)} placed at Schwab (GTC). See Positions → Real → Pending orders.`);
     } catch (e) {
       setMsg(e.message);
     } finally {
@@ -202,6 +204,7 @@ export default function SellHighs() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Sell highs · weak names bouncing into resistance.</p>
+            <p className="small muted bot-scan__rule">Target price = limit short just under major resistance. Cover target = nearest major support at least 1 weekly ATR below it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper short and Short $ both place a GTC limit at the Target price.</p>
             {data && !data.borrowAvailable ? <p className="small muted sh-note">Borrow column: connect Schwab on My Bot → Stocks to see ETB / HTB from Schwab quotes.</p> : null}
           </div>
           <div className="scanner__controls">
@@ -219,11 +222,11 @@ export default function SellHighs() {
           <thead>
             <tr>
               <th>Symbol</th>
-              <th className="num">Price</th>
-              <th className="num">Short at</th>
+              <th className="num">Current price</th>
+              <th className="num">Target price</th>
               <th className="num">% away</th>
               <th className="num">Stop</th>
-              <th className="num">Cover</th>
+              <th className="num" title="Nearest major support ≥1 weekly ATR below the target price (≥2 touches or monthly), capped at −2.5 ATR">Cover target</th>
               <th className="num">R:R</th>
               <th className="num">Short %</th>
               <th className="num">DTC</th>
@@ -270,7 +273,7 @@ export default function SellHighs() {
                   <td>
                     {canTrade ? (
                       <span className="act-pair">
-                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper short at the current price (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForRisk(Number(risk), r.price, r.stop)); }}>
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT short at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); paperQuick(r, sharesForRisk(Number(risk), r.entry, r.stop)); }}>
                           Paper short
                         </button>
                         <button type="button" className="btn btn--short stk-btn act-btn dip-buy sh-short" onClick={(e) => { e.stopPropagation(); setSheet(r); setMsg(''); }}>
@@ -296,7 +299,7 @@ export default function SellHighs() {
           target={preview.cover}
           blocked={!canTrade || preview.borrow?.isShortable === false}
           facts={[
-            { k: 'Short limit', v: formatPrice(preview.entry) },
+            { k: 'Target price', v: formatPrice(preview.entry) },
             { k: 'Cover stop', v: <>{formatPrice(preview.stop)} <PctUnder v={movePct(preview.entry, preview.stop, true)} /></>, cls: 'neg' },
             { k: 'Cover target', v: <>{formatPrice(preview.cover)} <PctUnder v={movePct(preview.entry, preview.cover, true)} /></>, cls: 'pos' },
             { k: 'R:R', v: preview.rr?.toFixed?.(2) ?? '—' },

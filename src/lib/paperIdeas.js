@@ -4,9 +4,9 @@
  */
 import { supabase } from './supabase.js';
 
-const COLS = 'id, symbol, asset_type, asset_id, name, side, qty, entry_price, stop_price, target_price, source, status, opened_at, exit_price, closed_at, risk_cap_usd, risk_tripped_at, risk_trip_loss';
+const COLS = 'id, symbol, asset_type, asset_id, name, side, qty, entry_price, stop_price, target_price, source, status, opened_at, exit_price, closed_at, risk_cap_usd, risk_tripped_at, risk_trip_loss, limit_price, time_in_force, placed_at, filled_at, auto_exit, exit_reason, realized_pnl';
 const n = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
-const norm = (r) => ({ ...r, qty: n(r.qty), entry_price: n(r.entry_price), stop_price: n(r.stop_price), target_price: n(r.target_price), exit_price: n(r.exit_price), risk_cap_usd: n(r.risk_cap_usd) });
+const norm = (r) => ({ ...r, qty: n(r.qty), entry_price: n(r.entry_price), stop_price: n(r.stop_price), target_price: n(r.target_price), exit_price: n(r.exit_price), limit_price: n(r.limit_price), realized_pnl: n(r.realized_pnl), risk_cap_usd: n(r.risk_cap_usd) });
 
 export async function listPaperIdeas({ symbol } = {}) {
   let q = supabase.from('paper_ideas').select(COLS).order('opened_at', { ascending: false }).limit(300);
@@ -17,7 +17,7 @@ export async function listPaperIdeas({ symbol } = {}) {
 }
 
 /** asset: { symbol, type, id?, name? } */
-export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = null, target = null, source = 'manual' }) {
+export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = null, target = null, source = 'manual', limit = null }) {
   const payload = {
     symbol: String(asset.symbol || '').toUpperCase(),
     asset_type: asset.type === 'crypto' ? 'crypto' : 'stock',
@@ -30,6 +30,12 @@ export async function addPaperIdea(asset, { side = 'long', qty, entry, stop = nu
     target_price: n(target) > 0 ? n(target) : null,
     source,
   };
+  // Paper LIMIT order (Paper buy / Paper short): rests as pending GTC at the limit; the server fills it
+  // when price trades through, then exits automatically at target / stop.
+  if (n(limit) > 0) {
+    if (payload.symbol === 'TSLA') throw new Error('TSLA is excluded from bot setups.');
+    Object.assign(payload, { status: 'pending', limit_price: n(limit), entry_price: n(limit), time_in_force: 'GTC', placed_at: new Date().toISOString(), auto_exit: true });
+  }
   if (!(payload.qty > 0) || !(payload.entry_price > 0)) throw new Error('Paper trade needs a size and an entry price.');
   const { data, error } = await supabase.from('paper_ideas').insert(payload).select(COLS).single();
   if (error) throw error;
@@ -71,3 +77,8 @@ export function paperSize(entry, stop) {
 }
 
 export const ideaAsset = (r) => ({ symbol: r.symbol, name: r.name || r.symbol, type: r.asset_type === 'crypto' ? 'crypto' : 'stock', id: r.asset_type === 'crypto' ? r.asset_id || undefined : undefined });
+
+export async function cancelPaperOrder(id) {
+  const { error } = await supabase.from('paper_ideas').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'pending');
+  if (error) throw error;
+}

@@ -28,7 +28,7 @@ function useQuote(symbol) {
  * live ask for shorts, else last). Est. risk = shares × |price − stop|, live. Shares empty → $100-risk hint
  * as a placeholder only. Paper and real buttons both get { shares, price }.
  */
-export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false, dailyBars = null }) {
+export default function OrderTicket({ symbol, side, last, stop, target, onPaper, onReal, realLabel, busy = false, paperBusy = false, blocked = false, note = null, compact = false, dailyBars = null, limitPrice = null }) {
   const short = side === 'short';
   const quote = useQuote(symbol);
   const [shares, setShares] = useState('');
@@ -41,15 +41,22 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
     setTouched(false);
   }, [symbol]);
   // Prefill once the quote arrives (unless he already typed a price).
+  const [confirming, setConfirming] = useState(null);
   useEffect(() => {
     if (touched) return;
+    // Orders are LIMIT orders at the setup's Target price (editable); live bid/ask only as a fallback.
+    if (limitPrice > 0) {
+      setPrice(String(r2(limitPrice)));
+      setSrc('target');
+      return;
+    }
     const live = short ? quote?.ask : quote?.bid;
     const px = live || quote?.last || last;
     if (px > 0) {
       setPrice(String(r2(px)));
       setSrc(live ? (short ? 'ask' : 'bid') : quote?.last ? 'last' : 'last (delayed)');
     }
-  }, [quote, last, short, touched]);
+  }, [quote, last, short, touched, limitPrice]);
 
   const sh = Math.floor(Number(shares));
   const px = Number(price);
@@ -112,11 +119,29 @@ export default function OrderTicket({ symbol, side, last, stop, target, onPaper,
         <button type="button" className="btn btn--paper stk-btn act-btn" disabled={paperBusy || !ok} onClick={() => onPaper({ shares: sh, price: px })} title="Track as a paper idea (no real money)">
           {paperBusy ? 'Saving…' : short ? 'Paper short' : 'Paper buy'}
         </button>
-        <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn`} disabled={busy || !ok || blocked} onClick={() => onReal({ shares: sh, price: px })}>
+        <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn act-btn`} disabled={busy || !ok || blocked} onClick={() => setConfirming({ shares: sh, price: px })}>
           {busy ? 'Saving…' : realLabel ? realLabel(sh, px) : `${short ? 'Short $' : 'Buy $'}${sh > 0 ? ` ${sh} sh` : ''}`}
         </button>
       </div>
       {note}
+      {confirming ? (
+        <div className="otk__confirm" role="alertdialog" aria-label="Confirm real order">
+          <p className="otk__confirm-head"><strong>REAL ORDER at Schwab, GTC</strong></p>
+          <p className="mono">
+            {short ? 'SELL SHORT' : 'BUY'} {confirming.shares} {symbol} · LIMIT {formatPrice(confirming.price)}
+          </p>
+          <p className="small">
+            Total <strong>{usd(confirming.shares * confirming.price)}</strong> · Est. risk <strong className="neg">{usd(confirming.shares * Math.abs(confirming.price - st))}</strong> to stop {formatPrice(st)}
+          </p>
+          <p className="small muted">Sent to Schwab now. Good-till-cancelled; it can only fill in the regular session. Stop is placed after the fill (market hours).</p>
+          <div className="otk__btns">
+            <button type="button" className="btn btn--ghost stk-btn" onClick={() => setConfirming(null)} disabled={busy}>Back</button>
+            <button type="button" className={`btn ${short ? 'btn--short' : 'btn--gold'} stk-btn`} disabled={busy} onClick={async () => { await onReal(confirming); setConfirming(null); }}>
+              {busy ? 'Placing…' : `Place ${short ? 'short' : 'buy'} at Schwab`}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
