@@ -112,7 +112,7 @@ export function createKrakenTrader({ creds, fetchImpl = fetch, log = () => {}, r
     addSellIoc: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'sell', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'IOC', oflags: 'fciq', cl_ord_id: clOrdId }),
     /** Panel "Limit sell": plain GTC sell limit with a NON-bot cl_ord_id (he owns it; the stop covers the rest). */
-    addSellLimit: ({ qty, price, clOrdId }) =>
+    addPanelSellLimit: ({ qty, price, clOrdId }) =>
       call('AddOrder', { pair: rules.pair, type: 'sell', ordertype: 'limit', price: priceStr(price, rules), volume: volStr(qty, rules), timeinforce: 'GTC', cl_ord_id: clOrdId }),
     /** Telegram "buy $X": post-only GTC buy limit (maker only; Kraken cancels it if it would cross). */
     addBuyPost: ({ qty, price, clOrdId }) =>

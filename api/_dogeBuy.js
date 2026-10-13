@@ -257,7 +257,7 @@ export async function placeLimitSell(sb, { profile, price, qty, pct, env = proce
       if (keep >= KRAKEN_XDGUSD.orderMin) await trader.amend({ txid: st.id, qty: keep })
       else await trader.cancel({ txid: st.id })
     }
-    const r = await trader.addSellLimit({ qty: q, price: p, clOrdId: `tsl${Date.now().toString(36)}` })
+    const r = await trader.addPanelSellLimit({ qty: q, price: p, clOrdId: `tsl${Date.now().toString(36)}` })
     const txid = r?.txid?.[0] ?? null
     await sb.from('doge_live_log').insert({ user_id: profile.id, plan_id: ctx.plan.state?.planId ?? null, at: nowIso, mode: 'live', role: 'user', action: 'place', status: 'placed', side: 'sell', ordertype: 'limit', price: p, qty: q, txid, reason: 'Your limit sell (panel)' })
     const after = await rerunPlan(sb, profile.id, 'manual')
