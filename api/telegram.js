@@ -3,7 +3,7 @@
  *   POST /api/telegram/webhook  — Telegram only. Verified by X-Telegram-Bot-Api-Secret-Token
  *   (env TELEGRAM_WEBHOOK_SECRET). Acts ONLY on chats that match a profiles.telegram_chat_id;
  *   everything else is ignored silently (still 200, so Telegram doesn't retry).
- * Commands: /status, /stop <price>, /pause (+ "/pause yes"), /resume (+ "/resume yes"), /help.
+ * Commands: /status, /plans, /stop <price>, /pause (+ "/pause yes"), /resume (+ "/resume yes"), /help.
  * Dedupe by update_id (telegram_updates). Never logs the token or the secret.
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
@@ -11,7 +11,7 @@ import { getAdminClient, readJsonBody, sendJson } from './_supabase.js'
 import { sendTelegram } from './_telegram.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { fetchLiveMarket } from './_dogeLive.js'
-import { changeStockStop, stockStopTargets } from './_stockActions.js'
+import { changePlanStop, changeStockStop, planListText, stockStopTargets } from './_stockActions.js'
 import { cancelBuys, confirmPending, startBuy } from './_dogeBuy.js'
 import { parseBuy } from '../shared/dogeBuy.js'
 
@@ -24,7 +24,8 @@ export const HELP = [
   'Trade Smart commands:',
   '/status: DOGE + your stocks: price, stop, distance, DOGE covered, mode, lock, open buys, last raise',
   '/stop 0.092: raise the DOGE bottom stop (only up; below the market)',
-  '/stop SPY 745.50: raise a stock stop (Stocks-tab stop; Live Schwab order updated too)',
+  '/stop SPY 745.50: raise a stock stop (Stocks-tab stop, or a filled Buy dips / Sell highs plan; Schwab updated too)',
+  '/plans: your Buy dips / Sell highs plans: status, stop, next rung',
   '/pause: kill switch: cancels the bot\'s orders INCLUDING the protective stop (asks to confirm)',
   '/resume: turn the bot back on (asks to confirm)',
   'buy $1000 DOGE (or /buy 1000): post-only limit buy at the best bid; reply yes within 2 min',
@@ -44,7 +45,7 @@ function secretOk(given) {
 /** Parse a message text → { cmd, arg }. Accepts "/stop .092", "stop 0.092", "/stop@Bot 0.092". */
 export function parseCommand(text) {
   const t = String(text || '').trim().replace(/^\/(\w+)@\w+/, '/$1')
-  const m = t.match(/^\/?(status|stop|pause|resume|help|start|buy|cancel|yes)\b\s*(.*)$/i)
+  const m = t.match(/^\/?(status|stop|plans|pause|resume|help|start|buy|cancel|yes)\b\s*(.*)$/i)
   if (!m) return null
   return { cmd: m[1].toLowerCase(), arg: m[2].trim() }
 }
@@ -167,6 +168,8 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
   if (c.cmd === 'yes') return reply(await confirmPending(sb, { profile: prof }))
   if (c.cmd === 'cancel') return reply(await cancelBuys(sb, { profile: prof }))
 
+  if (c.cmd === 'plans') return reply(await planListText(sb, userId))
+
   if (c.cmd === 'status') {
     const [{ data: plan }, m, stocks] = await Promise.all([
       sb.from('doge_live_plans').select('snapshot, state, status, kill_switch, live_enabled').eq('user_id', userId).maybeSingle(),
@@ -180,7 +183,14 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
     const { symbol, price } = parseStopArgs(c.arg)
     if (price == null) return promptStop(symbol ?? (c.arg && /doge/i.test(c.arg) ? 'DOGE' : null))
     if (symbol) {
-      const r = await changeStockStop(sb, { userId, symbol, price })
+      let r = await changeStockStop(sb, { userId, symbol, price })
+      if (!r.ok && /No active .* position|is excluded/.test(r.error || '')) {
+        const pr = await changePlanStop(sb, { userId, symbol, price })
+        if (pr) {
+          if (!pr.ok) return reply(`Not changed: ${pr.error}`)
+          return reply(`✅ ${pr.symbol} plan stop moved ${money(pr.from)} → ${money(pr.to)} (price ${money(pr.price)}). ${pr.schwab}`)
+        }
+      }
       if (!r.ok) return reply(`Not changed: ${r.error}`)
       return reply(`✅ ${r.symbol} stop raised ${money(r.from)} → ${money(r.to)} (price ${money(r.price)}).${r.schwab ? ` ${r.schwab}` : ' Watch-only position: move your Schwab stop to match.'}`)
     }

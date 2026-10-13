@@ -74,3 +74,38 @@ export async function changeStockStop(sb, { userId, symbol, price, nowMs = Date.
   }
   return { ok: true, symbol: sym, from: cur, to: Number(after?.stop ?? n), price: m.price, live: Boolean(p.live), schwab }
 }
+
+/** B20: Buy dips / Sell highs plans for Telegram /plans (own rows, active only). */
+export async function planListText(sb, userId) {
+  const { data: plans } = await sb.from('stock_plans').select('symbol, side, status, shares, filled_shares, limit_price, stop_price, last_stop_price, next_rung, dry_run, risk_tripped_at, last_error')
+    .eq('user_id', userId).in('status', ['pending', 'working', 'filled']).order('created_at', { ascending: true })
+  if (!plans?.length) return 'No active Buy dips / Sell highs plans.'
+  const lines = plans.map((p) => {
+    const short = p.side === 'short'
+    const stop = Number(p.last_stop_price || p.stop_price)
+    const st = p.status === 'filled' ? `${short ? 'short' : 'long'} ${p.filled_shares || p.shares} sh` : `${p.status} ${short ? 'short' : 'buy'} ${p.shares} @ ${money(p.limit_price)}`
+    const rung = p.next_rung?.trigger ? ` · next rung ${money(p.next_rung.trigger)} → stop ${money(p.next_rung.stop)}` : ''
+    return `${p.dry_run ? '📝' : '💵'} ${p.symbol}: ${st} · stop ${money(stop)}${rung}${p.risk_tripped_at ? ' · RISK HIT' : ''}${p.last_error ? `\n   ⚠ ${String(p.last_error).slice(0, 120)}` : ''}`
+  })
+  return ['Buy dips / Sell highs plans (📝 paper · 💵 real):', ...lines, 'Move a filled plan stop: /stop SYMBOL PRICE'].join('\n')
+}
+
+/** B20: /stop SYMBOL PRICE for a filled plan (tighten only; Schwab updated by the next market-hours run). */
+export async function changePlanStop(sb, { userId, symbol, price }) {
+  const sym = String(symbol || '').toUpperCase()
+  const { data: plans } = await sb.from('stock_plans').select('*').eq('user_id', userId).eq('symbol', sym).eq('status', 'filled')
+  if (!plans?.length) return null
+  if (plans.length > 1) return { ok: false, error: `You have ${plans.length} filled ${sym} plans; change it on My Bot.` }
+  const p = plans[0]
+  const short = p.side === 'short'
+  const cur = Number(p.last_stop_price || p.stop_price)
+  const n = Math.round(Number(price) * 100) / 100
+  if (!(n > 0)) return { ok: false, error: 'Give a price, e.g. /stop NVDA 95.50' }
+  if (short ? !(n < cur) : !(n > cur)) return { ok: false, error: `The ${sym} plan stop only moves ${short ? 'down' : 'up'}: ${money(n)} is not ${short ? 'below' : 'above'} the current ${money(cur)}.` }
+  const m = await fetchDailyMarket(sym, '1mo').catch(() => null)
+  if (!m?.price) return { ok: false, error: `${sym} price unavailable; try again.` }
+  if (short ? n <= m.price : n >= m.price) return { ok: false, error: `A ${sym} stop at ${money(n)} is ${short ? 'at/below' : 'at/above'} the market (${money(m.price)}); it would trigger at once.` }
+  const u = await sb.from('stock_plans').update({ last_stop_price: n }).eq('id', p.id)
+  if (u.error) return { ok: false, error: 'Could not save the stop.' }
+  return { ok: true, symbol: sym, from: cur, to: n, price: m.price, schwab: p.dry_run ? 'Paper plan.' : 'Schwab stop updates on the next market-hours bot run (≤5 min in market hours).' }
+}
