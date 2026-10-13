@@ -7,6 +7,20 @@ import { sellTarget } from './sellTarget.js';
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';
 import { buildLimitBuyOrder as schwabLimitBuy, roundStop, tickSize } from './schwabLive.js';
 
+/** Tradeability (Anthony: liquidity only, not company quality; no price floor). 20-day averages. */
+export const LIQ_DAYS = 20;
+export const MIN_AVG_DOLLAR_VOL = 20_000_000; // $20M / day
+export const MIN_AVG_SHARE_VOL = 1_000_000; // 1M shares / day
+
+/** dailyBars [{close, volume}] → { ok, avgDollarVol, avgShareVol, days }. */
+export function tradeability(dailyBars) {
+  const b = (dailyBars || []).filter((x) => Number.isFinite(x?.volume) && x.volume >= 0 && Number.isFinite(x?.close)).slice(-LIQ_DAYS);
+  if (b.length < 10) return { ok: false, avgDollarVol: null, avgShareVol: null, days: b.length };
+  const avgShareVol = b.reduce((s, x) => s + x.volume, 0) / b.length;
+  const avgDollarVol = b.reduce((s, x) => s + x.volume * x.close, 0) / b.length;
+  return { ok: avgDollarVol >= MIN_AVG_DOLLAR_VOL && avgShareVol >= MIN_AVG_SHARE_VOL, avgDollarVol, avgShareVol, days: b.length };
+}
+
 export const DIP_EXCLUDES = Object.freeze(new Set(['TSLA']));
 export const DIP_CANCEL_DAYS = 10;
 /** Stages that count as "uptrend or base" for a long dip (1 Base, 2 Ramp). */

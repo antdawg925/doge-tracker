@@ -4,7 +4,7 @@
 import { applyInvestableProfile, applyMomentumProfile, fetchScannerUniverse } from './scanner.js';
 import { fetchYahooChart } from './yahoo.js';
 import { scoreMarketStage } from './marketStage.js';
-import { buildDipPlan, DIP_EXCLUDES } from '../../shared/dipBuys.js';
+import { buildDipPlan, DIP_EXCLUDES, tradeability } from '../../shared/dipBuys.js';
 import { fetchStockFundamentals } from './fundamentals.js';
 import { toPeriod } from './majorLevels.js';
 
@@ -35,6 +35,8 @@ export async function enrichDipRow(row, { signal } = {}) {
       fetchYahooChart(sym, '1y', { signal, interval: '1d' }),
     ]);
     const wk = weekly?.length >= 20 ? weekly : toPeriod(daily, 'week');
+    const liq = tradeability(daily); // ≥ $20M/day and ≥ 1M sh/day (20-day avg); no price floor
+    if (!liq.ok) return null;
     const stage = scoreMarketStage(daily, { assetType: 'stock' });
     if (!stage.ok || ![1, 2].includes(stage.stage)) return null;
     const spot = row.price ?? daily?.at?.(-1)?.close;
@@ -47,8 +49,7 @@ export async function enrichDipRow(row, { signal } = {}) {
       earningsAt,
     });
     if (!plan) return null;
-    // Liquid swing names only: ≥ $10, dip of at least 0.5% and at most 25% away.
-    if (!(spot >= 10)) return null;
+    // Dip of at least 0.5% and at most 25% away.
     if (!(plan.awayPct <= -0.5 && plan.awayPct >= -25)) return null;
     if (!(plan.rr >= 1.2)) return null;
     return {
@@ -70,6 +71,8 @@ export async function enrichDipRow(row, { signal } = {}) {
       earningsAt: plan.earningsAt,
       earningsWarn: plan.earningsWarn,
       plan,
+      avgDollarVol: liq.avgDollarVol,
+      avgShareVol: liq.avgShareVol,
       bars: { daily: daily || [], weekly: wk || [] },
     };
   } catch {

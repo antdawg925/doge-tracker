@@ -7,6 +7,7 @@ import { SHORT_RISK_USD, sharesForRisk, shortDollarRisk } from '../../shared/sel
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
+import { dollarVolLabel } from '../lib/dollarVol.js';
 import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
@@ -204,7 +205,7 @@ export default function SellHighs() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Sell highs · weak names bouncing into resistance.</p>
-            <p className="small muted bot-scan__rule">Target price = limit short just under major resistance. Cover target = nearest major support at least 1 weekly ATR below it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper short and Short $ both place a GTC limit at the Target price.</p>
+            <p className="small muted bot-scan__rule">Target price = limit short just under major resistance. Cover target = nearest major support at least 1 weekly ATR below it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper short and Short $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $20M/day and ≥ 1M shares/day (no price floor).</p>
             {data && !data.borrowAvailable ? <p className="small muted sh-note">Borrow column: connect Schwab on My Bot → Stocks to see ETB / HTB from Schwab quotes.</p> : null}
           </div>
           <div className="scanner__controls">
@@ -256,6 +257,7 @@ export default function SellHighs() {
                     <div className="muted small">
                       Stage {r.stage} {r.stage === 4 ? '· Decline' : '· Top'}
                     </div>
+                    {r.avgDollarVol ? <div className="muted small mono" title={`20-day avg: ${dollarVolLabel(r.avgDollarVol)}, ${Math.round((r.avgShareVol || 0) / 1e5) / 10}M sh/day`}>{dollarVolLabel(r.avgDollarVol)}</div> : null}
                     <SqueezeTag sq={r.squeeze} />
                   </td>
                   <td className="num mono">{formatPrice(r.price)}</td>

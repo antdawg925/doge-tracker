@@ -327,3 +327,14 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('cancel-now: cancelled at Schwab then marked', c.ok && !c.pending && writes.some(([, p]) => p.status === 'cancelled'));
   console.log(`check:dip-buys place-now OK (${n} checks total)`);
 }
+
+// ---------------- tradeability (pure)
+{
+  const { tradeability } = await import('../shared/dipBuys.js');
+  const mk = (px, vol) => Array.from({ length: 25 }, () => ({ close: px, volume: vol }));
+  ok('liq: $2 stock with 15M sh ($30M) passes (no price floor)', tradeability(mk(2, 15e6)).ok);
+  ok('liq: $500 stock with 50k sh fails share rule', !tradeability(mk(500, 5e4)).ok);
+  ok('liq: $10 × 1.5M = $15M fails dollar rule', !tradeability(mk(10, 1.5e6)).ok);
+  ok('liq: avg uses last 20', Math.round(tradeability(mk(50, 2e6)).avgDollarVol) === 1e8);
+  console.log(`check:dip-buys liquidity OK (${n} checks total)`);
+}

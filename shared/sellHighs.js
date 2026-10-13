@@ -8,6 +8,7 @@ import { sellTarget } from './sellTarget.js';
 import { computeMajorPlan, weeklyAtr } from './majorLevels.js';
 import { buildShortLimitOrder as schwabShortLimit, roundStop, tickSize } from './schwabLive.js';
 import { DIP_CANCEL_DAYS, DIP_EXCLUDES } from './dipBuys.js';
+export { tradeability, MIN_AVG_DOLLAR_VOL, MIN_AVG_SHARE_VOL, LIQ_DAYS } from './dipBuys.js';
 
 export const SHORT_EXCLUDES = DIP_EXCLUDES;
 export const SHORT_CANCEL_DAYS = DIP_CANCEL_DAYS;

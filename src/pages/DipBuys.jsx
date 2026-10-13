@@ -7,6 +7,7 @@ import { dollarRisk, sharesForAmount } from '../../shared/dipBuys.js';
 import SetupPreview from '../components/setups/SetupPreview.jsx';
 import EarningsCell from '../components/setups/EarningsCell.jsx';
 import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.jsx';
+import { dollarVolLabel } from '../lib/dollarVol.js';
 import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
 
@@ -159,7 +160,7 @@ export default function DipBuys() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Buy dips · Momentum + Investable names, stage 1–2.</p>
-            <p className="small muted bot-scan__rule">Target price = limit buy at major support. Sell target = nearest major resistance at least 1 weekly ATR above it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper buy and Buy $ both place a GTC limit at the Target price.</p>
+            <p className="small muted bot-scan__rule">Target price = limit buy at major support. Sell target = nearest major resistance at least 1 weekly ATR above it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper buy and Buy $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $20M/day and ≥ 1M shares/day (no price floor).</p>
           </div>
           <div className="scanner__controls">
             <button type="button" className="btn" disabled={Boolean(progress)} onClick={() => setTick((n) => n + 1)}>
@@ -207,6 +208,7 @@ export default function DipBuys() {
                     <div className="muted small">
                       {r.stage} · {r.stageLabel}
                     </div>
+                    {r.avgDollarVol ? <div className="muted small mono" title={`20-day avg: ${dollarVolLabel(r.avgDollarVol)}, ${Math.round((r.avgShareVol || 0) / 1e5) / 10}M sh/day`}>{dollarVolLabel(r.avgDollarVol)}</div> : null}
                   </td>
                   <td className="num mono">{formatPrice(r.price)}</td>
                   <td className="num mono">{formatPrice(r.buy)}</td>

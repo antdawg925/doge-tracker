@@ -9,6 +9,7 @@ import { fetchStockFundamentals } from './fundamentals.js';
 import { toPeriod } from './majorLevels.js';
 import { fetchSchwabBorrow } from './schwabBorrow.js';
 import { buildShortPlan, isBouncing, SHORT_EXCLUDES } from '../../shared/sellHighs.js';
+import { tradeability } from '../../shared/dipBuys.js';
 
 const SCREENERS = ['day_losers', 'most_actives', 'most_shorted_stocks', 'undervalued_large_caps', 'growth_technology_stocks', 'day_gainers'];
 const ENRICH_N = 32;
@@ -40,7 +41,8 @@ export async function enrichSellHighRow(row, { signal } = {}) {
     const wk = weekly?.length >= 36 ? weekly : toPeriod(daily, 'week');
     const closes = (daily || []).map((b) => b.close).filter((c) => Number.isFinite(c));
     const spot = row.price ?? closes.at(-1);
-    if (!(spot >= 10)) return null;
+    const liq = tradeability(daily); // ≥ $20M/day and ≥ 1M sh/day (20-day avg); no price floor
+    if (!liq.ok) return null;
     if (!isBouncing(closes)) return null;
     const pre = buildShortPlan(sym, wk, spot, { dailyCloses: closes });
     if (!pre) return null;
@@ -75,6 +77,8 @@ export async function enrichSellHighRow(row, { signal } = {}) {
       earningsWarn: plan.earningsWarn,
       borrow: null,
       plan,
+      avgDollarVol: liq.avgDollarVol,
+      avgShareVol: liq.avgShareVol,
       bars: { daily: daily || [], weekly: wk || [] },
     };
   } catch {
