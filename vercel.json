@@ -35,7 +35,7 @@
   ],
   "functions": {
     "api/bot.js": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "api/schwab.js": {
       "maxDuration": 60
