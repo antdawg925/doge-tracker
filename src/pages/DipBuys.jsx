@@ -160,7 +160,7 @@ export default function DipBuys() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Buy dips · Momentum + Investable names, stage 1–2.</p>
-            <p className="small muted bot-scan__rule">Target price = limit buy at major support. Sell target = nearest major resistance at least 1 weekly ATR above it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper buy and Buy $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $20M/day and ≥ 1M shares/day (no price floor).</p>
+            <p className="small muted bot-scan__rule">Target price = limit buy at major support. Sell target = nearest major resistance at least 1 weekly ATR above it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper buy and Buy $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $10M/day and ≥ 1M shares/day (no price floor).</p>
           </div>
           <div className="scanner__controls">
             <button type="button" className="btn" disabled={Boolean(progress)} onClick={() => setTick((n) => n + 1)}>

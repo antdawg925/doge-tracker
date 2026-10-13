@@ -41,7 +41,7 @@ export async function enrichSellHighRow(row, { signal } = {}) {
     const wk = weekly?.length >= 36 ? weekly : toPeriod(daily, 'week');
     const closes = (daily || []).map((b) => b.close).filter((c) => Number.isFinite(c));
     const spot = row.price ?? closes.at(-1);
-    const liq = tradeability(daily); // ≥ $20M/day and ≥ 1M sh/day (20-day avg); no price floor
+    const liq = tradeability(daily); // ≥ $10M/day and ≥ 1M sh/day (20-day avg); no price floor
     if (!liq.ok) return null;
     if (!isBouncing(closes)) return null;
     const pre = buildShortPlan(sym, wk, spot, { dailyCloses: closes });

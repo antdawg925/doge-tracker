@@ -334,7 +334,8 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   const mk = (px, vol) => Array.from({ length: 25 }, () => ({ close: px, volume: vol }));
   ok('liq: $2 stock with 15M sh ($30M) passes (no price floor)', tradeability(mk(2, 15e6)).ok);
   ok('liq: $500 stock with 50k sh fails share rule', !tradeability(mk(500, 5e4)).ok);
-  ok('liq: $10 × 1.5M = $15M fails dollar rule', !tradeability(mk(10, 1.5e6)).ok);
+  ok('liq: $5 × 1.5M = $7.5M fails dollar rule', !tradeability(mk(5, 1.5e6)).ok);
+  ok('liq: $10 × 1.5M = $15M passes', tradeability(mk(10, 1.5e6)).ok);
   ok('liq: avg uses last 20', Math.round(tradeability(mk(50, 2e6)).avgDollarVol) === 1e8);
   console.log(`check:dip-buys liquidity OK (${n} checks total)`);
 }

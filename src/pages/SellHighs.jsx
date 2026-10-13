@@ -205,7 +205,7 @@ export default function SellHighs() {
         <div className="scanner__title-row">
           <div>
             <p className="small muted bot-scan__lead">Sell highs · weak names bouncing into resistance.</p>
-            <p className="small muted bot-scan__rule">Target price = limit short just under major resistance. Cover target = nearest major support at least 1 weekly ATR below it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper short and Short $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $20M/day and ≥ 1M shares/day (no price floor).</p>
+            <p className="small muted bot-scan__rule">Target price = limit short just under major resistance. Cover target = nearest major support at least 1 weekly ATR below it (2+ touches or monthly), capped at 2.5 ATR so it's reachable in the hold. Paper short and Short $ both place a GTC limit at the Target price. Tradeable names only: 20-day average ≥ $10M/day and ≥ 1M shares/day (no price floor).</p>
             {data && !data.borrowAvailable ? <p className="small muted sh-note">Borrow column: connect Schwab on My Bot → Stocks to see ETB / HTB from Schwab quotes.</p> : null}
           </div>
           <div className="scanner__controls">

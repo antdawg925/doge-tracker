@@ -9,7 +9,7 @@ import { buildLimitBuyOrder as schwabLimitBuy, roundStop, tickSize } from './sch
 
 /** Tradeability (Anthony: liquidity only, not company quality; no price floor). 20-day averages. */
 export const LIQ_DAYS = 20;
-export const MIN_AVG_DOLLAR_VOL = 20_000_000; // $20M / day
+export const MIN_AVG_DOLLAR_VOL = 10_000_000; // $10M / day
 export const MIN_AVG_SHARE_VOL = 1_000_000; // 1M shares / day
 
 /** dailyBars [{close, volume}] → { ok, avgDollarVol, avgShareVol, days }. */

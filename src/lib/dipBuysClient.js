@@ -35,7 +35,7 @@ export async function enrichDipRow(row, { signal } = {}) {
       fetchYahooChart(sym, '1y', { signal, interval: '1d' }),
     ]);
     const wk = weekly?.length >= 20 ? weekly : toPeriod(daily, 'week');
-    const liq = tradeability(daily); // ≥ $20M/day and ≥ 1M sh/day (20-day avg); no price floor
+    const liq = tradeability(daily); // ≥ $10M/day and ≥ 1M sh/day (20-day avg); no price floor
     if (!liq.ok) return null;
     const stage = scoreMarketStage(daily, { assetType: 'stock' });
     if (!stage.ok || ![1, 2].includes(stage.stage)) return null;
