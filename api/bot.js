@@ -266,6 +266,13 @@ async function stockRoute(sb, req, res, route) {
     const { data: plan } = await sb.from('stock_plans').select('*').eq('id', id).eq('user_id', who.user.id).maybeSingle()
     if (!plan) return sendJson(res, 404, { error: 'Plan not found.' })
     if (!['pending', 'working'].includes(plan.status)) return sendJson(res, 400, { error: 'Only pending/working entries can be cancelled here.' })
+    // B4: an order already at Schwab is cancelled THERE first by the runner (next 5-min run), which then
+    // marks the plan cancelled (or filled, if it filled meanwhile). Nothing at Schwab yet → cancel now.
+    if (plan.status === 'working' && plan.buy_order_id) {
+      const { error } = await sb.from('stock_plans').update({ data: { ...(plan.data || {}), cancelRequested: new Date().toISOString() }, last_error: 'cancel requested: bot cancels the Schwab order on its next run' }).eq('id', id)
+      if (error) return sendJson(res, 500, { error: error.message })
+      return sendJson(res, 200, { ok: true, pending: true, message: 'Cancelling at Schwab on the next bot run (within ~5 min).' })
+    }
     const { error } = await sb.from('stock_plans').update({ status: 'cancelled', last_error: 'cancelled by user' }).eq('id', id)
     if (error) return sendJson(res, 500, { error: error.message })
     return sendJson(res, 200, { ok: true })
@@ -295,7 +302,8 @@ async function stockRoute(sb, req, res, route) {
     if (plan.side === 'short' ? !(to < cur) : !(to > cur)) return sendJson(res, 400, { error: `New stop must be ${plan.side === 'short' ? 'below' : 'above'} the current ${cur}.` })
     const { error } = await sb.from('stock_plans').update({ last_stop_price: to, stop_price: plan.stop_price }).eq('id', id)
     if (error) return sendJson(res, 500, { error: error.message })
-    return sendJson(res, 200, { ok: true, stop: to })
+    // B2: the runner compares this to the live Schwab stop and modifies it in market hours.
+    return sendJson(res, 200, { ok: true, stop: to, schwab: plan.dry_run ? null : 'Schwab stop updates on the next market-hours bot run.' })
   }
   // stocks/plan
   const symbol = String(body.symbol || '').trim().toUpperCase()
