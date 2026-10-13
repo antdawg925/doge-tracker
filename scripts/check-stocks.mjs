@@ -556,4 +556,12 @@ await okA('paper: tally = realized + unrealized vs buy & hold (no stop)', async 
   assert.ok(Math.abs(b.get('a').realized_pnl - 100) < 1e-9);
 });
 
+// B16: the hand-typed NYSE holiday list must cover next year (fails each January until it's extended).
+{
+  const { NYSE_HOLIDAYS } = await import('../shared/marketHours.js');
+  const next = new Date().getUTCFullYear() + 1;
+  const have = [...NYSE_HOLIDAYS].filter((d) => d.startsWith(`${next}-`)).length;
+  if (have < 9) { console.error(`FAIL NYSE_HOLIDAYS missing ${next} (have ${have}); extend shared/marketHours.js from nyse.com`); process.exit(1); }
+  passed += 1;
+}
 console.log(`check:stocks OK (${passed} checks; rules: long ${R.longMult} ATR, short ${R.shortMult}/${R.shortSiMult}/${R.shortProfitMult}/${R.squeezeMult} ATR)`);
