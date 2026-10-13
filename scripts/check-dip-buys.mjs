@@ -287,3 +287,21 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   ok('cover target: short mirror', sellTarget({ side: 'short', entry: 100, levels: [{ price: 97, touches: 5 }, { price: 93, touches: 2 }], atrW: 4 }).price === 93);
   console.log(`check:dip-buys target OK (${n} checks total)`);
 }
+
+// ---------------- paper limit orders (pure)
+{
+  const { paperStep, paperScore } = await import('../shared/paperOrders.js');
+  const T = Date.UTC(2026, 9, 13, 14);
+  const H = 1800000;
+  const idea = { status: 'pending', side: 'long', qty: 10, limit_price: 50, entry_price: 50, stop_price: 45, target_price: 60, placed_at: new Date(T).toISOString(), auto_exit: true };
+  const bars = [{ t: T - H, open: 49, high: 49, low: 48, close: 49 }, { t: T, open: 52, high: 52, low: 51, close: 51 }, { t: T + H, open: 51, high: 51, low: 49.5, close: 50 }, { t: T + 2 * H, open: 50, high: 61, low: 50, close: 60 }];
+  const s1 = paperStep(idea, bars, { nowMs: T + 3 * H });
+  ok('paper: no fill from bars before the order', s1.fill?.t === T + H && s1.fill.price === 50);
+  ok('paper: exits at target after fill', s1.exit?.reason === 'target' && s1.exit.price === 60 && s1.exit.pnl === 100);
+  const sh = { ...idea, side: 'short', limit_price: 50, stop_price: 55, target_price: 40 };
+  const s2 = paperStep(sh, [{ t: T, open: 51, high: 51, low: 50, close: 50 }, { t: T + H, open: 56, high: 57, low: 54, close: 56 }], { nowMs: T + 2 * H });
+  ok('paper short: gap fill at open, stop at gap open', s2.fill.price === 51 && s2.exit.reason === 'stop' && s2.exit.price === 56 && s2.exit.pnl === -50);
+  const sc = paperScore([{ status: 'closed', exit_reason: 'target', realized_pnl: 100 }, { status: 'closed', exit_reason: 'stop', realized_pnl: -50 }, { status: 'open' }]);
+  ok('paper score', sc.targetHitRate === 0.5 && sc.avgWin === 100 && sc.avgLoss === -50 && sc.realized === 50);
+  console.log(`check:dip-buys paper orders OK (${n} checks total)`);
+}

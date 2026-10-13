@@ -30,6 +30,7 @@
 import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
+import { runPaperOrders } from './_paperOrders.js'
 import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunner.js'
 import { schwabHousekeeping } from './_schwabLive.js'
 import { planTrade } from '../shared/stockEngine.js'
@@ -141,6 +142,14 @@ export default async function handler(req, res) {
         console.error('stock pass failed', err?.message || err)
         stocks = { error: 'stock pass failed' }
       }
+      // Paper limit orders (Paper buy / Paper short): fill + auto exit at target / stop. Paper only.
+      let paperOrders = null
+      try {
+        paperOrders = await runPaperOrders(sb)
+      } catch (err) {
+        paperOrders = { error: String(err?.message || err).slice(0, 200) }
+      }
+      if (stocks && typeof stocks === 'object') stocks.paperOrders = paperOrders
       let schwab = null
       try {
         schwab = await schwabHousekeeping(sb)
