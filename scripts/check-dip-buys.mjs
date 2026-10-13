@@ -152,10 +152,95 @@ console.log(`check:dip-buys OK (${n} checks; NVDA limit ${plan.limit} stop ${pla
   const out2 = await runStockPlans(sb2, { profiles: [{ id: 'u1', telegram_chat_id: null, stocks_live: false }], markets: new Map([['XYZ', { price: 77.1 }]]), force: true });
   ok('runner short cancels above stop', out2.cancelled === 1 && plan2.status === 'cancelled' && plan2.last_error === 'price above stop before fill');
 
+  const CLOSE = Date.UTC(2026, 9, 13, 20, 20); // Tue 4:20 PM ET = after-close pass
+  const RTH = Date.UTC(2026, 9, 14, 14, 0); // Wed 10:00 AM ET
   const plan3 = { ...plan, id: 'p3', status: 'filled', filled_shares: 28, last_stop_price: 76.62, data: {} };
   const sb3 = fakeSb({ stock_plans: [plan3], broker_connections: [], profiles: [] });
-  await runStockPlans(sb3, { profiles: [{ id: 'u1', telegram_chat_id: null, stocks_live: false }], markets: new Map([['XYZ', { price: 60, bars: [{ close: 60 }] }]]), force: true });
-  ok('runner short ratchets down (dry)', plan3.last_stop_price === 63.98 && plan3.data.lastDry?.action === 'lower_stop');
+  await runStockPlans(sb3, { profiles: [{ id: 'u1', telegram_chat_id: null, stocks_live: false }], markets: new Map([['XYZ', { price: 60, bars: [{ date: '2026-10-13', close: 60, high: 61, low: 59, open: 60 }] }]]), force: true, nowMs: CLOSE });
+  ok('B9 manual refresh never ratchets', plan3.last_stop_price === 76.62);
+  await runStockPlans(sb3, { profiles: [{ id: 'u1', telegram_chat_id: null, stocks_live: false }], markets: new Map([['XYZ', { price: 60, bars: [{ date: '2026-10-13', close: 60, high: 61, low: 59, open: 60 }] }]]), nowMs: CLOSE });
+  ok('runner short ratchets down on close pass', plan3.last_stop_price === 63.98 && plan3.data.lastRatchet?.action === 'lower_stop');
+
+  // ---- live paths with a FAKE broker (no network, no Schwab).
+  const fakeBroker = (orders, holdings) => {
+    const calls = [];
+    return {
+      calls,
+      getOrder: async (id) => orders[id] ?? null,
+      getPositions: async () => holdings,
+      placeStop: async (a) => { calls.push(['placeStop', a]); return { orderId: 'S' + calls.length }; },
+      modifyStop: async (id, a) => { calls.push(['modifyStop', id, a]); return { orderId: 'M' + calls.length }; },
+      cancel: async (id) => { calls.push(['cancel', id]); if (orders[id]) orders[id].status = 'CANCELED'; return {}; },
+      placeLimitBuy: async (a) => { calls.push(['placeLimitBuy', a]); return { orderId: 'B1' }; },
+      placeShortSell: async (a) => { calls.push(['placeShortSell', a]); return { orderId: 'B1' }; },
+    };
+  };
+  const conn = { user_id: 'u1', broker: 'schwab', status: 'connected', live_enabled: true, kill_switch: false, account_hash: 'h', data: {} };
+  const prof = [{ id: 'u1', telegram_chat_id: null, stocks_live: true }];
+  const long = { id: 'L', user_id: 'u1', symbol: 'ABC', side: 'long', shares: 100, limit_price: 50, stop_price: 45, t1_price: 60, cancel_days: 10, dry_run: false, created_at: new Date(RTH - 86400000).toISOString(), ladder: [], data: {} };
+  const run = async (row, broker, { nowMs = RTH, price = 50, c = { ...conn, data: { ...conn.data } }, guards = [] } = {}) => {
+    const sbx = fakeSb({ stock_plans: [row], broker_connections: [c], stock_guard: guards });
+    const out = await runStockPlans(sbx, { profiles: prof, markets: new Map([['ABC', { price }]]), nowMs, _broker: broker });
+    return { out, sbx };
+  };
+  // B3: price below stop but the order already FILLED → protect, don't cancel.
+  { const row = { ...long, status: 'working', buy_order_id: 'O1' }; const br = fakeBroker({ O1: { status: 'FILLED', filledQuantity: 100, orderActivityCollection: [{ executionLegs: [{ quantity: 100, price: 49.5 }] }] } }, []);
+    await run(row, br, { price: 44 });
+    ok('B3 fill wins over cancel', row.status === 'filled' && row.filled_shares === 100 && br.calls.some((c) => c[0] === 'placeStop' && c[1].qty === 100) && !br.calls.some((c) => c[0] === 'cancel')); }
+  // B4: cancel rule hits an open order → cancelled at Schwab first.
+  { const row = { ...long, status: 'working', buy_order_id: 'O2' }; const br = fakeBroker({ O2: { status: 'WORKING', filledQuantity: 0 } }, []);
+    await run(row, br, { price: 44 });
+    ok('B4 cancels at Schwab before marking', row.status === 'cancelled' && br.calls[0]?.[0] === 'cancel'); }
+  // B4: open order but Live off → NOT marked cancelled.
+  { const row = { ...long, status: 'working', buy_order_id: 'O3' }; const br = fakeBroker({ O3: { status: 'WORKING', filledQuantity: 0 } }, []);
+    await run(row, br, { price: 44, c: { ...conn, live_enabled: false } });
+    ok('B4 live off keeps plan open + error', row.status === 'working' && /still open at Schwab/.test(row.last_error) && !br.calls.length); }
+  // B5: partial fill → stop for the filled shares; plan keeps working.
+  { const row = { ...long, status: 'working', buy_order_id: 'O4' }; const br = fakeBroker({ O4: { status: 'WORKING', filledQuantity: 40 } }, []);
+    await run(row, br);
+    ok('B5 partial fill protected', row.status === 'working' && row.filled_shares === 40 && row.stop_order_id && br.calls[0][0] === 'placeStop' && br.calls[0][1].qty === 40);
+    br.calls.length = 0; (await br.getOrder('O4')).filledQuantity = 70;
+    await run(row, br);
+    ok('B5 stop grows with fills', row.filled_shares === 70 && br.calls[0]?.[0] === 'modifyStop' && br.calls[0][2].qty === 70); }
+  // B1/B2: plan stop above the Schwab stop → modified in RTH; not outside RTH.
+  { const row = { ...long, status: 'filled', filled_shares: 100, filled_price: 50, stop_order_id: 'S9', last_stop_price: 47, data: {} };
+    const br = fakeBroker({ S9: { status: 'WORKING', orderType: 'STOP', stopPrice: 45, quantity: 100 } }, [{ symbol: 'ABC', longQty: 100, shortQty: 0 }]);
+    await run(row, br, { nowMs: CLOSE + 3600000 });
+    ok('B1 no Schwab change outside RTH', br.calls.length === 0);
+    await run(row, br, { price: 52 });
+    ok('B1/B2 Schwab stop raised in RTH', br.calls[0]?.[0] === 'modifyStop' && br.calls[0][2].stopPrice === 47 && row.data.schwabStop === 47);
+    br.calls.length = 0; (await br.getOrder('S9')).stopPrice = 48;
+    row.stop_order_id = 'S9';
+    await run(row, br, { price: 52 });
+    ok('never loosens a tighter Schwab stop', br.calls.length === 0); }
+  // B8: sold 30% at Schwab → stop shrinks; position gone → no re-place.
+  { const row = { ...long, status: 'filled', filled_shares: 100, filled_price: 50, stop_order_id: 'S8', last_stop_price: 45, data: {} };
+    const br = fakeBroker({ S8: { status: 'WORKING', stopPrice: 45, quantity: 100 } }, [{ symbol: 'ABC', longQty: 70, shortQty: 0 }]);
+    await run(row, br);
+    ok('B8 stop resized to shares held', br.calls[0]?.[0] === 'modifyStop' && br.calls[0][2].qty === 70 && br.calls[0][2].stopPrice === 45);
+    const row2 = { ...row, id: 'L2', stop_order_id: 'S7', data: {} }; const br2 = fakeBroker({ S7: { status: 'CANCELED', stopPrice: 45, quantity: 100 } }, []);
+    await run(row2, br2);
+    ok('B8 no re-place when not held', br2.calls.length === 0 && /Not found at Schwab/.test(row2.last_error)); }
+  // B6: kill switch / daily cap / Stocks pause block new entries.
+  { const row = { ...long, status: 'pending' }; const br = fakeBroker({}, []);
+    await run(row, br, { c: { ...conn, data: { actions: { day: '2026-10-14', n: 20 } } } });
+    ok('B6 daily cap blocks entry', row.status === 'pending' && !br.calls.length && /Daily cap/.test(row.last_error));
+    const row2 = { ...long, id: 'L3', status: 'pending' };
+    await run(row2, br, { guards: [{ user_id: 'u1', book: 'stocks', paused: true }] });
+    ok('B6 Stocks pause blocks entry', row2.status === 'pending' && !br.calls.length && /paused/.test(row2.last_error));
+    const row3 = { ...long, id: 'L4', status: 'pending' };
+    const { sbx } = await run(row3, br, { c: { ...conn, data: {} } });
+    ok('entry placed + action counted', row3.status === 'working' && br.calls[0][0] === 'placeLimitBuy' && sbx.writes.some((w) => w.t === 'broker_connections' && w.payload.data?.actions?.n === 1)); }
+  // B10: paper plan simulates fill then stop.
+  { const row = { ...long, id: 'P', dry_run: true, status: 'pending', created_at: '2026-10-12T15:00:00Z' };
+    const bars = [{ date: '2026-10-12', open: 52, high: 53, low: 51, close: 52 }, { date: '2026-10-13', open: 51, high: 51, low: 49.8, close: 50 }];
+    const sbx = fakeSb({ stock_plans: [row], broker_connections: [], stock_guard: [] });
+    await runStockPlans(sbx, { profiles: prof, markets: new Map([['ABC', { price: 50, bars }]]), nowMs: RTH });
+    ok('B10 paper fill simulated', row.status === 'filled' && row.filled_price === 50 && row.data.simulated);
+    row.filled_at = '2026-10-13T15:00:00Z';
+    bars.push({ date: '2026-10-14', open: 44, high: 46, low: 43, close: 44 });
+    await runStockPlans(sbx, { profiles: prof, markets: new Map([['ABC', { price: 44, bars }]]), nowMs: RTH });
+    ok('B10 paper stop simulated at gap open', row.status === 'stopped' && row.data.simExit.price === 44 && row.data.simExit.pnl === -600); }
   console.log(`check:dip-buys runner OK (${n} checks total; dry-run only)`);
 }
 
