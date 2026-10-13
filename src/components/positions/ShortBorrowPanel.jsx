@@ -25,7 +25,16 @@ async function loadShorts(userId) {
   ]);
   const out = [];
   for (const p of pos.data || []) out.push({ key: `p-${p.id}`, symbol: p.symbol, shares: Number(p.shares), entry: Number(p.entry_price), openedAt: p.entry_date || p.created_at, source: 'My Bot', live: Boolean(p.live) });
-  for (const p of plans.data || []) out.push({ key: `s-${p.id}`, symbol: p.symbol, shares: Number(p.filled_shares || p.shares), entry: Number(p.filled_price || p.limit_price), openedAt: p.filled_at, source: 'Sell highs', dry_run: p.dry_run !== false, plan: true });
+  // B15: a real Sell highs plan and a My Bot position on the same symbol are the same Schwab short →
+  // count it once (the My Bot row), tagged. Paper plans are separate and stay listed.
+  const posSyms = new Set(out.map((r) => r.symbol));
+  for (const p of plans.data || []) {
+    if (p.dry_run === false && posSyms.has(p.symbol)) {
+      for (const r of out) if (r.symbol === p.symbol && !r.plan) r.source = 'My Bot + Sell highs';
+      continue;
+    }
+    out.push({ key: `s-${p.id}`, symbol: p.symbol, shares: Number(p.filled_shares || p.shares), entry: Number(p.filled_price || p.limit_price), openedAt: p.filled_at, source: 'Sell highs', dry_run: p.dry_run !== false, plan: true });
+  }
   return out;
 }
 
