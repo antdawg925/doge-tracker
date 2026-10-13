@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatPrice, formatUsd } from '../../lib/format';
 
 const age = (iso) => {
@@ -14,7 +14,12 @@ const age = (iso) => {
  */
 export default function PendingOrders({ mode, rows, onCancel, onError }) {
   const [busy, setBusy] = useState(null);
-  if (!rows?.length) return null;
+  const has = Boolean(rows?.length);
+  useEffect(() => {
+    // Link from the order modal: /positions#pending-paper | #pending-real
+    if (has && window.location.hash === `#pending-${mode}`) document.getElementById(`pending-${mode}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [has, mode]);
+  if (!has) return null;
   const cancel = async (r) => {
     if (!window.confirm(`Cancel ${mode === 'real' ? 'the REAL Schwab' : 'the paper'} ${r.side === 'short' ? 'short' : 'buy'} limit for ${r.symbol}?`)) return;
     setBusy(r.id);
@@ -27,7 +32,7 @@ export default function PendingOrders({ mode, rows, onCancel, onError }) {
     }
   };
   return (
-    <div className={`pos-pending pos-pending--${mode}`}>
+    <div id={`pending-${mode}`} className={`pos-pending pos-pending--${mode}`}>
       <h3 className="small">
         Pending orders <span className="muted">({rows.length} · {mode === 'real' ? 'GTC limit at Schwab' : 'paper GTC limit'})</span>
       </h3>

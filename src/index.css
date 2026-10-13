@@ -5460,3 +5460,23 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .pos-pending__table { width: 100%; }
 
 .rpaper__title { color: var(--paper, #9b7bff); }
+
+/* Order result modal: stays until closed (OK / Esc). */
+.orm { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; }
+.orm__scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.65); }
+.orm__card { position: relative; width: min(460px, 100%); max-height: 92vh; overflow: auto; background: var(--card, #14161c); border-radius: 14px; padding: 18px 18px 16px; border: 2px solid; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+.orm__card--paper { border-color: #8b5cf6; }
+.orm__card--paper .orm__head { color: #a78bfa; }
+.orm__card--live { border-color: #e0b341; }
+.orm__card--live .orm__head { color: #f2c94c; }
+.orm__card--short { border-color: #ef4444; }
+.orm__card--short .orm__head { color: #f87171; }
+.orm__card--fail { border-color: #ef4444; background: #2a1215; }
+.orm__card--fail .orm__head { color: #f87171; }
+.orm__head { margin: 0 0 10px; font-size: 1.45rem; font-weight: 800; letter-spacing: 0.02em; }
+.orm__reason { color: #fecaca; font-weight: 600; margin: 0 0 10px; }
+.orm__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0 0 12px; }
+.orm__grid dt { font-size: 0.75rem; opacity: 0.7; }
+.orm__grid dd { margin: 0; font-size: 1rem; word-break: break-all; }
+.orm__where { margin: 0 0 12px; }
+.orm__ok { width: 100%; min-height: 44px; font-size: 1rem; }

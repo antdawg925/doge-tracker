@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { addPaperIdea } from '../../lib/paperIdeas.js';
+import { showOrderResult } from '../../lib/orderResult.js';
 import { fetchSpot } from '../../lib/price.js';
 
 const r = (v) => (v == null || !Number.isFinite(Number(v)) || !(Number(v) > 0) ? '' : String(Number(v) >= 1 ? Number(Number(v).toFixed(2)) : Number(Number(v).toFixed(5))));
@@ -45,9 +46,11 @@ export default function PaperTradeForm({ asset, picker = null, suggest, defaultS
     setErr('');
     try {
       const idea = await addPaperIdea(asset, { side, qty: vals.qty, entry: vals.entry, stop: vals.stop, target: vals.target, source });
+      showOrderResult({ ok: true, mode: 'paper', side, symbol: idea.symbol, shares: idea.qty, limit: idea.entry_price, stop: idea.stop_price, target: idea.target_price, orderType: 'Paper entry (filled at entry)', ideaId: idea.id, at: idea.opened_at });
       onSaved?.(idea);
     } catch (ex) {
       setErr(ex?.message || 'Could not save');
+      showOrderResult({ ok: false, mode: 'paper', side, symbol: asset?.symbol, shares: vals.qty, limit: vals.entry, stop: vals.stop, target: vals.target, orderType: 'Paper entry', error: ex?.message || 'Could not save' });
       setBusy(false);
     }
   };

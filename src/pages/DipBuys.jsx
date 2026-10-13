@@ -9,6 +9,7 @@ import LiveOrderNote, { useLiveGates } from '../components/setups/LiveOrderNote.
 import { dollarVolLabel } from '../lib/dollarVol.js';
 import OrderTicket from '../components/setups/OrderTicket.jsx';
 import { addPaperIdea } from '../lib/paperIdeas.js';
+import { showOrderResult } from '../lib/orderResult.js';
 
 const usd = (n) => (n == null || !Number.isFinite(n) ? '—' : `$${Math.round(n).toLocaleString('en-US')}`);
 const day = (ms) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
@@ -87,17 +88,17 @@ export default function DipBuys() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [preview, setPreview] = useState(null);
-  const [paperMsg, setPaperMsg] = useState('');
   const gates = useLiveGates();
   /** Paper idea at the current price with this setup's stop/target (no real money). */
   const paperQuick = async (r, shares, price = r.buy, requestId = null) => {
     if (!(shares > 0)) return false;
-    setPaperMsg('Saving paper idea…');
+   
+    const base = { mode: 'paper', side: 'long', symbol: r.symbol, shares, limit: price, stop: r.stop, target: r.t1 };
     try {
       const i = await addPaperIdea({ symbol: r.symbol, name: r.name, type: 'stock' }, { side: 'long', qty: shares, entry: price, limit: price, stop: r.stop, target: r.t1, source: 'setup', requestId });
-      setPaperMsg(`Paper LIMIT buy ${i.qty} ${i.symbol} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders. Fills when price trades there; exits at target or stop.`);
+      showOrderResult({ ...base, ok: true, shares: i.qty, limit: i.limit_price ?? price, ideaId: i.id, at: i.placed_at });
     } catch (e) {
-      setPaperMsg(`Paper idea failed: ${e.message}`);
+      showOrderResult({ ...base, ok: false, error: e.message });
       return false;
     }
     return true;
@@ -128,7 +129,7 @@ export default function DipBuys() {
     setBusy(true);
     setMsg('');
     try {
-      await authedFetch('/api/bot/stocks/plans/create', {
+      const res = await authedFetch('/api/bot/stocks/plans/create', {
         method: 'POST',
         body: {
           symbol: sheet.symbol,
@@ -147,9 +148,10 @@ export default function DipBuys() {
       setSheet(null);
       setPreview(null);
       setMsg('');
-      alert(`${sheet.symbol}: REAL limit buy ${shares} @ ${formatPrice(price)} placed at Schwab (GTC). See Positions → Real → Pending orders.`);
+      showOrderResult({ ok: true, mode: 'live', side: 'long', symbol: sheet.symbol, shares, limit: price, stop: sheet.stop, target: sheet.t1, orderId: res?.orderId || res?.plan?.buy_order_id || null, status: res?.plan?.status === 'working' ? 'WORKING at Schwab (GTC)' : res?.plan?.status || null, at: res?.plan?.placed_at || undefined });
     } catch (e) {
       setMsg(e.message);
+      showOrderResult({ ok: false, mode: 'live', side: 'long', symbol: sheet.symbol, shares, limit: price, stop: sheet.stop, target: sheet.t1, error: e.message });
       return false;
     } finally {
       setBusy(false);
@@ -176,7 +178,6 @@ export default function DipBuys() {
         </div>
       </div>
       {err ? <p className="auth-card__error">{err}</p> : null}
-      {paperMsg ? <p className={`small ${paperMsg.startsWith('Paper idea failed') ? 'neg' : 'rpaper__msg'}`}>{paperMsg}</p> : null}
       <div className="card scanner-table-wrap">
         <table className="scanner-table">
           <thead>
@@ -225,7 +226,7 @@ export default function DipBuys() {
                   <td>
                     {canBuy ? (
                       <span className="act-pair">
-                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT buy at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'paper' }); setMsg(''); setPaperMsg(''); }}>
+                        <button type="button" className="btn btn--paper stk-btn act-btn" title="Paper LIMIT buy at the Target price, GTC (no real money)" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'paper' }); setMsg(''); }}>
                           Paper buy
                         </button>
                         <button type="button" className="btn btn--gold stk-btn act-btn dip-buy" onClick={(e) => { e.stopPropagation(); setSheet({ ...r, mode: 'real' }); setMsg(''); }}>

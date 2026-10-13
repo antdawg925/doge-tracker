@@ -3,6 +3,7 @@ import SetupChart from './SetupChart.jsx';
 import { formatPct, formatPrice } from '../../lib/format.js';
 import { setupLines } from '../../lib/setupLines.js';
 import { addPaperIdea } from '../../lib/paperIdeas.js';
+import { showOrderResult } from '../../lib/orderResult.js';
 import OrderTicket from './OrderTicket.jsx';
 
 function useDesktop() {
@@ -38,9 +39,11 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
     setPaper('saving');
     try {
       const i = await addPaperIdea({ symbol: row.symbol, name: row.name, type: 'stock' }, { side: short ? 'short' : 'long', qty: shares, entry: price, limit: price, stop, target, source: 'setup', requestId });
-      setPaper(`Paper LIMIT ${i.side === 'short' ? 'short' : 'buy'} ${i.qty} @ ${formatPrice(i.limit_price)} (GTC) pending → Positions · Paper · Pending orders`);
+      setPaper('');
+      showOrderResult({ ok: true, mode: 'paper', side: short ? 'short' : 'long', symbol: row.symbol, shares: i.qty, limit: i.limit_price ?? price, stop, target, ideaId: i.id, at: i.placed_at });
     } catch (e) {
-      setPaper(`Paper trade failed: ${e.message}`);
+      setPaper('');
+      showOrderResult({ ok: false, mode: 'paper', side: short ? 'short' : 'long', symbol: row.symbol, shares, limit: price, stop, target, error: e.message });
       return false;
     }
     return true;
@@ -85,7 +88,6 @@ export default function SetupPreview({ row, side, entry, stop, target, facts = [
           blocked={blocked}
           note={realNote}
         />
-        {paper && paper !== 'saving' ? <p className={`small ${paper.startsWith('Paper trade failed') ? 'neg' : 'rpaper__msg'}`}>{paper}</p> : null}
         <dl className="dip-sheet__facts small stp__facts">
           {facts.map((f) => (
             <div key={f.k}>

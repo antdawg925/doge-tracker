@@ -52,6 +52,8 @@ function AccountMenu() {
   );
 }
 
+import OrderResultModal from './orders/OrderResultModal.jsx';
+
 export default function AppLayout() {
   const { pathname } = useLocation();
   const { user, loading, isOwner, hasBotAccess, pendingRequests, homePath } = useAuth();
@@ -110,6 +112,7 @@ export default function AppLayout() {
         <Outlet />
       )}
       <MobileTabBar />
+      <OrderResultModal />
     </div>
   );
 }
