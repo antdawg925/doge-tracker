@@ -11,3 +11,5 @@ alter table public.paper_ideas add column if not exists auto_exit boolean not nu
 alter table public.paper_ideas add column if not exists exit_reason text check (exit_reason is null or exit_reason in ('target', 'stop', 'manual'));
 alter table public.paper_ideas add column if not exists realized_pnl numeric;
 create index if not exists paper_ideas_work_idx on public.paper_ideas (status) where status = 'pending' or (status = 'open' and auto_exit);
+alter table public.paper_ideas drop constraint if exists paper_ideas_closed_has_exit;
+alter table public.paper_ideas add constraint paper_ideas_closed_has_exit check (status <> 'closed' or (exit_price is not null and closed_at is not null));
