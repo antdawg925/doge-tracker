@@ -20,15 +20,17 @@ import PaperIdeasSection, { Table as IdeaTable } from '../components/positions/P
 import { openLoss } from '../../shared/riskCap.js';
 import PaperTradeForm from '../components/paper/PaperTradeForm.jsx';
 import ModePill from '../components/common/ModePill.jsx';
+import PendingOrders from '../components/positions/PendingOrders.jsx';
 import { ideaAsset, listPaperIdeas } from '../lib/paperIdeas.js';
 import { supabase } from '../lib/supabase.js';
+import { authedFetch } from '../lib/api.js';
 
 /** Bot Buy dips / Sell highs fills: dry-run = paper ideas, real = bot rows under Real (the bot manages both). */
 async function listBotPlans() {
   const { data } = await supabase
     .from('stock_plans')
-    .select('id, symbol, side, shares, filled_shares, filled_price, limit_price, stop_price, last_stop_price, t1_price, filled_at, created_at, dry_run, risk_cap_usd, risk_tripped_at, risk_trip_loss')
-    .eq('status', 'filled');
+    .select('id, symbol, side, shares, filled_shares, filled_price, limit_price, stop_price, last_stop_price, t1_price, filled_at, created_at, dry_run, status, buy_order_id, data, risk_cap_usd, risk_tripped_at, risk_trip_loss')
+    .in('status', ['filled', 'pending', 'working']);
   const map = (p) => ({
     id: `plan-${p.id}`,
     symbol: p.symbol,
@@ -46,8 +48,13 @@ async function listBotPlans() {
     risk_tripped_at: p.risk_tripped_at,
     risk_trip_loss: p.risk_trip_loss,
   });
-  const list = data || [];
-  return { paper: list.filter((p) => p.dry_run).map(map), real: list.filter((p) => !p.dry_run).map(map) };
+  const all = data || [];
+  const list = all.filter((p) => p.status === 'filled');
+  // Real limit entries not filled yet → Positions · Real · Pending orders (Cancel cancels at Schwab).
+  const pending = all
+    .filter((p) => !p.dry_run && (p.status === 'pending' || p.status === 'working'))
+    .map((p) => ({ id: p.id, symbol: p.symbol, side: p.side, limit: Number(p.limit_price), shares: Number(p.shares), placedAt: p.data?.placedAt || p.created_at, orderId: p.buy_order_id, note: p.buy_order_id ? null : 'not at Schwab yet' }));
+  return { paper: list.filter((p) => p.dry_run).map(map), real: list.filter((p) => !p.dry_run).map(map), pending };
 }
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
@@ -321,12 +328,14 @@ export default function Positions() {
   const [ideas, setIdeas] = useState([]);
   const [formMode, setFormMode] = useState('real');
   const [botReal, setBotReal] = useState([]);
+  const [realPending, setRealPending] = useState([]);
 
   const loadPaper = useCallback(async () => {
-    const empty = { paper: [], real: [] };
+    const empty = { paper: [], real: [], pending: [] };
     const [mine, bot] = await Promise.all([listPaperIdeas().catch(() => []), hasBotAccess || isOwner ? listBotPlans().catch(() => empty) : empty]);
     setIdeas([...bot.paper, ...mine]);
     setBotReal(bot.real);
+    setRealPending(bot.pending || []);
   }, [hasBotAccess, isOwner]);
 
   const load = useCallback(async () => {
@@ -589,6 +598,16 @@ export default function Positions() {
             </ul>
           </>
         )}
+        <PendingOrders
+          mode="real"
+          rows={realPending}
+          onCancel={async (r) => {
+            const out = await authedFetch('/api/bot/stocks/plans/cancel', { method: 'POST', body: { id: r.id } });
+            if (out?.message) window.alert(out.message);
+            loadPaper();
+          }}
+          onError={setError}
+        />
         {botReal.length ? (
           <div className="pos-botreal">
             <h3 className="small">Bot plans · real $ <span className="muted">(Buy dips / Sell highs, managed by the bot)</span></h3>

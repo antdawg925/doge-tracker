@@ -6,7 +6,9 @@ import RiskCap from './RiskCap.jsx';
 import { openLoss } from '../../../shared/riskCap.js';
 import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
-import { closePaperIdea, deletePaperIdea, ideaAsset, ideaPnl } from '../../lib/paperIdeas.js';
+import { cancelPaperOrder, closePaperIdea, deletePaperIdea, ideaAsset, ideaPnl } from '../../lib/paperIdeas.js';
+import { paperScore } from '../../../shared/paperOrders.js';
+import PendingOrders from './PendingOrders.jsx';
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' }) : '');
@@ -46,7 +48,7 @@ export function paperStats(ideas, quotes) {
         closed += 1;
         if (pnl > 0) wins += 1;
       }
-    } else {
+    } else if (i.status === 'open') {
       open += 1;
       const { pnl } = ideaPnl(i, quotes[assetKey(ideaAsset(i))]?.price);
       if (pnl != null) {
@@ -176,7 +178,9 @@ export function Table({ list, real = false, ...rest }) {
 /** Positions → Paper ideas (violet): open ideas + bot dry-run fills, closed ideas folded below. */
 export default function PaperIdeasSection({ ideas, quotes, form, onAdd, onChanged, onOpen, onError }) {
   const st = paperStats(ideas, quotes);
-  const open = ideas.filter((i) => i.status !== 'closed');
+  const open = ideas.filter((i) => i.status === 'open');
+  const pending = ideas.filter((i) => i.status === 'pending');
+  const sc = paperScore(ideas.filter((i) => i.status === 'closed').map((i) => ({ ...i, realized_pnl: i.realized_pnl ?? ideaPnl(i).pnl })));
   const closed = ideas.filter((i) => i.status === 'closed');
   return (
     <section className="card pos-sec pos-sec--paper">
@@ -201,12 +205,33 @@ export default function PaperIdeasSection({ ideas, quotes, form, onAdd, onChange
             <dt>Win rate</dt>
             <dd className="mono">{st.winRate != null ? `${Math.round(st.winRate)}% of ${st.closed}` : '—'}</dd>
           </div>
+          <div>
+            <dt>Target hit</dt>
+            <dd className="mono" title="Auto-closed ideas that hit the sell / cover target (vs the stop)">{sc.targetHitRate != null ? `${Math.round(sc.targetHitRate * 100)}% of ${sc.autoClosed}` : '—'}</dd>
+          </div>
+          <div>
+            <dt>Avg win</dt>
+            <dd className="mono pos">{sc.avgWin != null ? formatUsd(sc.avgWin, { sign: true, decimals: 2 }) : '—'}</dd>
+          </div>
+          <div>
+            <dt>Avg loss</dt>
+            <dd className="mono neg">{sc.avgLoss != null ? formatUsd(sc.avgLoss, { sign: true, decimals: 2 }) : '—'}</dd>
+          </div>
         </dl>
         <button type="button" className="btn btn--paper" onClick={onAdd}>
           + Paper trade
         </button>
       </div>
       {form}
+      <PendingOrders
+        mode="paper"
+        rows={pending.map((i) => ({ id: i.id, symbol: i.symbol, side: i.side, limit: i.limit_price ?? i.entry_price, shares: i.qty, placedAt: i.placed_at || i.opened_at, note: i.target_price ? `target ${formatPrice(i.target_price)} · stop ${formatPrice(i.stop_price)}` : null }))}
+        onCancel={async (r) => {
+          await cancelPaperOrder(r.id);
+          onChanged();
+        }}
+        onError={onError}
+      />
       {open.length ? <Table list={open} quotes={quotes} onChanged={onChanged} onOpen={onOpen} onError={onError} /> : <p className="muted small pos-sec__empty">No open paper ideas. Use Paper trade here or on Research to track an idea without real money.</p>}
       {closed.length ? (
         <details className="pos-sec__closed">

@@ -5453,3 +5453,8 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .otk__confirm { margin-top: .6rem; padding: .7rem .8rem; border: 1px solid var(--gold, #d4a72c); border-radius: 10px; background: rgba(212,167,44,.08); }
 .otk__confirm p { margin: .2rem 0; }
 .otk__confirm-head { color: var(--gold, #d4a72c); letter-spacing: .02em; }
+.pos-pending { margin-top: .9rem; padding: .6rem .7rem; border-radius: 10px; }
+.pos-pending--real { border: 1px solid rgba(212,167,44,.55); background: rgba(212,167,44,.06); }
+.pos-pending--paper { border: 1px solid rgba(155,123,255,.5); background: rgba(155,123,255,.06); }
+.pos-pending h3 { margin: 0 0 .4rem; }
+.pos-pending__table { width: 100%; }
