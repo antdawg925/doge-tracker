@@ -5481,3 +5481,14 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .orm__where { margin: 0 0 12px; }
 .orm__ok { width: 100%; min-height: 44px; font-size: 1rem; }
 .err-boundary { padding: 12px 14px; margin: 8px 0; border: 1px solid #ef4444; }
+
+/* Account → Telegram */
+.acct-pop { position: relative; }
+.acct-pop__panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 80; width: 320px; padding: 14px; background: var(--card, #14161c); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.45); }
+.tgc { display: grid; gap: 8px; text-align: left; }
+.tgc__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tgc__ok { color: #4ade80; font-weight: 700; }
+.tgc__btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.tgc p { margin: 0; }
+.tgc__msg { color: #fbbf24; }
+.tgc--compact { padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.08); }

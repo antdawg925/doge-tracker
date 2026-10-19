@@ -1,3 +1,4 @@
+import TelegramConnect from './TelegramConnect.jsx';
 import { useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/authContext.js';
@@ -60,6 +61,7 @@ export default function MobileTabBar() {
                   >
                     Sign out
                   </button>
+                  <TelegramConnect compact />
                 </>
               ) : (
                 <Link to="/login" className="btn btn--primary msheet__btn" onClick={() => setOpen(false)}>Sign in</Link>

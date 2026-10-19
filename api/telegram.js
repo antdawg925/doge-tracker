@@ -3,11 +3,14 @@
  *   POST /api/telegram/webhook  — Telegram only. Verified by X-Telegram-Bot-Api-Secret-Token
  *   (env TELEGRAM_WEBHOOK_SECRET). Acts ONLY on chats that match a profiles.telegram_chat_id;
  *   everything else is ignored silently (still 200, so Telegram doesn't retry).
+ * Account linking (any signed-in user): POST /api/telegram/link → one-time t.me deep link
+ *   (token stored hashed, 15 min); GET status; POST disconnect; POST test. In the webhook,
+ *   "/start <token>" saves that chat to the token owner's profiles.telegram_chat_id; /disconnect clears it.
  * Commands: /status, /plans, /stop <price>, /pause (+ "/pause yes"), /resume (+ "/resume yes"), /help.
  * Dedupe by update_id (telegram_updates). Never logs the token or the secret.
  */
-import { createHash, timingSafeEqual } from 'node:crypto'
-import { getAdminClient, readJsonBody, sendJson } from './_supabase.js'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { sendTelegram } from './_telegram.js'
 import { changeDogeStop, setDogeKill } from './_dogeActions.js'
 import { fetchLiveMarket } from './_dogeLive.js'
@@ -31,6 +34,7 @@ export const HELP = [
   'buy $1000 DOGE (or /buy 1000): post-only limit buy at the best bid; reply yes within 2 min',
   '/cancel: cancel the bot\'s pending / open buy',
   'yes: confirm the pending buy or stop suggestion',
+  '/disconnect: stop Trade Smart alerts in this chat',
   '/help: this list',
 ].join('\n')
 
@@ -45,7 +49,7 @@ function secretOk(given) {
 /** Parse a message text → { cmd, arg }. Accepts "/stop .092", "stop 0.092", "/stop@Bot 0.092". */
 export function parseCommand(text) {
   const t = String(text || '').trim().replace(/^\/(\w+)@\w+/, '/$1')
-  const m = t.match(/^\/?(status|stop|plans|pause|resume|help|start|buy|cancel|yes)\b\s*(.*)$/i)
+  const m = t.match(/^\/?(status|stop|plans|pause|resume|help|start|buy|cancel|yes|disconnect|unlink)\b\s*(.*)$/i)
   if (!m) return null
   return { cmd: m[1].toLowerCase(), arg: m[2].trim() }
 }
@@ -128,13 +132,57 @@ export async function mentionedSymbol(sb, userId, text) {
   return null
 }
 
+export const LINK_TTL_MS = 15 * 60 * 1000
+export const hashToken = (t) => createHash('sha256').update(String(t)).digest('hex')
+const START_TOKEN = /^[A-Za-z0-9_-]{20,64}$/
+
+/** "/start <token>": link this chat to the token's user. Returns reply text. */
+export async function linkChat(sb, { token, chatId, nowMs = Date.now() }) {
+  if (!START_TOKEN.test(token || '')) return null
+  const { data: row } = await sb.from('telegram_link_tokens').select('id, user_id, expires_at, used_at').eq('token_hash', hashToken(token)).maybeSingle()
+  if (!row || row.used_at || Date.parse(row.expires_at) <= nowMs) return 'That link expired or was already used. Open Trade Smart → account menu → Connect Telegram for a new one.'
+  const chat = String(chatId)
+  const { data: other } = await sb.from('profiles').select('id').eq('telegram_chat_id', chat).maybeSingle()
+  if (other && other.id !== row.user_id) return 'This Telegram chat is already connected to another Trade Smart account. Disconnect it there first (send /disconnect here, or use Disconnect in the app).'
+  const used = await sb.from('telegram_link_tokens').update({ used_at: new Date(nowMs).toISOString(), chat_id: chat }).eq('id', row.id).is('used_at', null).select('id')
+  if (used.error || !used.data?.length) return 'That link was already used. Get a new one in Trade Smart.'
+  const { data: prof, error } = await sb.from('profiles').update({ telegram_chat_id: chat }).eq('id', row.user_id).select('display_name, email').maybeSingle()
+  if (error || !prof) return 'Could not connect right now. Try again with a new link.'
+  await sb.from('telegram_link_tokens').delete().eq('user_id', row.user_id).is('used_at', null)
+  return `Connected to Trade Smart as ${prof.display_name || prof.email || 'your account'}. Your alerts will arrive here. /help for commands, /disconnect to stop.`
+}
+
 /** Handle one update. Returns { handled, reply?, ignored? } (exported for tests). */
 export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
   const msg = update?.message || update?.edited_message
   const chatId = msg?.chat?.id
   if (!msg || chatId == null || typeof msg.text !== 'string') return { ignored: 'no text message' }
+  const first = parseCommand(msg.text)
+  if (first?.cmd === 'start' && first.arg) {
+    // Deep-link connect: never acts on anyone's data, only links this chat.
+    if (update.update_id != null) {
+      const ins = await sb.from('telegram_updates').insert({ update_id: update.update_id, chat_id: String(chatId), user_id: null, text: '/start <token>' })
+      if (ins.error) return { ignored: 'duplicate' }
+    }
+    const text = await linkChat(sb, { token: first.arg, chatId })
+    if (text) {
+      await send(chatId, text)
+      return { handled: true, reply: text, linked: /^Connected/.test(text) }
+    }
+  }
   const { data: prof } = await sb.from('profiles').select('id, role, bot_access, telegram_chat_id').eq('telegram_chat_id', String(chatId)).maybeSingle()
-  if (!prof || !(prof.bot_access || prof.role === 'owner')) return { ignored: 'unknown chat' }
+  if (!prof) return { ignored: 'unknown chat' }
+  if (first?.cmd === 'disconnect' || first?.cmd === 'unlink') {
+    await sb.from('profiles').update({ telegram_chat_id: null }).eq('id', prof.id)
+    const text = 'Disconnected. Trade Smart will not message this chat any more. Reconnect any time from the app.'
+    await send(chatId, text)
+    return { handled: true, reply: text }
+  }
+  if (!(prof.bot_access || prof.role === 'owner')) {
+    const text = 'Connected ✓. You will get your Trade Smart alerts here. Bot commands need bot access in the app. /disconnect to stop.'
+    await send(chatId, text)
+    return { handled: true, reply: text }
+  }
   // dedupe (Telegram retries until 200)
   if (update.update_id != null) {
     const ins = await sb.from('telegram_updates').insert({ update_id: update.update_id, chat_id: String(chatId), user_id: prof.id, text: msg.text.slice(0, 200) })
@@ -223,6 +271,7 @@ export async function handleUpdate(sb, update, { send = sendTelegram } = {}) {
 
 export default async function handler(req, res) {
   const route = String(req.query?.route || '')
+  if (['link', 'status', 'disconnect', 'test'].includes(route)) return accountRoute(route, req, res)
   if (route !== 'webhook') return sendJson(res, 404, { error: 'Not found.' })
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
   if (!secretOk(req.headers?.['x-telegram-bot-api-secret-token'])) return sendJson(res, 401, { error: 'Unauthorized.' })
@@ -241,4 +290,56 @@ export default async function handler(req, res) {
     console.error('telegram webhook', String(err?.message || err).slice(0, 200))
     return sendJson(res, 200, { ok: true }) // never make Telegram retry a failing command forever
   }
+}
+
+let botUser = null
+async function botUsername() {
+  if (process.env.TELEGRAM_BOT_USERNAME) return process.env.TELEGRAM_BOT_USERNAME.replace(/^@/, '')
+  if (botUser) return botUser
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (token) {
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(4000) })
+      const j = await r.json()
+      if (j?.ok && j.result?.username) botUser = j.result.username
+    } catch { /* fall back */ }
+  }
+  return botUser || 'TradeSmartAlerts_bot'
+}
+
+/** Signed-in user's own Telegram link: link | status | disconnect | test. */
+async function accountRoute(route, req, res) {
+  const who = await requireUser(req, res)
+  if (!who) return
+  const sb = getAdminClient()
+  const uid = who.user.id
+  if (route === 'status') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed.' })
+    const { data } = await sb.from('profiles').select('telegram_chat_id').eq('id', uid).maybeSingle()
+    return sendJson(res, 200, { ok: true, connected: Boolean(data?.telegram_chat_id), bot: await botUsername(), configured: Boolean(process.env.TELEGRAM_BOT_TOKEN) })
+  }
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
+  if (route === 'link') {
+    if (!process.env.TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { error: 'Telegram is not set up on the server.' })
+    const since = new Date(Date.now() - LINK_TTL_MS).toISOString()
+    const { count } = await sb.from('telegram_link_tokens').select('id', { count: 'exact', head: true }).eq('user_id', uid).gte('created_at', since)
+    if ((count || 0) >= 10) return sendJson(res, 429, { error: 'Too many links. Wait a few minutes.' })
+    const token = randomBytes(24).toString('base64url')
+    const expires = new Date(Date.now() + LINK_TTL_MS).toISOString()
+    const { error } = await sb.from('telegram_link_tokens').insert({ user_id: uid, token_hash: hashToken(token), expires_at: expires })
+    if (error) return sendJson(res, 500, { error: 'Could not create a link.' })
+    return sendJson(res, 200, { ok: true, url: `https://t.me/${await botUsername()}?start=${token}`, expiresAt: expires })
+  }
+  if (route === 'disconnect') {
+    const { data: prof } = await sb.from('profiles').select('telegram_chat_id').eq('id', uid).maybeSingle()
+    await sb.from('profiles').update({ telegram_chat_id: null }).eq('id', uid)
+    await sb.from('telegram_link_tokens').delete().eq('user_id', uid).is('used_at', null)
+    if (prof?.telegram_chat_id) await sendTelegram(prof.telegram_chat_id, 'Disconnected from Trade Smart in the app. No more alerts here.').catch(() => null)
+    return sendJson(res, 200, { ok: true, connected: false })
+  }
+  // test: user-initiated, so it goes now (not held for quiet hours)
+  const { data: prof } = await sb.from('profiles').select('telegram_chat_id').eq('id', uid).maybeSingle()
+  if (!prof?.telegram_chat_id) return sendJson(res, 400, { error: 'Connect Telegram first.' })
+  const r = await sendTelegram(prof.telegram_chat_id, '✅ Trade Smart test alert. Your alerts will arrive in this chat.')
+  return sendJson(res, r.sent ? 200 : 502, r.sent ? { ok: true, sent: true } : { error: 'Telegram did not accept the message. Try reconnecting.' })
 }

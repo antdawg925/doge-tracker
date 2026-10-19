@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import TelegramConnect from './TelegramConnect.jsx';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import DogePlanProvider from './DogePlanProvider.jsx';
 import MobileTabBar from './MobileTabBar.jsx';
@@ -16,6 +17,33 @@ const NAV = [
   { to: '/bot', label: 'My Bot' },
 ];
 const OWNER_NAV = [{ to: '/admin', label: 'Admin' }];
+
+function AccountPopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => (e.type === 'keydown' ? e.key === 'Escape' : !ref.current?.contains(e.target)) && setOpen(false);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  return (
+    <div className="acct-pop" ref={ref}>
+      <button type="button" className="btn btn--ghost" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        Account
+      </button>
+      {open ? (
+        <div className="acct-pop__panel" role="dialog" aria-label="Account settings">
+          <TelegramConnect />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function AccountMenu() {
   const { user, displayName, isOwner, loading, signOut } = useAuth();
@@ -38,6 +66,7 @@ function AccountMenu() {
         {displayName}
         {isOwner ? <span className="badge badge--owner">Owner</span> : null}
       </span>
+      <AccountPopover />
       <button
         type="button"
         className="btn btn--ghost"
