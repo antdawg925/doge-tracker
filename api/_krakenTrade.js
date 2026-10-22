@@ -43,7 +43,7 @@ export const tradeKeyConfigured = (env = process.env) => Boolean(env.KRAKEN_TRAD
 // microsecond nonce would be refused forever ("EAPI:Invalid nonce"). > 2^53, hence BigInt.
 let lastNonce = 0n
 export const nextNonce = () => {
-  const n = BigInt(Date.now()) * 1000000n
+  const n = BigInt(Date.now()) * 1000000n + (process.hrtime.bigint() % 1000000n)
   lastNonce = n > lastNonce ? n : lastNonce + 1n
   return lastNonce.toString()
 }

@@ -50,16 +50,16 @@ export async function fetchTickerPrice(pair) {
 /** Which read-only Kraken key (if any) applies to this user. Owner → env key. */
 export function krakenCredsFor(profile) {
   if (profile?.role !== 'owner') return null
-  const key = process.env.KRAKEN_API_KEY
-  const secret = process.env.KRAKEN_API_SECRET
+  const key = process.env.KRAKEN_API_KEY || process.env.KRAKEN_TRADE_KEY
+  const secret = process.env.KRAKEN_API_SECRET || process.env.KRAKEN_TRADE_SECRET
   return key && secret ? { key, secret } : null
 }
 
-// Nanosecond-scale nonce (ms × 1e6) so it stays above time.time_ns() nonces used by tools on
-// the same key (Kraken refuses any nonce lower than the last one it saw). BigInt: > 2^53.
+// Nanosecond-scale nonce (ms × 1e6 + sub-ms hrtime) so it stays above time.time_ns() nonces used by
+// tools on the same key (Kraken refuses any nonce lower than the last one it saw). BigInt: > 2^53.
 let lastNonce = 0n
 function nextNonce() {
-  const n = BigInt(Date.now()) * 1000000n
+  const n = BigInt(Date.now()) * 1000000n + (process.hrtime.bigint() % 1000000n)
   lastNonce = n > lastNonce ? n : lastNonce + 1n
   return lastNonce.toString()
 }
@@ -85,9 +85,56 @@ async function privateCall(path, creds, params = {}) {
   })
 }
 
+function symbolFromKrakenPair(pair) {
+  const p = String(pair || '').toUpperCase()
+  if (/^(XXDG|XDG|DOGE)/.test(p)) return 'DOGE'
+  if (/^(XXBT|XBT|BTC)/.test(p)) return 'BTC'
+  if (/^(XETH|ETH)/.test(p)) return 'ETH'
+  return p.replace(/(Z?USD|USDT|USDC)$/i, '').replace(/^[XZ](?=[A-Z]{3})/, '') || p
+}
+
+export function parseKrakenOpenOrders(r) {
+  const open = r?.open && typeof r.open === 'object' ? Object.entries(r.open) : []
+  return open.map(([txid, o]) => {
+    const descr = o?.descr || {}
+    const pair = String(descr.pair || '').toUpperCase()
+    const symbol = symbolFromKrakenPair(pair)
+    const type = String(descr.type || '').toLowerCase()
+    const ordertype = String(descr.ordertype || 'limit').toLowerCase()
+    const lev = descr.leverage && descr.leverage !== 'none'
+    const side = type === 'sell' && lev ? 'short' : type === 'sell' ? 'sell' : 'long'
+    const price = Number(descr.price) || Number(o?.price) || 0
+    const vol = Math.max(0, Number(o?.vol || 0) - Number(o?.vol_exec || 0))
+    const closeStr = String(descr.close || '').trim()
+    const stopMatch = closeStr.match(/stop[\s-]*loss\s+\$?([0-9.]+)/i)
+    const stopPrice = stopMatch ? Number(stopMatch[1]) : null
+    const opentm = Number(o?.opentm)
+    const placedAt = opentm > 0 ? new Date(opentm * 1000).toISOString() : null
+    return {
+      txid,
+      symbol,
+      pair,
+      type,
+      side,
+      ordertype,
+      price,
+      shares: vol,
+      stopPrice: Number.isFinite(stopPrice) && stopPrice > 0 ? stopPrice : null,
+      close: closeStr || null,
+      placedAt,
+    }
+  })
+}
+
+/** Read-only open orders list for the owner's Kraken account. */
+export async function fetchKrakenOpenOrders(creds) {
+  const r = await privateCall('/0/private/OpenOrders', creds)
+  return parseKrakenOpenOrders(r)
+}
+
 /** Read-only account snapshot. Errors are captured per call, never thrown. */
 export async function fetchKrakenAccount(creds) {
-  const out = { balances: null, openOrders: null, dogeOpenOrders: null, errors: [] }
+  const out = { balances: null, openOrders: null, dogeOpenOrders: null, orders: [], errors: [] }
   try {
     out.balances = await privateCall('/0/private/Balance', creds)
   } catch (err) {
@@ -95,9 +142,10 @@ export async function fetchKrakenAccount(creds) {
   }
   try {
     const r = await privateCall('/0/private/OpenOrders', creds)
-    const open = r?.open && typeof r.open === 'object' ? Object.values(r.open) : []
-    out.openOrders = open.length
-    out.dogeOpenOrders = open.filter((o) => /XDG|DOGE/i.test(o?.descr?.pair || '')).length
+    const orders = parseKrakenOpenOrders(r)
+    out.orders = orders
+    out.openOrders = orders.length
+    out.dogeOpenOrders = orders.filter((o) => /XDG|DOGE/i.test(o.pair || '')).length
   } catch (err) {
     out.errors.push(`OpenOrders: ${err?.message || err}`)
   }

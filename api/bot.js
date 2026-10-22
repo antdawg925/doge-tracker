@@ -37,7 +37,7 @@ import { fetchDailyMarket, rangeFor, runStocks, symbolInfo } from './_stockRunne
 import { schwabHousekeeping } from './_schwabLive.js'
 import { planTrade } from '../shared/stockEngine.js'
 import { bookParts, initStockGuard } from '../shared/stockPaper.js'
-import { fetchKrakenAccount, fetchTickerPrice, krakenCredsFor } from './_kraken.js'
+import { fetchKrakenAccount, fetchKrakenOpenOrders, fetchTickerPrice, krakenCredsFor } from './_kraken.js'
 import { BOT_SYMBOLS } from '../shared/botEngine.js'
 import { parseMaxLoss, unlockGuard } from '../shared/guard.js'
 import { paperBookValue } from '../shared/paper.js'
@@ -54,7 +54,7 @@ import { dogeFromKrakenBalance } from '../shared/botEngine.js'
 
 const SYMBOL = 'DOGE'
 const GUARD_ROUTES = new Set(['guard/unlock', 'guard/pause', 'guard/max-loss'])
-const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/run', 'doge-live/stop', 'doge-live/sell', 'doge-live/buy-plan', 'doge-live/buy', 'doge-live/limit-sell'])
+const LIVE_ROUTES = new Set(['doge-live/save', 'doge-live/new-plan', 'doge-live/live', 'doge-live/kill', 'doge-live/balances', 'doge-live/open-orders', 'doge-live/run', 'doge-live/stop', 'doge-live/sell', 'doge-live/buy-plan', 'doge-live/buy', 'doge-live/limit-sell'])
 const STOCK_ROUTES = new Set(['stocks/refresh', 'stocks/plan', 'stocks/guard/pause', 'stocks/guard/max-loss', 'stocks/guard/unlock', 'stocks/plans/create', 'stocks/plans/cancel', 'stocks/plans/raise', 'stocks/plans/risk-cap', 'stocks/plans/live', 'stocks/plans/list'])
 
 function routeParts(req) {
@@ -563,7 +563,18 @@ async function liveRoute(sb, req, res, route) {
     const doge = dogeFromKrakenBalance(a.balances).total
     const usd = Number(a.balances.ZUSD || 0) + Number(a.balances.USD || 0)
     const price = m?.price ?? null
-    return sendJson(res, 200, { ok: true, doge, usd, price, value: price ? doge * price + usd : null })
+    return sendJson(res, 200, { ok: true, doge, usd, price, value: price ? doge * price + usd : null, orders: a.orders || [] })
+  }
+
+  if (route === 'doge-live/open-orders') {
+    const ro = krakenCredsFor(who.profile)
+    if (!ro) return sendJson(res, 200, { ok: true, orders: [] })
+    try {
+      const orders = await fetchKrakenOpenOrders(ro)
+      return sendJson(res, 200, { ok: true, orders })
+    } catch (e) {
+      return sendJson(res, 502, { error: e?.message || 'Kraken open orders unavailable.' })
+    }
   }
 
   if (route === 'doge-live/save') {

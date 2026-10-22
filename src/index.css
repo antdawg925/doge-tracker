@@ -5495,3 +5495,10 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .dsig__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px}
 .dsig__grid>div{display:flex;flex-direction:column;line-height:1.25}
 .dsig__grid b{font-size:14px}
+.pos-pending__sym { display: flex; align-items: center; gap: 0.4rem; }
+.pos-open-orders { padding: 0.85rem 1.1rem; display: flex; flex-direction: column; gap: 0.65rem; }
+.pos-open-orders__head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.pos-open-orders__head h2 { margin: 0; font-size: 1.05rem; }
+.pos-open-orders__body { display: flex; flex-direction: column; gap: 0.65rem; }
+.pos-open-orders__body .pos-pending { margin-top: 0; }
+.pos-head__actions .btn.is-active { border-color: var(--accent, #22d3ee); color: var(--text); background: rgba(34, 211, 238, 0.12); }

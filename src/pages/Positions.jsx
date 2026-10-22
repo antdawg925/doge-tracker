@@ -21,7 +21,7 @@ import { openLoss } from '../../shared/riskCap.js';
 import PaperTradeForm from '../components/paper/PaperTradeForm.jsx';
 import ModePill from '../components/common/ModePill.jsx';
 import PendingOrders from '../components/positions/PendingOrders.jsx';
-import { ideaAsset, listPaperIdeas } from '../lib/paperIdeas.js';
+import { cancelPaperOrder, ideaAsset, listPaperIdeas } from '../lib/paperIdeas.js';
 import { supabase } from '../lib/supabase.js';
 import { authedFetch } from '../lib/api.js';
 
@@ -55,6 +55,24 @@ async function listBotPlans() {
     .filter((p) => !p.dry_run && (p.status === 'pending' || p.status === 'working'))
     .map((p) => ({ id: p.id, symbol: p.symbol, side: p.side, limit: Number(p.limit_price), shares: Number(p.shares), placedAt: p.data?.placedAt || p.created_at, orderId: p.buy_order_id, note: p.buy_order_id ? null : 'not at Schwab yet' }));
   return { paper: list.filter((p) => p.dry_run).map(map), real: list.filter((p) => !p.dry_run).map(map), pending };
+}
+
+/** Owner's live Kraken open orders (read-only via /api/bot/doge-live/open-orders). */
+async function listKrakenOpenOrders() {
+  const r = await authedFetch('/api/bot/doge-live/open-orders', { method: 'POST', body: {} });
+  return (r?.orders || []).map((o) => ({
+    id: `kraken-${o.txid}`,
+    symbol: o.symbol || 'DOGE',
+    side: o.side === 'short' ? 'short' : o.side === 'sell' ? 'sell' : 'long',
+    limit: Number(o.price),
+    shares: Number(o.shares),
+    placedAt: o.placedAt,
+    orderId: o.txid,
+    badge: 'Kraken',
+    badgeTone: 'crypto',
+    readOnly: true,
+    note: o.stopPrice ? `stop ${formatPrice(Number(o.stopPrice))}` : o.close || null,
+  }));
 }
 
 const tone = (n) => (n == null || n === 0 ? '' : n > 0 ? 'pos' : 'neg');
@@ -329,13 +347,18 @@ export default function Positions() {
   const [formMode, setFormMode] = useState('real');
   const [botReal, setBotReal] = useState([]);
   const [realPending, setRealPending] = useState([]);
+  const [showOpenOrders, setShowOpenOrders] = useState(() => typeof window !== 'undefined' && window.location.hash === '#open-orders');
 
   const loadPaper = useCallback(async () => {
     const empty = { paper: [], real: [], pending: [] };
-    const [mine, bot] = await Promise.all([listPaperIdeas().catch(() => []), hasBotAccess || isOwner ? listBotPlans().catch(() => empty) : empty]);
+    const [mine, bot, krakenOpen] = await Promise.all([
+      listPaperIdeas().catch(() => []),
+      hasBotAccess || isOwner ? listBotPlans().catch(() => empty) : empty,
+      isOwner ? listKrakenOpenOrders().catch(() => []) : [],
+    ]);
     setIdeas([...bot.paper, ...mine]);
     setBotReal(bot.real);
-    setRealPending(bot.pending || []);
+    setRealPending([...krakenOpen, ...(bot.pending || [])]);
   }, [hasBotAccess, isOwner]);
 
   const load = useCallback(async () => {
@@ -439,6 +462,29 @@ export default function Positions() {
     navigate('/research');
   };
 
+  const paperPending = useMemo(
+    () =>
+      ideas
+        .filter((i) => i.status === 'pending')
+        .map((i) => ({
+          id: i.id,
+          symbol: i.symbol,
+          side: i.side,
+          limit: i.limit_price ?? i.entry_price,
+          shares: i.qty,
+          placedAt: i.placed_at || i.opened_at,
+          note: i.target_price ? `target ${formatPrice(i.target_price)} · stop ${formatPrice(i.stop_price)}` : null,
+        })),
+    [ideas],
+  );
+  const openOrdersCount = realPending.length + paperPending.length;
+  const cancelRealPending = async (r) => {
+    if (r.readOnly) return;
+    const out = await authedFetch('/api/bot/stocks/plans/cancel', { method: 'POST', body: { id: r.id } });
+    if (out?.message) window.alert(out.message);
+    loadPaper();
+  };
+
   const { totals } = view;
   const actionProps = {
     onEdit: (row) => {
@@ -460,6 +506,14 @@ export default function Positions() {
           </span>
         </div>
         <div className="pos-head__actions">
+          <button
+            type="button"
+            className={`btn btn--ghost${showOpenOrders ? ' is-active' : ''}`}
+            aria-expanded={showOpenOrders}
+            onClick={() => setShowOpenOrders((v) => !v)}
+          >
+            Open orders{loaded ? ` (${openOrdersCount})` : ''}
+          </button>
           <button type="button" className="btn btn--ghost" onClick={() => { refresh(); loadPaper(); }} disabled={quoting || !assets.length}>
             {quoting ? 'Updating…' : 'Refresh'}
           </button>
@@ -468,6 +522,44 @@ export default function Positions() {
           </button>
         </div>
       </div>
+
+      {showOpenOrders ? (
+        <section id="open-orders" className="card pos-open-orders">
+          <div className="pos-open-orders__head">
+            <h2>
+              Open orders <span className="muted small">({openOrdersCount})</span>
+            </h2>
+            <button type="button" className="btn btn--ghost stk-btn" onClick={() => setShowOpenOrders(false)}>
+              Hide
+            </button>
+          </div>
+          {!openOrdersCount ? (
+            <p className="muted small">No open orders right now.</p>
+          ) : (
+            <div className="pos-open-orders__body">
+              <PendingOrders
+                id="open-orders-real"
+                mode="real"
+                showPill
+                rows={realPending}
+                onCancel={cancelRealPending}
+                onError={setError}
+              />
+              <PendingOrders
+                id="open-orders-paper"
+                mode="paper"
+                showPill
+                rows={paperPending}
+                onCancel={async (r) => {
+                  await cancelPaperOrder(r.id);
+                  loadPaper();
+                }}
+                onError={setError}
+              />
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {form && (form.row || formMode === 'real') ? (
         <div className="pos-form-wrap">
@@ -601,11 +693,7 @@ export default function Positions() {
         <PendingOrders
           mode="real"
           rows={realPending}
-          onCancel={async (r) => {
-            const out = await authedFetch('/api/bot/stocks/plans/cancel', { method: 'POST', body: { id: r.id } });
-            if (out?.message) window.alert(out.message);
-            loadPaper();
-          }}
+          onCancel={cancelRealPending}
           onError={setError}
         />
         {botReal.length ? (
