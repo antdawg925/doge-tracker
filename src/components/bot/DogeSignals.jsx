@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase.js';
 
-const fmtM = (v) => (v == null ? '—' : `$${(Number(v) / 1e6).toFixed(1)}M`);
+const fmtM = (v) => (v == null ? "—" : Number(v) >= 1e6 ? `$${(Number(v) / 1e6).toFixed(1)}M` : `$${(Number(v) / 1e3).toFixed(1)}k`);
 const ago = (t) => {
   const m = Math.round((Date.now() - new Date(t).getTime()) / 60000);
   return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
