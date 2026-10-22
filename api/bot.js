@@ -27,6 +27,7 @@
  * Only the DOGE live plan (api/_dogeLive.js) can place Kraken orders, and only in LIVE mode
  * (trade key in env + Live switch on). Everything else here is watch-only.
  */
+import { logDogeSignals } from './_dogeSignals.js'
 import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAdminClient, readJsonBody, requireUser, sendJson } from './_supabase.js'
 import { runBot } from './_botRunner.js'
@@ -158,6 +159,13 @@ export default async function handler(req, res) {
         schwab = { error: String(err?.message || err).slice(0, 200) }
       }
       if (stocks && typeof stocks === 'object') stocks.schwab = schwab
+      // DOGE signals (futures / hype / whales): hourly log, no alerts.
+      try {
+        const sig = await logDogeSignals(sb)
+        if (stocks && typeof stocks === 'object') stocks.dogeSignals = sig
+      } catch (err) {
+        console.error('doge signals failed', err?.message || err)
+      }
       if (dogeError) {
         console.error('bot run failed', dogeError)
         return sendJson(res, 500, { error: 'Bot run failed.', stocks })

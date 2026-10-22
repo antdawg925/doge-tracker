@@ -5492,3 +5492,6 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .tgc p { margin: 0; }
 .tgc__msg { color: #fbbf24; }
 .tgc--compact { padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.08); }
+.dsig__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px}
+.dsig__grid>div{display:flex;flex-direction:column;line-height:1.25}
+.dsig__grid b{font-size:14px}

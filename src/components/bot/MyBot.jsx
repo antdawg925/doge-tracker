@@ -5,6 +5,7 @@ import { authedFetch } from '../../lib/api.js';
 import { supabase } from '../../lib/supabase.js';
 import { BrandMark } from '../BrandMark.jsx';
 import { LOG_COPY, QuietHours, ROLE_COPY, Settings } from '../alerts/DogeLivePanel.jsx';
+import DogeSignals from './DogeSignals.jsx';
 import LevelChart from '../plan/LevelChart.jsx';
 import { chartLabel, fetchPlanPosts } from '../../lib/plan.js';
 import { fetchKrakenDailyBars, fetchKrakenSpot } from '../../lib/history.js';
@@ -534,6 +535,7 @@ export default function MyBot({ refreshKey }) {
           jump('mb-sell');
         }}
       />
+      <DogeSignals />
       <div className="mb-two">
         <Position row={row} />
         <Orders row={row} botBuys={botBuys} />
