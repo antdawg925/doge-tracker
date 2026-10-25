@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase.js';
 import { BrandMark } from '../BrandMark.jsx';
 import { LOG_COPY, QuietHours, ROLE_COPY, Settings } from '../alerts/DogeLivePanel.jsx';
 import DogeSignals from './DogeSignals.jsx';
+import { LevelLadder, SellNowCalc } from './DogeLevels.jsx';
 import LevelChart from '../plan/LevelChart.jsx';
 import { chartLabel, fetchPlanPosts } from '../../lib/plan.js';
 import { fetchKrakenDailyBars, fetchKrakenSpot } from '../../lib/history.js';
@@ -22,7 +23,7 @@ const pct = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : `${n >= 0
 const pt = (iso) =>
   iso ? `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} PT` : '—';
 const LATE_MS = 15 * 60000;
-const URGENT = new Set(['stop_crossed', 'kill_switch', 'no_trade_key', 'order_gone', 'no_stop_level', 'raise_crossed', 'near_stop', 'drop_1h']);
+const URGENT = new Set(['stop_uncovered', 'stop_short', 'stop_replace_failed', 'stop_crossed', 'kill_switch', 'no_trade_key', 'order_gone', 'no_stop_level', 'raise_crossed', 'near_stop', 'drop_1h']);
 
 /** Stop distance as % below the live price. */
 const below = (stopPx, price) => (stopPx && price ? (1 - stopPx / price) * 100 : null);
@@ -40,6 +41,8 @@ function Hero({ row, busy, call, isOwner, checkedAt, spot }) {
   const [lowering, setLowering] = useState(false);
   const [lowerTo, setLowerTo] = useState('');
   const [lowerWord, setLowerWord] = useState('');
+  const [confirmRaise, setConfirmRaise] = useState(false);
+  const [raiseNote, setRaiseNote] = useState('');
   const rv = Number(raiseTo);
   const raiseOk = raiseTo !== '' && rv > (stopPx || 0) && (!s.bid || rv < s.bid);
   const late = row.last_run_at && checkedAt - Date.parse(row.last_run_at) > LATE_MS;
@@ -76,8 +79,8 @@ function Hero({ row, busy, call, isOwner, checkedAt, spot }) {
       ) : (
         <div className="mb-row mb-row--raise">
           <input id="mb-raise" inputMode="decimal" type="number" step="0.0001" min="0" placeholder={stopPx ? (stopPx * 1.02).toFixed(4) : '0.0890'} value={raiseTo} onChange={(e) => setRaiseTo(e.target.value)} aria-label="New stop price" />
-          <button type="button" className="btn btn--primary stk-btn" disabled={busy || !raiseOk} title={raiseTo !== '' && !raiseOk ? 'Above the current stop and below the market' : ''} onClick={async () => (await call('stop', { price: rv })) && setRaiseTo('')}>
-            Raise stop
+          <button type="button" className="btn btn--primary stk-btn" disabled={busy || !raiseOk} title={raiseTo !== '' && !raiseOk ? 'Above the current stop and below the market' : ''} onClick={() => setConfirmRaise(true)}>
+            Raise stop…
           </button>
           <button
             type="button"
@@ -94,6 +97,32 @@ function Hero({ row, busy, call, isOwner, checkedAt, spot }) {
           ) : null}
         </div>
       )}
+      {confirmRaise && !stopped ? (
+        <div className="stk-schwab__confirm dl-confirm mb-raise-confirm" role="dialog" aria-label="Confirm stop raise">
+          <span className="small">
+            Raise the stop <span className="mono">{px(stopPx)}</span> → <span className="mono">{px(rv)}</span>
+            {price ? ` (${below(rv, price)?.toFixed(1)}% under price)` : ''}? Raises only; it can't be undone without “Lower stop…”.
+          </span>
+          <input type="text" maxLength={120} placeholder="Reason (optional, logged)" value={raiseNote} onChange={(e) => setRaiseNote(e.target.value)} aria-label="Reason for the raise" />
+          <button
+            type="button"
+            className="btn btn--primary stk-btn"
+            disabled={busy || !raiseOk}
+            onClick={async () => {
+              if (await call('stop', { price: rv, note: raiseNote || null })) {
+                setRaiseTo('');
+                setRaiseNote('');
+                setConfirmRaise(false);
+              }
+            }}
+          >
+            Confirm raise
+          </button>
+          <button type="button" className="btn btn--ghost stk-btn" onClick={() => setConfirmRaise(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : null}
       {lowering ? (
         <div className="stk-schwab__confirm dl-confirm" role="dialog" aria-label="Lower the stop">
           <span className="small">Lowering gives back protection. New stop</span>
@@ -535,6 +564,8 @@ export default function MyBot({ refreshKey }) {
           jump('mb-sell');
         }}
       />
+      <LevelLadder row={row} spot={spot} />
+      <SellNowCalc row={row} spot={spot} />
       <DogeSignals />
       <div className="mb-two">
         <Position row={row} />

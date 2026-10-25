@@ -22,6 +22,7 @@
  * Optional, OFF by default (he manages tops and dips himself): zone sells, the breakout pot buy.
  * Manual "Sell 30% now": one marketable IOC sell limit (bid − sellSlipPct), stop shrinks first.
  */
+import { levelSnapCandidate } from './levels.js';
 
 export const KRAKEN_XDGUSD = Object.freeze({
   pair: 'XDGUSD',
@@ -122,6 +123,10 @@ export function normalizeLiveConfig(c = {}, nowMs = Date.now()) {
     potLimitPct: Math.min(3, Math.max(0.05, num(c.potLimitPct, d.potLimitPct))),
     sellPct: Math.min(100, Math.max(1, num(c.sellPct, d.sellPct))),
     sellSlipPct: Math.min(3, Math.max(0.05, num(c.sellSlipPct, d.sellSlipPct))),
+    // Level snap (his level map): OFF unless he turns it on. Only an extra raise candidate.
+    levelSnap: bool(c.levelSnap, false),
+    levelSnapBufferPct: Math.min(5, Math.max(0, num(c.levelSnapBufferPct, 1))),
+    levelSnapBars: Math.round(Math.min(6, Math.max(1, num(c.levelSnapBars, 2)))),
   };
 }
 
@@ -342,6 +347,7 @@ export function stepDogeLive({ config: cfgIn, state: stIn, mode = 'dry', market,
   let trail = null;
   let lockPx = null;
   let mult = null;
+  let snap = null;
 
   if (state.status === 'active') {
     // ---- optional pot buy (OFF by default)
@@ -430,6 +436,10 @@ export function stepDogeLive({ config: cfgIn, state: stIn, mode = 'dry', market,
     }
     const cands = [];
     if (trail != null && trail > 0) cands.push({ px: trail, why: `ATR trail: 4h high close ${fmtPx(state.hc)} − ${mult}×ATR ${fmtPx(sig.atr)}` });
+    if (config.levelSnap) {
+      snap = levelSnapCandidate({ bars4, confirmBars: config.levelSnapBars, bufferPct: config.levelSnapBufferPct });
+      if (snap) cands.push({ px: snap.px, why: snap.why });
+    }
     if (lockPx != null) cands.push({ px: lockPx, why: `account lock $${fmtUsd(state.lock)} (70% of gains) ÷ ${fmtQty(book.doge)} DOGE` });
     const best = cands.sort((a, b) => b.px - a.px)[0] || null;
     const cur = fin(state.stopPx) ? Number(state.stopPx) : null;
@@ -535,6 +545,8 @@ export function stepDogeLive({ config: cfgIn, state: stIn, mode = 'dry', market,
       trail,
       trailMult: mult,
       lockPx,
+      snapPx: snap?.px ?? null,
+      levelSnap: config.levelSnap,
       hc: state.hc,
       startStop: config.bottomStop,
     },

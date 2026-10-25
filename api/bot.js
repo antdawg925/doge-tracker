@@ -635,7 +635,7 @@ async function liveRoute(sb, req, res, route) {
   }
 
   if (route === 'doge-live/stop') {
-    const r = await changeDogeStop(sb, { userId, isOwner, price: body.price, lower: body.lower === true, confirm: body.confirm ?? null })
+    const r = await changeDogeStop(sb, { userId, isOwner, price: body.price, lower: body.lower === true, confirm: body.confirm ?? null, note: body.note ?? null })
     if (!r.ok) return sendJson(res, r.status, { error: r.error })
     return sendJson(res, 200, { ok: true, run: r.run, plan: r.plan })
   }

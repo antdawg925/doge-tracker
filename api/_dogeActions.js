@@ -25,7 +25,7 @@ export async function rerunPlan(sb, userId, source = 'manual') {
  * Raise (or, owner + confirm 'LOWER', lower) the bottom stop.
  * @returns { ok, status, error?, from, to, plan?, run? }
  */
-export async function changeDogeStop(sb, { userId, isOwner, price, lower = false, confirm = null, source = 'manual', notify = true }) {
+export async function changeDogeStop(sb, { userId, isOwner, price, lower = false, confirm = null, source = 'manual', notify = true, note = null }) {
   const { data: row, error } = await sb.from('doge_live_plans').select('*').eq('user_id', userId).maybeSingle()
   if (error) return { ok: false, status: 500, error: 'Could not read your plan.' }
   if (!row) return { ok: false, status: 400, error: 'No DOGE plan yet.' }
@@ -48,14 +48,16 @@ export async function changeDogeStop(sb, { userId, isOwner, price, lower = false
   const nowIso = new Date().toISOString()
   const state = structuredClone(st)
   const reason = lower ? 'Lowered by you (confirmed)' : source === 'telegram' ? 'Raised by you (Telegram)' : 'Raised by you'
-  setStop(state, p, { by: 'user', reason, nowIso })
+  const why = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim().slice(0, 120) : ''
+  const reasonFull = why ? `${reason}: ${why}` : reason
+  setStop(state, p, { by: 'user', reason: reasonFull, nowIso })
   const config = { ...(row.config || {}), bottomStop: p }
   const u = await sb.from('doge_live_plans').update({ state, config, updated_at: nowIso }).eq('user_id', userId)
   if (u.error) return { ok: false, status: 500, error: 'Could not save the stop.' }
-  await logRow(sb, row, userId, { action: 'stop', status: lower ? 'stop_lowered' : 'stop_raised', price: p, reason: `${reason}: ${cur ?? '—'} → ${p}` })
+  await logRow(sb, row, userId, { action: 'stop', status: lower ? 'stop_lowered' : 'stop_raised', price: p, reason: `${reasonFull}: ${cur ?? '—'} → ${p}` })
   if (notify) {
     const { data: tp } = await sb.from('profiles').select('telegram_chat_id').eq('id', userId).maybeSingle()
-    if (tp?.telegram_chat_id) await notify(sb, { userId, chatId: tp.telegram_chat_id, text: `DOGE stop: ${lower ? '⚠️ Stop LOWERED' : 'Stop raised'} ${fmt(cur)} → ${fmt(p)}: ${reason.toLowerCase()}.` }).catch(() => null)
+    if (tp?.telegram_chat_id) await notify(sb, { userId, chatId: tp.telegram_chat_id, text: `DOGE stop: ${lower ? '⚠️ Stop LOWERED' : 'Stop raised'} ${fmt(cur)} → ${fmt(p)}: ${reasonFull.toLowerCase()}.` }).catch(() => null)
   }
   return { ok: true, status: 200, from: cur, to: p, ...(await rerunPlan(sb, userId, source)) }
 }

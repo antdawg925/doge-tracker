@@ -7,6 +7,7 @@
  * within 1% of a stop. Command replies never use this (they always go straight out).
  */
 import { sendTelegram } from './_telegram.js'
+import { ladderLine } from '../shared/levels.js'
 
 export const DEFAULT_QUIET = Object.freeze({ quiet_enabled: true, quiet_start: 21, quiet_end: 6, tz: 'America/Los_Angeles' })
 
@@ -80,7 +81,15 @@ export async function flushDigests(sb, { nowMs = Date.now(), send = sendTelegram
     if (prof?.telegram_chat_id) {
       const t = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: DEFAULT_QUIET.tz, hour: 'numeric', minute: '2-digit' })
       const body = list.map((r) => `• ${t(r.created_at)}: ${r.text.replace(/\n/g, ' · ')}`).join('\n')
-      await send(prof.telegram_chat_id, `🌅 Overnight digest (${list.length} held during quiet hours)\n${body}`.slice(0, 3900))
+      // his level map: where DOGE sits now (read-only)
+      let lvl = null
+      try {
+        const { data: plan } = await sb.from('doge_live_plans').select('snapshot').eq('user_id', userId).maybeSingle()
+        lvl = plan?.snapshot?.price ? ladderLine(plan.snapshot.price) : null
+      } catch {
+        lvl = null
+      }
+      await send(prof.telegram_chat_id, `🌅 Overnight digest (${list.length} held during quiet hours)\n${body}${lvl ? `\n${lvl}` : ''}`.slice(0, 3900))
       users += 1
     }
     await sb.from('notify_queue').update({ sent_at: new Date(nowMs).toISOString() }).in('id', ids)

@@ -73,6 +73,7 @@ export function Settings({ config, isOwner, busy, onSave, fresh }) {
       startUsd: Number(f.startUsd),
       potUsd: Number(f.potUsd),
       trailEnabled: f.trailEnabled !== false,
+      levelSnap: Boolean(f.levelSnap),
       trailAtr: { ...(f.trailAtr || {}), base: Number(f.trailAtr?.base ?? 3) },
       maxStepPct: Number(f.maxStepPct ?? 15),
       lockActivate: Number(f.lockActivate ?? 1.5),
@@ -111,6 +112,9 @@ export function Settings({ config, isOwner, busy, onSave, fresh }) {
           : null}
       </div>
       <div className="dl-form__row">
+        <label className="dl-check" title="Off by default. When on: once DOGE closes two 4h bars above one of your levels ($0.14, $0.175, $0.20 …), the stop may rise to ~1% under the level below it. Raises only, never at/above the market, same step cap.">
+          <input type="checkbox" checked={Boolean(f.levelSnap)} onChange={set('levelSnap')} /> Snap stop to my levels
+        </label>
         <label className="dl-check" title="Auto-raise the stop under the highest 4h close by daily ATR × the multiplier">
           <input type="checkbox" checked={f.trailEnabled !== false} onChange={set('trailEnabled')} /> ATR auto-raise
         </label>

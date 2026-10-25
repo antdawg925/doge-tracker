@@ -19,13 +19,15 @@ import { liveOrderCheck } from '../shared/guard.js'
 import { bookFromBalance, createKrakenTrader, krakenTradeCredsFor, newClOrdId, splitOpenOrders, tradeKeyConfigured } from './_krakenTrade.js'
 import { fetchKrakenAccount, krakenCredsFor } from './_kraken.js'
 import { notify, notifyLines } from './_notify.js'
+import { coverageFlag } from '../shared/levels.js'
+import { weeklyRecap } from './_weeklyRecap.js'
 import { coachBuyOrders } from '../shared/buyCoach.js'
 
 const BASE = 'https://api.kraken.com'
 const LEASE_MS = 120000
-const ALERT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'raise_crossed', 'dry_fill', 'stopped', 'kill_switch', 'step_capped', 'daily_cap', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold', 'no_stop_level', 'sell_below_min', 'sell_killed', 'no_trade_key'])
+const ALERT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'raise_crossed', 'dry_fill', 'stopped', 'kill_switch', 'step_capped', 'daily_cap', 'pot_paused', 'pot_no_cash', 'order_gone', 'others_hold', 'no_stop_level', 'sell_below_min', 'sell_killed', 'no_trade_key', 'stop_uncovered', 'stop_short', 'stop_replace_failed'])
 /** Telegram: these always go out immediately (even in quiet hours). */
-export const URGENT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'dry_fill', 'stopped', 'kill_switch', 'order_gone', 'no_trade_key'])
+export const URGENT_CODES = new Set(['drop_1h', 'near_stop', 'stop_crossed', 'dry_fill', 'stopped', 'kill_switch', 'order_gone', 'no_trade_key', 'stop_uncovered', 'stop_short', 'stop_replace_failed'])
 const clip = (s, n = 400) => (s == null ? null : String(s).slice(0, n))
 
 async function pub(fetchImpl, path) {
@@ -260,6 +262,11 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     await executeLive({ trader, state, intents: step.intents, market, book: step.snapshot.book, killSwitch, config, logs, nowIso })
   }
 
+  // ---------------- stop coverage (after execution: what is actually resting now)
+  if (state.replaceFailed?.at === nowIso) flags.push({ code: 'stop_replace_failed', message: `🚨 Stop amend failed and the replacement did not place: no bottom stop at Kraken right now (${state.replaceFailed.error}). The bot retries in 5 min; check Kraken.` })
+  const cov = coverageFlag({ status: state.status, doge: step.snapshot.book?.doge, stopOrder: state.orders.stop, zoneQty: state.orders.zone?.qty || 0, killSwitch, orderMin: rules.orderMin, mode })
+  if (cov) flags.push(cov)
+
   // ---------------- flags: log + alert only codes that are new since the last run
   const prevCodes = new Set((row.snapshot?.flags || []).map((f) => f.code))
   const fresh = flags.filter((f) => !prevCodes.has(f.code))
@@ -329,6 +336,8 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
     await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_buy_coach', price: market.price, title: 'Your DOGE buy orders', message: clip(coachMsgs.join(' · '), 1000) })
     for (const m of coachMsgs) await notify(sb, { userId, chatId: profile.telegram_chat_id, text: m, nowMs }).catch(() => null)
   }
+
+  if (source === 'cron') await weeklyRecap(sb, { userId, chatId: profile.telegram_chat_id, state, snapshot, config, nowMs }).catch(() => null)
 
   return { userId, mode, intents: step.intents.length, logs: logs.length, status: state.status }
 }
@@ -450,7 +459,15 @@ export async function executeLive({ trader, state, intents, market, book, killSw
           logs.push({ ...base, status: 'amend_failed', txid: it.prev.id, reason: clip(`${e.message}; replacing`) })
           await trader.cancel({ txid: it.prev.id }).catch(() => null)
           state.orders[it.role] = null
-          const r = await place(trader, it, nowIso)
+          let r
+          try {
+            r = await place(trader, it, nowIso)
+          } catch (e2) {
+            // the old order is gone and the new one did not go in: urgent, loud
+            logs.push({ ...base, action: 'place', status: 'error', reason: clip(`REPLACE FAILED after cancel, ${it.role} not resting: ${e2.message}`) })
+            if (it.role === 'stop') state.replaceFailed = { at: nowIso, error: clip(e2.message, 200) }
+            continue
+          }
           commitIntent(state, it, r)
           logs.push({ ...base, action: 'place', status: 'placed', txid: r.id, cl_ord_id: r.clOrdId, reason: `replace: ${it.reason || ''}` })
         }
