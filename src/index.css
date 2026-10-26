@@ -5512,3 +5512,12 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .dsc-pct { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .dsc-pct input[type='range'] { width: 160px; }
 .mb-raise-confirm input[type='text'] { min-width: 180px; }
+/* ===== Edges panel (paper, read-only) ===== */
+.edges-panel { margin: 1rem auto; max-width: 1100px; padding: 0.6rem 0.8rem; font-size: 0.82rem; }
+.edges-panel__head { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.4rem; }
+.edges-panel__asof { margin-left: auto; font-size: 0.75rem; }
+.edges-panel__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
+.edges-panel__k { margin: 0.2rem 0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--paper); font-weight: 700; }
+.edges-panel__t { border-collapse: collapse; width: 100%; } .edges-panel__t td, .edges-panel__t th { padding: 0.15rem 0.35rem; text-align: left; }
+.edges-panel__list { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; margin: 0 0 0.3rem; } .edges-panel__list em { font-style: normal; opacity: 0.7; font-size: 0.75rem; }
+.edges-on { color: var(--paper); font-weight: 800; } .edges-panel__note { font-size: 0.7rem; margin: 0.3rem 0 0; }

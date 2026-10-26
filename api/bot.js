@@ -77,6 +77,12 @@ function secretMatches(given) {
 export default async function handler(req, res) {
   try {
     const route = routeParts(req).join('/')
+    if (route === 'edges') {
+      // Read-only research signals; paper only, no orders.
+      const { computeEdges } = await import('./_edges.js')
+      res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=3600')
+      return sendJson(res, 200, await computeEdges())
+    }
     if (route !== 'run' && route !== 'paper/restart' && !GUARD_ROUTES.has(route) && !STOCK_ROUTES.has(route) && !LIVE_ROUTES.has(route)) {
       return sendJson(res, 404, { error: 'Unknown bot route.' })
     }

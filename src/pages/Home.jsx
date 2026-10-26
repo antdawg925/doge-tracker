@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/authContext.js';
+import EdgesPanel from '../components/EdgesPanel.jsx';
 
 const CAPABILITIES = [
   {
@@ -65,6 +66,8 @@ export default function Home() {
           </div>
         ) : null}
       </section>
+
+      {user ? <EdgesPanel /> : null}
 
       <section className="landing__grid" aria-label="App capabilities">
         {CAPABILITIES.map((cap) => (
