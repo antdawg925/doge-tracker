@@ -179,6 +179,7 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
         out.errors.push(`schwab: ${String(e?.message || e).slice(0, 160)}`)
       }
     }
+    const unconfirmed = []
     const items = []
     for (const p of positions || []) items.push({ symbol: p.symbol, side: p.side, shares: Number(p.shares), pos: p })
     if (schwab) {
@@ -202,12 +203,17 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
         if (covered >= held - 1e-9) continue
         text = `⚠️ ${it.symbol}: no stop on ${q0(held - covered)} sh${sugTxt}`
       } else {
-        // Schwab not connected: we can't check, so say nothing (no repeating nag).
+        // Schwab not connected: collect for ONE combined daily reminder below.
+        unconfirmed.push(`${it.symbol} ${q0(it.shares)} sh`)
         continue
       }
       
       // one key for both windows: the pre-open nudge also holds the 9:30 one off for 2h
       if (await send(`nostop:stock:${it.symbol}:${it.side}`, 24 * H, text)) out.stocks.push(it.symbol)
+    }
+    if (unconfirmed.length) {
+      const text = `⚠️ Connect Schwab · ${unconfirmed.join(', ')} unprotected`
+      if (await send('nostop:schwab_unconnected', 24 * H, text)) out.stocks.push(...unconfirmed.map((x) => x.split(' ')[0]))
     }
   }
   return out
