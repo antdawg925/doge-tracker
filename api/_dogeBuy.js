@@ -201,7 +201,7 @@ export async function manageBuys(sb, { nowMs = Date.now(), env = process.env, fe
     const stopPx = after.plan?.state?.stopPx
     for (const f of fills) {
       await sb.from('doge_live_log').insert({ user_id: prof.id, at: new Date(nowMs).toISOString(), mode: 'live', role: 'buy', action: 'fill', status: 'filled', side: 'buy', ordertype: 'limit', price: f.avg, qty: f.qty, txid: f.r.txid, reason: 'Telegram buy filled' })
-      let text = `✅ Your buy filled ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.avg)}. Stop now covers ${fmtQty(snap.stop?.qty)} DOGE at ${fmtPx(stopPx)}.`
+      let text = `✅ Bought ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.avg)} · stop ${fmtPx(stopPx)}`
       try {
         const [m, bars1h, bk] = await Promise.all([fetchLiveMarket(fetchImpl), fetch1h(fetchImpl), fetchBook(fetchImpl)])
         const s = suggestStop({ fill: f.avg, qty: f.total, bars4h: m.bars4h, bars1h, book: bk, currentStop: stopPx })

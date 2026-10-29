@@ -146,9 +146,9 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
               /* no candles */
             }
           }
-          const part = c.covered > 0 ? ` (stops cover only ${q0(c.covered)})` : ''
-          const text = `⚠️ No stop on ${q0(c.uncovered)} ${c.name} (${usd(c.uncovered * c.price)})${part}. Suggested stop: ${px(sug)}${why ? ` (${why})` : ''}.`
-          if (await send(`nostop:crypto:${c.alt}`, 4 * H, text)) out.crypto.push(c.name)
+          void why
+          const text = `⚠️ ${c.name}: no stop on ${q0(c.uncovered)}${sug ? ` · suggest ${px(sug)}` : ''}`
+          if (await send(`nostop:crypto:${c.alt}`, 24 * H, text)) out.crypto.push(c.name)
         }
       } catch (e) {
         out.errors.push(`kraken: ${String(e?.message || e).slice(0, 160)}`)
@@ -192,7 +192,7 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
       if (!remindFor(prefs, it.symbol)) continue
       const st = it.pos ? stopBy.get(it.pos.id) : null
       const sug = st ? Number(st.stop) : null
-      const sugTxt = sug ? `Suggested stop: ${px(sug)} (${st?.data?.rule === 'risk' ? 'max-loss stop' : 'ATR stop'}, the tighter of ATR and max-loss)` : 'No suggested stop yet: add it in Positions'
+      const sugTxt = sug ? ` · suggest ${px(sug)}` : ''
       let text = null
       if (schwab) {
         const h = schwab.holdings.find((x) => x.symbol === it.symbol)
@@ -200,14 +200,14 @@ export async function runStopReminders(sb, { nowMs = Date.now(), fetchImpl = fet
         if (!(held > 0)) continue // not held at Schwab
         const covered = findOwnStops({ orders: schwab.orders, symbol: it.symbol, side: it.side }).reduce((a, o) => a + (Number(o.qty) || 0), 0)
         if (covered >= held - 1e-9) continue
-        text = `⚠️ No stop on ${q0(held - covered)} ${it.symbol} shares at Schwab${covered > 0 ? ` (stops cover only ${q0(covered)} of ${q0(held)})` : ''}. ${sugTxt}.`
+        text = `⚠️ ${it.symbol}: no stop on ${q0(held - covered)} sh${sugTxt}`
       } else {
-        const pp = it.pos ? paperBy.get(it.pos.id) : null
-        text = `⚠️ ${it.symbol}: ${q0(it.shares)} shares, can't see Schwab orders yet. Connect Schwab to confirm there's a stop. ${sugTxt}.${pp ? ` (The bot's paper stop @ ${px(Number(pp.stop_price))} is simulated, not a real order.)` : ''}`
+        // Schwab not connected: we can't check, so say nothing (no repeating nag).
+        continue
       }
-      if (win === 'preopen') text = `Before the open: ${text}`
+      
       // one key for both windows: the pre-open nudge also holds the 9:30 one off for 2h
-      if (await send(`nostop:stock:${it.symbol}:${it.side}`, 2 * H, text)) out.stocks.push(it.symbol)
+      if (await send(`nostop:stock:${it.symbol}:${it.side}`, 24 * H, text)) out.stocks.push(it.symbol)
     }
   }
   return out

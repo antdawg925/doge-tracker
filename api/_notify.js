@@ -89,7 +89,8 @@ export async function flushDigests(sb, { nowMs = Date.now(), send = sendTelegram
       } catch {
         lvl = null
       }
-      await send(prof.telegram_chat_id, `🌅 Overnight digest (${list.length} held during quiet hours)\n${body}${lvl ? `\n${lvl}` : ''}`.slice(0, 3900))
+      void lvl
+      await send(prof.telegram_chat_id, `🌅 Overnight\n${body}`.slice(0, 3900))
       users += 1
     }
     await sb.from('notify_queue').update({ sent_at: new Date(nowMs).toISOString() }).in('id', ids)

@@ -288,7 +288,15 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
   })
   for (const [id, m] of Object.entries(coach.minDist)) if (state.userBuys?.[id]) state.userBuys[id].minDistPct = m
   const coachMsgs = []
-  for (const m of coach.messages) if (await cooldownOk(sb, userId, `buycoach:${m.key}`, 4 * 3600000, nowMs)) coachMsgs.push(m.text)
+  for (const m of coach.messages) {
+    // only two plain nudges: price near your buy, and price back under your fill
+    const o = state.userBuys?.[m.txid]
+    const f = (state.userFills || []).find((x) => x.txid === m.txid)
+    let t = null
+    if (m.condition === 'approach' && o) t = `📍 DOGE ${fmtPx(market.price)} · near your buy ${fmtPx(o.price)}`
+    else if (m.condition === 'under_entry' && f) t = `🔻 DOGE ${fmtPx(market.price)} · bought ${fmtPx(f.price)} · ${((market.price / f.price - 1) * 100).toFixed(1)}%`
+    if (t && (await cooldownOk(sb, userId, `buycoach:${m.key}`, 12 * 3600000, nowMs))) coachMsgs.push(t)
+  }
 
   const snapshot = {
     ...step.snapshot,
@@ -328,7 +336,8 @@ async function runPlan(sb, { row, profile, guard, market, marketError, nowMs, fe
 
   const tg = dogeTelegramLines({ logs, events: step.events, alerts, userBuyFills, state, snapshot, mode })
   if (tg.length) {
-    const title = `DOGE stop (${mode === 'live' ? 'LIVE' : 'dry-run'})`
+    const lastFill = [...(state.userFills || [])].pop()
+    const title = dogeHeader({ price: market.price, boughtPx: Number(lastFill?.price), mode })
     await sb.from('alert_log').insert({ user_id: userId, fired_at: nowIso, kind: 'doge_live', price: market.price, title, message: clip(tg.map((l) => l.text).join(' · '), 1000) })
     await notifyLines(sb, { userId, chatId: profile.telegram_chat_id, title, lines: tg, nowMs }).catch(() => null)
   }
@@ -356,39 +365,43 @@ export function priceFlags({ market, stopPx, status = 'active', nowMs = Date.now
 }
 
 /** Telegram lines for one run: stop raises, placements, resizes, fills, cancels, errors. */
+/** Short Telegram text for a flag: first clause only, no parentheticals. */
+export function shortFlag(f, { price, stopPx } = {}) {
+  if (f.code === 'drop_1h') return `🚨 ${f.message.replace(/^🚨\s*/, '').split(':')[0]}`
+  if (f.code === 'near_stop') return `⚠️ DOGE ${fmtPx(price)} · near stop ${fmtPx(stopPx)}`
+  return String(f.message || '').replace(/\s*\([^)]*\)/g, '').split(/(?<=[.!])\s|:\s/)[0].replace(/[.:]$/, '').slice(0, 140)
+}
+
+/** Header line: "DOGE $0.0781 · bought $0.0772 · +1.2%" (bought only when a recent fill is known). */
+export function dogeHeader({ price, boughtPx, mode }) {
+  const parts = [`DOGE ${fmtPx(price)}`]
+  if (boughtPx > 0 && price > 0) {
+    const d = (price / boughtPx - 1) * 100
+    parts.push(`bought ${fmtPx(boughtPx)}`, `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}%`)
+  }
+  return parts.join(' · ') + (mode && mode !== 'live' ? ' (paper)' : '')
+}
+
+/** Short, plain lines. Routine order bookkeeping is dropped; only what matters to him is kept. */
 export function dogeTelegramLines({ logs, events = [], alerts = [], userBuyFills = [], state, snapshot, mode }) {
   const dry = mode !== 'live'
   const out = []
   const add = (text, urgent = false) => out.push({ text, urgent })
-  const replacing = alerts.some((a) => a.code === 'order_gone')
-  for (const e of events) {
-    if (e.type === 'raise') add(e.from == null ? `Stop set at ${fmtPx(e.to)}: ${e.reason}` : `Stop raised ${fmtPx(e.from)} → ${fmtPx(e.to)}: ${e.reason}`)
-  }
+  for (const e of events) if (e.type === 'raise') add(`Stop ${e.from == null ? 'set' : 'raised'} to ${fmtPx(e.to)}`)
   for (const l of logs) {
     const st = String(l.status || '')
-    const name = l.role === 'stop' ? 'stop-loss' : l.role === 'sell' ? 'sell (IOC limit)' : l.role === 'zone' ? 'zone sell limit' : l.role === 'pot' ? 'pot buy (IOC)' : l.role
     if (l.role === 'plan' || l.role === 'user') continue
-    const amt = `${fmtQty(l.qty)} DOGE`
-    if (st === 'would_place' || st === 'placed') add(`${dry ? 'Would place' : '✅ Placed'} ${name} ${fmtPx(l.price)} for ${amt}`, replacing && l.role === 'stop')
-    else if (st === 'would_amend' || st === 'amended') {
-      const prev = l.details?.prev
-      const pxMoved = prev && Math.abs(prev.price - l.price) > 1e-12
-      const qtyMoved = prev && Math.abs(prev.qty - l.qty) > 1e-6
-      if (l.role === 'stop' && pxMoved && !qtyMoved && events.some((e) => e.type === 'raise' && Math.abs(e.to - l.price) < 1e-12)) {
-        add(dry ? '(dry-run: would move the Kraken stop order)' : '✅ Kraken stop order moved')
-        continue
-      }
-      add(`${dry ? 'Would update' : 'Updated'} ${name}: ${pxMoved ? `${fmtPx(prev.price)} → ` : ''}${fmtPx(l.price)} for ${qtyMoved ? `${fmtQty(prev.qty)} → ` : ''}${amt}`)
-    } else if (st === 'would_cancel' || st === 'cancelled') add(`${dry ? 'Would cancel' : 'Cancelled'} ${name} ${fmtPx(l.price)} (${l.reason || ''})`, l.role === 'stop')
-    else if (st === 'filled' || st === 'partial') add(l.role === 'stop' ? `🛑 Bottom stop FILLED: sold ${amt} @ ~${fmtPx(l.price)}. Waiting: no re-entry.` : `${l.role} ${st}: ${l.side} ${amt} @ ${fmtPx(l.price)}`, l.side === 'sell')
-    else if (st === 'dry_fill') add(`Dry-run: ${l.role} would fill ${amt} @ ${fmtPx(l.price)}`, l.side === 'sell')
-    else if (['error', 'refused', 'amend_failed'].includes(st)) add(`❗ ${name} ${st}: ${l.reason || ''}`, true)
+    if ((st === 'filled' || st === 'partial') && l.role === 'stop') add(`🛑 DOGE stop ${fmtPx(l.price)} filled · sold ${fmtQty(l.qty)}`, true)
+    else if (st === 'filled' || st === 'partial') add(`DOGE ${l.side} ${fmtQty(l.qty)} @ ${fmtPx(l.price)} filled`, l.side === 'sell')
+    else if (st === 'dry_fill' && l.side === 'sell') add(`🛑 Paper stop ${fmtPx(l.price)} hit · sold ${fmtQty(l.qty)}`, true)
+    else if (['error', 'refused', 'amend_failed'].includes(st) && l.role === 'stop') add(`❗ DOGE stop order problem, check Kraken`, true)
   }
-  for (const f of userBuyFills) {
-    const sp = snapshot?.stop
-    add(`Your buy filled ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)}. Stop now covers ${fmtQty(sp?.qty ?? 0)} DOGE at ${fmtPx(sp?.price ?? state.stopPx)}.`)
+  for (const f of userBuyFills) add(`✅ Bought ${fmtQty(f.qty)} DOGE @ ${fmtPx(f.price)} · stop ${fmtPx(snapshot?.stop?.price ?? state.stopPx)}`)
+  const price = snapshot?.price
+  for (const a of alerts) {
+    if (a.code === 'stopped' && out.some((x) => x.text.startsWith('🛑'))) continue
+    add(shortFlag(a, { price, stopPx: state?.stopPx }), URGENT_CODES.has(a.code))
   }
-  for (const a of alerts) add(a.message, URGENT_CODES.has(a.code))
   return out
 }
 

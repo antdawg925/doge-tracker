@@ -110,7 +110,7 @@ ok('bottom stop $0.089 on the real Kraken book: would place stop-loss 0.089 for 
   const r2 = step(r.state, 0.0929, T0 + 300000)
   assert.equal(r2.intents.length, 0)
   const lines = dogeTelegramLines({ logs: r.rows.map((x) => ({ mode: 'dry', ...x })), events: r.events, state: r.state, snapshot: r.snapshot, mode: 'dry' })
-  assert.ok(lines.some((l) => l.text === 'Would place stop-loss $0.0890 for 1,032 DOGE' && !l.urgent), JSON.stringify(lines))
+  assert.ok(!lines.some((l) => /Would place/.test(l.text)), JSON.stringify(lines)) // routine order bookkeeping is no longer sent
 })
 ok('trail raises the stop (hc − 3×ATR), never lowers it; < 0.5% skipped; > 15% capped; raise at/above bid skipped', () => {
   const c0 = normalizeLiveConfig(bcfg, T0)
@@ -458,7 +458,7 @@ await okA('quiet hours 9 PM–6 AM PT: non-urgent queued, urgent goes now, one d
   assert.equal(sent.length, 1)
   await flushDigests(sb, { nowMs: Date.UTC(2026, 9, 4, 13, 5), send }) // 6:05 AM PT
   assert.equal(sent.length, 2)
-  assert.ok(/Overnight digest \(1/.test(sent[1]) && sent[1].includes('Stop raised'))
+  assert.ok(/Overnight/.test(sent[1]) && sent[1].includes("Stop raised"))
   const now = T0
   const b5 = Array.from({ length: 12 }, (_, i) => ({ t: now - (12 - i) * 300000, high: i === 0 ? 0.1 : 0.092, low: 0.09, close: 0.091 }))
   const fl = priceFlags({ market: { price: 0.0915, bars5m: b5 }, stopPx: 0.0910, nowMs: now })
