@@ -17,7 +17,8 @@
     "check:doge-live": "node scripts/check-doge-live.mjs",
     "check:levels": "node scripts/check-levels.mjs",
     "check:dip-buys": "node scripts/check-dip-buys.mjs",
-    "check:doge-levels": "node scripts/check-doge-levels.mjs"
+    "check:doge-levels": "node scripts/check-doge-levels.mjs",
+    "paper:sync": "node scripts/paper-sync.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

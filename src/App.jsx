@@ -11,6 +11,7 @@ import Plan from './pages/Plan';
 import Alerts from './pages/Alerts';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import PaperCompetition from './pages/PaperCompetition';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminBeta from './pages/admin/AdminBeta';
@@ -35,6 +36,8 @@ export default function App() {
               <Route path="/home" element={<HomeGate><Home /></HomeGate>} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              {/* Public, read-only paper competition (paper money only; no auth, no broker code). */}
+              <Route path="/paper" element={<PaperCompetition />} />
               {/* Legacy route: the bot now lives at /bot. */}
               <Route path="/alerts" element={<Navigate to="/bot" replace />} />
               {/* Short Kings merged into Scanner presets */}

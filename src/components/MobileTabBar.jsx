@@ -39,6 +39,7 @@ export default function MobileTabBar() {
         <div className="msheet" role="dialog" aria-label="More" onClick={() => setOpen(false)}>
           <div className="msheet__panel" onClick={(e) => e.stopPropagation()}>
             <NavLink to="/positions" className="msheet__item" onClick={() => setOpen(false)}>Positions</NavLink>
+            <NavLink to="/paper" className="msheet__item" onClick={() => setOpen(false)}>Paper Comp</NavLink>
             {isOwner ? (
               <NavLink to="/admin" className="msheet__item" onClick={() => setOpen(false)}>
                 Admin {pendingRequests > 0 ? <span className="desk-nav__count">{pendingRequests}</span> : null}

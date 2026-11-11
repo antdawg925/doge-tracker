@@ -15,6 +15,7 @@ const NAV = [
   { to: '/positions', label: 'Positions' },
   { to: '/scanner', label: 'Scanner' },
   { to: '/bot', label: 'My Bot' },
+  { to: '/paper', label: 'Paper Comp' },
 ];
 const OWNER_NAV = [{ to: '/admin', label: 'Admin' }];
 

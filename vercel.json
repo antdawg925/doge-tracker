@@ -25,6 +25,14 @@
       "destination": "/api/telegram?route=:route*"
     },
     {
+      "source": "/api/paper",
+      "destination": "/api/paper"
+    },
+    {
+      "source": "/api/paper/:route*",
+      "destination": "/api/paper?route=:route*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/[...slug]"
     },
@@ -42,6 +50,10 @@
     },
     "api/telegram.js": {
       "maxDuration": 60
+    },
+    "api/paper.js": {
+      "maxDuration": 10,
+      "includeFiles": "public/paper/feed.json"
     }
   }
 }
