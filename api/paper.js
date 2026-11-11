@@ -5,17 +5,42 @@
  *   GET /api/paper/summary  -> small scoreboard summary derived from the same feed
  *   GET /api/paper/health   -> { ok, generated_at_pt, synced_at }
  *
- * Isolation (intentional): this file imports ONLY node:fs / node:path. It must never import
+ * Isolation (intentional): this file imports ONLY node:fs / node:path and fetches only the public feed URL below. It must never import
  * Schwab, Kraken, order, stop, Telegram, bot, Supabase or auth helpers, and it reads no env vars.
- * The feed is produced offline by scripts/paper-sync.mjs (allow-listed fields + deny-pattern check).
+ * The feed is produced offline by scripts/paper-sync.mjs (allow-listed fields + deny-pattern check)
+ * and committed to public/paper/feed.json.
+ *
+ * Freshness: the committed feed on GitHub main (public repo) is read first, so publishing a new
+ * feed is just commit + push (no redeploy). Falls back to the copy bundled in this deployment.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const FEED_PATH = join(process.cwd(), 'public', 'paper', 'feed.json')
+const FEED_URL = 'https://raw.githubusercontent.com/antdawg925/doge-tracker/main/public/paper/feed.json'
+const TTL_MS = 60_000
+let cache = { at: 0, feed: null, source: null }
 
-function loadFeed() {
-  return JSON.parse(readFileSync(FEED_PATH, 'utf8'))
+const isFeed = (f) => f && typeof f === 'object' && f.feed_version === 'paper-feed-v1' && f.accounts && Array.isArray(f.decisions)
+
+async function loadFeed() {
+  if (cache.feed && Date.now() - cache.at < TTL_MS) return cache
+  try {
+    const r = await fetch(FEED_URL, { signal: AbortSignal.timeout(4000), headers: { Accept: 'application/json' } })
+    if (r.ok) {
+      const feed = await r.json()
+      if (isFeed(feed)) {
+        cache = { at: Date.now(), feed, source: 'github-main' }
+        return cache
+      }
+    }
+  } catch {
+    /* fall back to the bundled copy */
+  }
+  const feed = JSON.parse(readFileSync(FEED_PATH, 'utf8'))
+  if (!isFeed(feed)) throw new Error('bad bundled feed')
+  cache = { at: Date.now(), feed, source: 'bundled' }
+  return cache
 }
 
 function routeOf(req) {
@@ -66,20 +91,21 @@ function send(res, status, body, cache = 'public, max-age=0, s-maxage=60, stale-
   res.end(JSON.stringify(body))
 }
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD')
     return send(res, 405, { error: 'method_not_allowed' }, 'no-store')
   }
   const route = routeOf(req)
   let feed
+  let source
   try {
-    feed = loadFeed()
+    ;({ feed, source } = await loadFeed())
   } catch {
     return send(res, 503, { error: 'paper_feed_unavailable' }, 'no-store')
   }
   if (route === 'feed') return send(res, 200, feed)
   if (route === 'summary') return send(res, 200, summarize(feed))
-  if (route === 'health') return send(res, 200, { ok: true, paper_only: true, generated_at_pt: feed.generated_at_pt, synced_at: feed.synced_at }, 'no-store')
+  if (route === 'health') return send(res, 200, { ok: true, paper_only: true, source, generated_at_pt: feed.generated_at_pt, synced_at: feed.synced_at }, 'no-store')
   return send(res, 404, { error: 'not_found', routes: ['/api/paper/feed', '/api/paper/summary', '/api/paper/health'] }, 'no-store')
 }
