@@ -29,10 +29,10 @@ const TABS = [
 export default function MobileTabBar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { user, loading, displayName, isOwner, signOut, pendingRequests } = useAuth();
+  const { user, loading, displayName, isOwner, hasBotAccess, signOut, pendingRequests } = useAuth();
   const tabs = user || loading ? TABS.filter((t) => t.to !== '/home') : TABS;
   const [open, setOpen] = useState(false);
-  const moreActive = ['/positions', '/admin'].some((p) => pathname.startsWith(p));
+  const moreActive = ['/positions', '/admin', '/paper-lab'].some((p) => pathname.startsWith(p));
   return (
     <>
       {open ? (
@@ -40,6 +40,7 @@ export default function MobileTabBar() {
           <div className="msheet__panel" onClick={(e) => e.stopPropagation()}>
             <NavLink to="/positions" className="msheet__item" onClick={() => setOpen(false)}>Positions</NavLink>
             <NavLink to="/paper" className="msheet__item" onClick={() => setOpen(false)}>Paper Comp</NavLink>
+            {hasBotAccess || isOwner ? <NavLink to="/paper-lab" className="msheet__item" onClick={() => setOpen(false)}>Paper Lab</NavLink> : null}
             {isOwner ? (
               <NavLink to="/admin" className="msheet__item" onClick={() => setOpen(false)}>
                 Admin {pendingRequests > 0 ? <span className="desk-nav__count">{pendingRequests}</span> : null}

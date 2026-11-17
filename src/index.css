@@ -5562,3 +5562,17 @@ tr.is-risk-hit td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .pc-more details[open] summary { margin-bottom: 0.6rem; }
 .pc-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
 @media (max-width: 560px) { .pc-stat-row { grid-template-columns: 1fr 1fr; } }
+
+/* ===== Paper Lab (violet = paper) ===== */
+.plab-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; }
+.plab-regime { font-size: 0.85rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; background: var(--paper-soft); border: 1px solid rgba(139, 92, 246, 0.45); }
+.plab-regime--bear { color: #f87171; }
+.plab-regime--bull { color: #4ade80; }
+.plab-modes { display: inline-flex; gap: 0.25rem; }
+.plab-modes .btn[aria-pressed='true'], .plab-sort[aria-pressed='true'] { color: var(--paper); border-color: var(--paper); }
+.plab-sum { margin: 0.35rem 0 0; font-size: 0.88rem; }
+.plab-scroll { overflow-x: auto; }
+.plab-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.plab-table th, .plab-table td { padding: 0.28rem 0.45rem; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.plab-table th:first-child, .plab-table td:first-child { text-align: left; }
+.plab-sort { padding: 0 0.2rem; font-size: inherit; min-height: 0; }

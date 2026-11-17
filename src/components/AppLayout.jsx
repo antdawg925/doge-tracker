@@ -96,7 +96,8 @@ export default function AppLayout() {
   );
   // Home is only for signed-out visitors (hidden while the session check runs, to avoid a flash)
   const base = user || loading ? NAV.filter((n) => n.to !== '/home') : NAV;
-  const links = isOwner ? [...base, ...OWNER_NAV] : base;
+  const withLab = hasBotAccess || isOwner ? [...base, { to: '/paper-lab', label: 'Paper Lab' }] : base;
+  const links = isOwner ? [...withLab, ...OWNER_NAV] : withLab;
 
   return (
     <div className="desk-shell">

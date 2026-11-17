@@ -12,6 +12,7 @@ import Alerts from './pages/Alerts';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import PaperCompetition from './pages/PaperCompetition';
+import PaperLab from './pages/PaperLab';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminBeta from './pages/admin/AdminBeta';
@@ -54,6 +55,7 @@ export default function App() {
                 {/* Trade Smart Bot tier; others see the locked screen with Request access */}
                 <Route element={<RequireBot />}>
                   <Route path="/bot" element={<Alerts />} />
+                  <Route path="/paper-lab" element={<PaperLab />} />
                 </Route>
               </Route>
               {/* Owner only */}
